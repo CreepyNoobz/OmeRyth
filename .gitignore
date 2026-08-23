@@ -38,3 +38,9 @@ autosave.rythmo.json.declined
 
 # ===== IDE =====
 .idea/
+
+vlc/plugins/visualization/libgoom_plugin.dll
+
+vlc/plugins/visualization/libprojectm_plugin.dll
+
+vlc/plugins/visualization/libvisual_plugin.dll
