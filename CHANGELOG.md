@@ -1,6 +1,6 @@
-# CHANGELOG - OmeRyth v2.0
+# CHANGELOG - OmeRyth v1.0
 
-## Version 2.0.0 - 30 Juin 2026
+## Version 1.0.0 - 23 Aout 2026
 
 ### 🎨 INTERFACE UTILISATEUR - RÉVOLUTION COMPLÈTE
 
@@ -83,15 +83,6 @@ CTRL+Z / CTRL+Y  = Annuler / Rétablir
 - Désign moderne avec hover effects
 - Astuce intégrée : "💡 Les raccourcis clavier sont aussi disponibles !"
 
-#### 🎭 Présets de Rôles (RolePresets.java)
-Nouvelles configurations prédéfinie :
-- **Vide** : Aucun rôle
-- **Chanteur** : 1 rôle rouge
-- **Danseur** : 1 rôle turquoise
-- **Narrateur** : 1 rôle jaune
-- **Duo** : Rouge + Turquoise (Chanteur & Danseur)
-- **Trio** : Rouge + Turquoise + Jaune (Chanteur, Danseur, Narrateur)
-- **Quartet** : 4 rôles différents
 
 #### 👋 Onboarding Automatique (OnboardingManager.java)
 - Vérifie au premier lancement si le tutoriel a été complété
@@ -255,6 +246,6 @@ Nouvelles configurations prédéfinie :
 
 ---
 
-**Version** : 2.0.0
+**Version** : 1.0.0
 **Date** : 30 Juin 2026
 **Statut** : Stable ✅
