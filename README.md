@@ -125,6 +125,7 @@ R               = Retour au début
 M               = Ajouter séparateur
 CTRL+Z / Y      = Annuler / Rétablir
 ```
+(possibilité de les changer sur l'application)
 
 ### Actions principales
 - **Fichier** : Nouveau, Ouvrir, Sauvegarder, Exporter
