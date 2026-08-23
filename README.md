@@ -1,6 +1,6 @@
 # OmeRyth
 
-## 🎉 Version 2.0 - INTERFACE COMPLÈTEMENT SIMPLIFIÉE !
+## 🎉 Version 1.0 - INTERFACE COMPLÈTEMENT SIMPLIFIÉE !
 
 La prise en main d'OmeRyth a été **révolutionnée** pour être **500% plus facile** !
 
@@ -20,7 +20,7 @@ La prise en main d'OmeRyth a été **révolutionnée** pour être **500% plus fa
 
 ## Update Log
 
-### 2026-06-30 — Version 2.0 : Simplification UI/UX Complète
+### 2026-08-23 — Version 1.0 : Simplification UI/UX Complète
 - 🎨 Nouvelle page d'accueil avec boutons simples
 - 🧙 Assistant de création de projet (Wizard) pas-à-pas
 - 📚 Tutoriel interactif amélioré (8 étapes)
@@ -29,6 +29,13 @@ La prise en main d'OmeRyth a été **révolutionnée** pour être **500% plus fa
 - 🛠️ Barre d'outils avec boutons visuels
 - 🎭 Présets de rôles prédéfinis
 - 👋 Onboarding automatique au premier lancement
+
+### 2026-08-23 - Version 0.5 : Fix de bug
+- Liste bugs fix
+	- Création d'un fichier sans vidéo
+	- Désynchronisation des bandes
+	- Chronomètre non fixe
+	- Vidéo non affichée
 
 ### 2026-05-31 — Ajout du tutoriel
 - Ajout d'un tutoriel interactif (fenêtre Next/Back) couvrant :
