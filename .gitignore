@@ -1,0 +1,40 @@
+﻿# ===== Distribution / Packaging (trop lourds ou inutiles pour le code) =====
+dist/
+OmeRyth/
+OmeRyth.exe
+OmeRyth.bat
+OmeRyth_Setup.iss
+MonApplication.zip
+manifest.txt
+MANIFEST.MF
+META-INF/
+launch4j-config.xml
+launch4j.log
+*.gitattributes
+
+# ===== Fichiers > 100 MB =====
+ffmpeg/ffmpeg.exe
+
+# ===== Fichiers compilés =====
+*.class
+bin/
+
+# ===== Node.js =====
+node_modules/
+package.json
+package-lock.json
+
+# ===== Fichiers runtime / état local =====
+lastproject.path
+appstate.properties
+autosave.rythmo.json
+autosave.rythmo.json.clean
+autosave.rythmo.json.origin
+autosave.rythmo.json.declined
+*.rythmo.json
+
+# ===== Logs =====
+*.log
+
+# ===== IDE =====
+.idea/
