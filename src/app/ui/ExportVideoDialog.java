@@ -88,7 +88,7 @@ public class ExportVideoDialog extends JDialog {
     private final ExportPreset customPresetItem = new ExportPreset("⚙️ Personnalisé (modifié)", 1920, 60, 8.0, 60, true);
 
     public ExportVideoDialog(Frame owner, int currentScreenWidth, int currentScreenHeight) {
-        super(owner, "Paramètres d'Exportation Vidéo & Montage", true);
+        super(owner, "Export vidéo", true);
         setLayout(new BorderLayout());
         setMinimumSize(new Dimension(860, 680));
         setPreferredSize(new Dimension(920, 740));
@@ -133,16 +133,16 @@ public class ExportVideoDialog extends JDialog {
         presetControlPanel.add(comboPreset, BorderLayout.CENTER);
 
         JPanel presetButtonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
-        JButton btnBandeauMobile = new JButton("📱 Format Mobile (1080×1920)");
+        JButton btnBandeauMobile = new JButton("<html><span style='color:#000000; font-weight:bold;'>📱 Format Mobile (1080×1920)</span></html>");
         btnBandeauMobile.setToolTipText("Basculer immédiatement en format Mobile 1080×1920");
         btnBandeauMobile.setFont(new Font("Segoe UI", Font.BOLD, 11));
         btnBandeauMobile.setForeground(Color.BLACK);
         btnBandeauMobile.addActionListener(e -> applyMobileFormatDirect());
-        btnSavePreset = new JButton("➕ Enregistrer...");
+        btnSavePreset = new JButton("<html><span style='color:#000000;'>➕ Enregistrer...</span></html>");
         btnSavePreset.setToolTipText("Enregistrer les réglages actuels sous un nouveau nom de préréglage");
         btnSavePreset.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnSavePreset.setForeground(Color.BLACK);
-        btnDeletePreset = new JButton("🗑️");
+        btnDeletePreset = new JButton("<html><span style='color:#000000;'>🗑️</span></html>");
         btnDeletePreset.setToolTipText("Supprimer ce préréglage personnalisé");
         btnDeletePreset.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnDeletePreset.setForeground(Color.BLACK);
@@ -230,28 +230,31 @@ public class ExportVideoDialog extends JDialog {
         lblQuick.setForeground(new Color(220, 220, 225));
         topFormatBar.add(lblQuick);
 
-        JButton btnQuickMobile = new JButton("📱 Format Mobile 9:16 (1080×1920)");
+        JButton btnQuickMobile = new JButton("<html><span style='color:#000000; font-weight:bold;'>📱 Format Mobile 9:16 (1080×1920)</span></html>");
         btnQuickMobile.setFont(new Font("Segoe UI", Font.BOLD, 12));
         btnQuickMobile.setBackground(new Color(245, 158, 11)); // Amber / Gold
         btnQuickMobile.setForeground(Color.BLACK);
+        btnQuickMobile.setOpaque(true);
         btnQuickMobile.setCursor(new Cursor(Cursor.HAND_CURSOR));
         btnQuickMobile.setToolTipText("Basculer instantanément en résolution verticale 1080×1920 pour TikTok, Reels et Shorts");
         btnQuickMobile.addActionListener(e -> applyMobileFormatDirect());
         topFormatBar.add(btnQuickMobile);
 
-        JButton btnQuick1080p = new JButton("🖥️ Format Paysage 16:9 (1920×1080)");
+        JButton btnQuick1080p = new JButton("<html><span style='color:#000000;'>🖥️ Format Paysage 16:9 (1920×1080)</span></html>");
         btnQuick1080p.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         btnQuick1080p.setBackground(new Color(225, 225, 230));
         btnQuick1080p.setForeground(Color.BLACK);
+        btnQuick1080p.setOpaque(true);
         btnQuick1080p.setCursor(new Cursor(Cursor.HAND_CURSOR));
         btnQuick1080p.setToolTipText("Format horizontal classique 1920×1080 Full HD");
         btnQuick1080p.addActionListener(e -> applyStandard1080pFormatDirect());
         topFormatBar.add(btnQuick1080p);
 
-        JButton btnQuickOrigin = new JButton("🎯 Format d'origine OmeRyth");
+        JButton btnQuickOrigin = new JButton("<html><span style='color:#000000;'>🎯 Format d'origine OmeRyth</span></html>");
         btnQuickOrigin.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         btnQuickOrigin.setBackground(new Color(225, 225, 230));
         btnQuickOrigin.setForeground(Color.BLACK);
+        btnQuickOrigin.setOpaque(true);
         btnQuickOrigin.setCursor(new Cursor(Cursor.HAND_CURSOR));
         btnQuickOrigin.setToolTipText("Rétablir les dimensions et proportions d'origine de la session");
         btnQuickOrigin.addActionListener(e -> applyOriginalFormatDirect(currentScreenWidth, currentScreenHeight));
@@ -299,7 +302,7 @@ public class ExportVideoDialog extends JDialog {
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 12));
         buttonPanel.setBorder(BorderFactory.createEmptyBorder(0, 15, 10, 15));
 
-        JButton btnCancel = new JButton("Annuler");
+        JButton btnCancel = new JButton("<html><span style='color:#000000; font-weight:500;'>Annuler</span></html>");
         btnCancel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         btnCancel.setForeground(Color.BLACK);
         btnCancel.addActionListener(e -> {
@@ -307,10 +310,11 @@ public class ExportVideoDialog extends JDialog {
             dispose();
         });
 
-        JButton btnExport = new JButton("🚀 Lancer l'Exportation Vidéo...");
-        btnExport.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        JButton btnExport = new JButton("<html><span style='color:#000000; font-weight:normal; font-family:Segoe UI, sans-serif;'>Lancer l'exportation vidéo...</span></html>");
+        btnExport.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         btnExport.setBackground(new Color(56, 189, 248)); // Sky Blue lumineux
-        btnExport.setForeground(Color.BLACK); // Écrit en noir
+        btnExport.setForeground(Color.BLACK); // Noir forcé
+        btnExport.setOpaque(true);
         btnExport.addActionListener(e -> onExportConfirmed());
 
         buttonPanel.add(btnCancel);
@@ -381,10 +385,11 @@ public class ExportVideoDialog extends JDialog {
         resPanel.add(dimSpinners);
 
         JPanel quickMontageRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        JButton btnMontageMobile = new JButton("📱 Format Mobile 9:16 (1080×1920)");
+        JButton btnMontageMobile = new JButton("<html><span style='color:#000000; font-weight:bold;'>📱 Format Mobile 9:16 (1080×1920)</span></html>");
         btnMontageMobile.setFont(new Font("Segoe UI", Font.BOLD, 11));
         btnMontageMobile.setBackground(new Color(245, 158, 11));
         btnMontageMobile.setForeground(Color.BLACK);
+        btnMontageMobile.setOpaque(true);
         btnMontageMobile.setCursor(new Cursor(Cursor.HAND_CURSOR));
         btnMontageMobile.addActionListener(e -> applyMobileFormatDirect());
         quickMontageRow.add(btnMontageMobile);
@@ -412,7 +417,7 @@ public class ExportVideoDialog extends JDialog {
         });
         templatePanel.add(comboMontageTemplate);
 
-        JButton btnApplyTemplate = new JButton("Appliquer la disposition");
+        JButton btnApplyTemplate = new JButton("<html><span style='color:#000000;'>Appliquer la disposition</span></html>");
         btnApplyTemplate.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnApplyTemplate.setForeground(Color.BLACK);
         btnApplyTemplate.addActionListener(e -> applyCurrentTemplate());
@@ -465,15 +470,15 @@ public class ExportVideoDialog extends JDialog {
         inspectorPanel.add(coordPanel);
 
         JPanel alignPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 2));
-        JButton btnCenterH = new JButton("↔ Centrer");
+        JButton btnCenterH = new JButton("<html><span style='color:#000000;'>↔ Centrer</span></html>");
         btnCenterH.setFont(new Font("Segoe UI", Font.PLAIN, 10));
         btnCenterH.setForeground(Color.BLACK);
         btnCenterH.addActionListener(e -> montageCanvas.centerSelectedHorizontally());
-        JButton btnCenterV = new JButton("↕ Centrer");
+        JButton btnCenterV = new JButton("<html><span style='color:#000000;'>↕ Centrer</span></html>");
         btnCenterV.setFont(new Font("Segoe UI", Font.PLAIN, 10));
         btnCenterV.setForeground(Color.BLACK);
         btnCenterV.addActionListener(e -> montageCanvas.centerSelectedVertically());
-        JButton btnFullW = new JButton("⬛ Pleine Largeur");
+        JButton btnFullW = new JButton("<html><span style='color:#000000;'>⬛ Pleine Largeur</span></html>");
         btnFullW.setFont(new Font("Segoe UI", Font.PLAIN, 10));
         btnFullW.setForeground(Color.BLACK);
         btnFullW.addActionListener(e -> montageCanvas.setSelectedFullWidth());

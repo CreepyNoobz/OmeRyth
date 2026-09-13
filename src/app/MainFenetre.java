@@ -228,6 +228,24 @@ public class MainFenetre extends JFrame {
         } else {
             tryRecoverAutosaveOnStartup();
         }
+        SingleInstanceService.setMainWindow(this);
+    }
+
+    /** Ramène la fenêtre au premier plan et lui donne le focus (ex: lors du lancement d'une seconde instance). */
+    public void bringToFront() {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                if (getState() == Frame.ICONIFIED) {
+                    setState(Frame.NORMAL);
+                }
+                setVisible(true);
+                setExtendedState(getExtendedState() & ~Frame.ICONIFIED);
+                setAlwaysOnTop(true);
+                toFront();
+                requestFocus();
+                setAlwaysOnTop(false);
+            } catch (Throwable ignored) {}
+        });
     }
 
     // Called when TimelinePanel dirty state toggles.
@@ -1321,6 +1339,15 @@ public class MainFenetre extends JFrame {
      * l'interface Swing sur l'Event Dispatch Thread.
      */
     public static void main(String[] args) {
+        final String fileToOpen = (args != null && args.length > 0) ? args[0] : null;
+
+        // Contrôle d'instance unique (Single Instance)
+        if (!SingleInstanceService.registerOrNotify(fileToOpen)) {
+            System.out.println("[SingleInstance] Une autre instance d'OmeRyth est déjà en cours d'exécution. Notification envoyée.");
+            System.exit(0);
+            return;
+        }
+
         // Must be set BEFORE any AWT/Swing classes are loaded to enable modern Windows 10/11 native dialogs
         System.setProperty("sun.awt.windows.useCommonItemDialog", "true");
 
@@ -1336,7 +1363,6 @@ public class MainFenetre extends JFrame {
 
         VlcLogFilter.install();
         app.services.FileAssociationService.ensureRythmoAssociationAsync();
-        final String fileToOpen = (args != null && args.length > 0) ? args[0] : null;
         SwingUtilities.invokeLater(() -> new MainFenetre(fileToOpen));
     }
 }

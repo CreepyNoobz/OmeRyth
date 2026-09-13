@@ -953,6 +953,15 @@ public class SmokeTests {
             assertTrue(ico.exists() && ico.length() > 0, "logo.ico doit exister à la racine");
             app.services.FileAssociationService.ensureRythmoAssociationAsync();
             System.out.println("Service d'association .rythmo avec logo.ico : VALIDÉ !");
+
+            // 8. Test SingleInstanceService
+            System.out.println("--- Test SingleInstanceService ---");
+            boolean firstInstance = app.services.SingleInstanceService.registerOrNotify(null);
+            assertTrue(firstInstance, "La première instance doit réussir à s'enregistrer");
+            boolean notified = app.services.SingleInstanceService.notifyExistingInstance("test.rythmo");
+            assertTrue(notified, "La notification à l'instance existante doit réussir");
+            app.services.SingleInstanceService.stopListenerForTesting();
+            System.out.println("Service SingleInstanceService : VALIDÉ !");
         }
 
         System.out.println("SmokeTests OK");

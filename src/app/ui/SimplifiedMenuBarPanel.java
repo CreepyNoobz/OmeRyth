@@ -30,17 +30,14 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
         JMenu menuExporter = new JMenu("📤 Exporter");
         JMenuItem exportRythmo = new JMenuItem("📦 Exporter en .rythmo (OmeRyth)...");
         JMenuItem exportDetx = new JMenuItem("📜 Exporter en .detx (Cappella)...");
-        JMenuItem exportVideo = new JMenuItem("🎬 Exporter en vidéo (Classique ou Montage)...");
-        JMenuItem exportAudioSansVoix = new JMenuItem("🎤 Exporter l'audio sans voix (Doublage / Karaoké)...");
+        JMenuItem exportVideo = new JMenuItem("🎬 Export vidéo...");
         exportRythmo.addActionListener(e -> mainFenetre.exporterRythmo());
         exportDetx.addActionListener(e -> mainFenetre.exporterDetx());
         exportVideo.addActionListener(e -> mainFenetre.exporterEnVideo());
-        exportAudioSansVoix.addActionListener(e -> mainFenetre.exporterAudioSansVoix());
         menuExporter.add(exportRythmo);
         menuExporter.add(exportDetx);
         menuExporter.addSeparator();
         menuExporter.add(exportVideo);
-        menuExporter.add(exportAudioSansVoix);
 
         JMenuItem quitter = new JMenuItem("❌ Quitter");
 

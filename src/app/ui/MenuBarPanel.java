@@ -30,8 +30,7 @@ public class MenuBarPanel extends JMenuBar {
         JMenu menuExporter = new JMenu("📤 Exporter");
         JMenuItem exportRythmo = new JMenuItem("📦 Exporter en .rythmo (OmeRyth)...");
         JMenuItem exportDetx = new JMenuItem("📜 Exporter en .detx (Cappella)...");
-        JMenuItem exportVideo = new JMenuItem("🎬 Exporter en vidéo (Classique ou Montage)...");
-        JMenuItem exportAudioSansVoix = new JMenuItem("🎤 Exporter l'audio sans voix (Doublage / Karaoké)...");
+        JMenuItem exportVideo = new JMenuItem("🎬 Export vidéo...");
 
         // Création du menu de gestion
         JMenu menuGestion = new JMenu("Gestion");
@@ -63,7 +62,6 @@ public class MenuBarPanel extends JMenuBar {
         exportRythmo.addActionListener(e -> mainFenetre.exporterRythmo());
         exportDetx.addActionListener(e -> mainFenetre.exporterDetx());
         exportVideo.addActionListener(e -> mainFenetre.exporterEnVideo());
-        exportAudioSansVoix.addActionListener(e -> mainFenetre.exporterAudioSansVoix());
         quitter.addActionListener(e -> mainFenetre.quitterApplication());
 
 
@@ -98,7 +96,6 @@ public class MenuBarPanel extends JMenuBar {
         menuExporter.add(exportDetx);
         menuExporter.addSeparator();
         menuExporter.add(exportVideo);
-        menuExporter.add(exportAudioSansVoix);
         menuFichier.add(menuExporter);
         menuFichier.addSeparator();
         menuFichier.add(quitter);
