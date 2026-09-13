@@ -14,31 +14,61 @@ import java.util.Map;
 
 public class ProjectManager {
 
-    private static final String JSON_VERSION = "RHYTHMO_V4";
+    private static final String JSON_VERSION = "RHYTHMO_V5";
 
     public static class LoadedProject {
         public final File videoFile;
         public final int bandCount;
+        public final double pixelsPerSecond;
+        public final int zoomLevelIndex;
 
-        public LoadedProject(File videoFile, int bandCount) {
+        public LoadedProject(File videoFile, int bandCount, double pixelsPerSecond, int zoomLevelIndex) {
             this.videoFile = videoFile;
             this.bandCount = bandCount;
+            this.pixelsPerSecond = pixelsPerSecond;
+            this.zoomLevelIndex = zoomLevelIndex;
+        }
+
+        public LoadedProject(File videoFile, int bandCount) {
+            this(videoFile, bandCount, -1, -1);
         }
     }
 
-    public static void save(File file, File videoFile, TextManager textManager, ArrayList<Role> roles, int bandCount) {
+    public static void save(File file, File videoFile, TextManager textManager, ArrayList<Role> roles, int bandCount, double pixelsPerSecond, int zoomLevelIndex) {
         try {
-            String json = toJson(videoFile, textManager, roles, bandCount);
+            if (file != null && file.getName().toLowerCase().endsWith(".detx")) {
+                DetxManager.saveDetx(file, videoFile, textManager, roles, bandCount, pixelsPerSecond > 0 ? pixelsPerSecond : 80.0);
+                return;
+            }
+            String json = toJson(videoFile, textManager, roles, bandCount, pixelsPerSecond, zoomLevelIndex);
             Files.writeString(file.toPath(), json, StandardCharsets.UTF_8);
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
+    public static void save(File file, File videoFile, TextManager textManager, ArrayList<Role> roles, int bandCount) {
+        save(file, videoFile, textManager, roles, bandCount, -1, -1);
+    }
+
+    public static void saveDetx(File file, File videoFile, TextManager textManager, ArrayList<Role> roles, int bandCount, double pixelsPerSecond) {
+        DetxManager.saveDetx(file, videoFile, textManager, roles, bandCount, pixelsPerSecond > 0 ? pixelsPerSecond : 80.0);
+    }
+
     public static LoadedProject load(File file, TextManager textManager, ArrayList<Role> roles) {
         try {
+            String nameLower = file.getName().toLowerCase();
+            if (nameLower.endsWith(".detx") || nameLower.endsWith(".cappella")) {
+                return DetxManager.loadDetx(file, textManager, roles, 80.0);
+            }
             String raw = Files.readString(file.toPath(), StandardCharsets.UTF_8);
             String trimmed = raw.trim();
+            if (trimmed.startsWith("\uFEFF")) {
+                trimmed = trimmed.substring(1).trim();
+            }
+            if (trimmed.startsWith("<?xml") || trimmed.startsWith("<detx")) {
+                return DetxManager.loadDetx(file, textManager, roles, 80.0);
+            }
             if (trimmed.startsWith("{")) {
                 return loadFromJson(trimmed, textManager, roles);
             }
@@ -49,7 +79,7 @@ public class ProjectManager {
         }
     }
 
-    private static String toJson(File videoFile, TextManager textManager, ArrayList<Role> roles, int bandCount) {
+    private static String toJson(File videoFile, TextManager textManager, ArrayList<Role> roles, int bandCount, double pixelsPerSecond, int zoomLevelIndex) {
         StringBuilder sb = new StringBuilder(4096);
         sb.append("{\n");
         sb.append("  \"version\": \"").append(JSON_VERSION).append("\",\n");
@@ -59,6 +89,8 @@ public class ProjectManager {
             sb.append("  \"video\": null,\n");
         }
         sb.append("  \"bandCount\": ").append(Math.max(1, bandCount)).append(",\n");
+        sb.append("  \"pixelsPerSecond\": ").append(pixelsPerSecond > 0 ? pixelsPerSecond : 80.0).append(",\n");
+        sb.append("  \"zoomLevelIndex\": ").append(Math.max(0, zoomLevelIndex)).append(",\n");
 
         sb.append("  \"roles\": [\n");
         for (int i = 0; i < roles.size(); i++) {
@@ -87,8 +119,11 @@ public class ProjectManager {
         for (Map.Entry<Integer, ArrayList<SeparatorMark>> entry : textManager.getBandSeparators().entrySet()) {
             int band = entry.getKey();
             for (SeparatorMark sep : entry.getValue()) {
+                String signName = (sep.signType != null) ? sep.signType.name() : SeparatorMark.SignType.DEFAULT.name();
+                String rawTypeEscaped = (sep.rawDetxType != null) ? sep.rawDetxType.replace("\"", "\\\"") : "";
                 separatorLines.add("    {\"band\": " + band + ", \"x\": " + sep.x
-                        + ", \"type\": \"" + sep.type.name() + "\", \"splitIndex\": " + sep.splitIndex + "}");
+                        + ", \"type\": \"" + sep.type.name() + "\", \"splitIndex\": " + sep.splitIndex
+                        + ", \"signType\": \"" + signName + "\", \"rawDetxType\": \"" + rawTypeEscaped + "\"}");
             }
         }
         for (int i = 0; i < separatorLines.size(); i++) {
@@ -96,7 +131,16 @@ public class ProjectManager {
             if (i < separatorLines.size() - 1) sb.append(',');
             sb.append('\n');
         }
-        sb.append("  ]\n");
+        sb.append("  ],\n");
+
+        ArrayList<Integer> planMarkers = textManager.getPlanMarkers();
+        sb.append("  \"planMarkers\": [");
+        for (int i = 0; i < planMarkers.size(); i++) {
+            sb.append(planMarkers.get(i));
+            if (i < planMarkers.size() - 1) sb.append(", ");
+        }
+        sb.append("]\n");
+
         sb.append("}\n");
         return sb.toString();
     }
@@ -136,7 +180,8 @@ public class ProjectManager {
                 Map<String, Object> m = (Map<String, Object>) textObj;
                 int band = asInt(m.get("band"), 0);
                 maxBandIndex = Math.max(maxBandIndex, band);
-                TextItem item = new TextItem(asString(m.get("text")), asInt(m.get("x"), 0), band);
+                int x = asInt(m.get("x"), 0);
+                TextItem item = new TextItem(asString(m.get("text")), x, band);
                 String roleName = asString(m.get("role"));
                 if (!roleName.isEmpty()) {
                     roles.stream().filter(r -> roleName.equals(r.name)).findFirst().ifPresent(r -> item.role = r);
@@ -160,14 +205,36 @@ public class ProjectManager {
                 } catch (Exception ignored) {
                     type = SeparatorMark.Type.LEGACY;
                 }
+                String signTypeRaw = asString(m.get("signType"));
+                SeparatorMark.SignType signType = SeparatorMark.SignType.DEFAULT;
+                if (signTypeRaw != null) {
+                    try {
+                        signType = SeparatorMark.SignType.valueOf(signTypeRaw);
+                    } catch (Exception ignored) {}
+                }
+                String rawDetxType = asString(m.get("rawDetxType"));
                 maxBandIndex = Math.max(maxBandIndex, band);
-                textManager.addSeparator(band, x, type, splitIndex);
+                SeparatorMark sm = textManager.addSeparator(band, x, type, splitIndex, signType);
+                if (rawDetxType != null && !rawDetxType.isEmpty()) {
+                    sm.rawDetxType = rawDetxType;
+                }
             }
         }
 
+        Object planListObj = root.get("planMarkers");
+        if (planListObj instanceof List) {
+            for (Object pm : (List<?>) planListObj) {
+                int pmX = asInt(pm, -1);
+                if (pmX >= 0) textManager.addPlanMarker(pmX);
+            }
+        }
+
+        double loadedPps = asDouble(root.get("pixelsPerSecond"), -1.0);
+        int loadedZoomIndex = asInt(root.get("zoomLevelIndex"), -1);
+
         int inferredBandCount = (maxBandIndex >= 0) ? (maxBandIndex + 1) : 4;
         int finalBandCount = loadedBandCount > 0 ? loadedBandCount : inferredBandCount;
-        return new LoadedProject(videoFile, finalBandCount);
+        return new LoadedProject(videoFile, finalBandCount, loadedPps, loadedZoomIndex);
     }
 
     private static LoadedProject loadLegacy(String raw, TextManager textManager, ArrayList<Role> roles) {
@@ -191,7 +258,8 @@ public class ProjectManager {
                     case "TEXT" -> {
                         int band = Integer.parseInt(parts[3]);
                         maxBandIndex = Math.max(maxBandIndex, band);
-                        TextItem item = new TextItem(parts[1], Integer.parseInt(parts[2]), band);
+                        int x = Integer.parseInt(parts[2]);
+                        TextItem item = new TextItem(parts[1], x, band);
                         if (parts.length > 4 && !parts[4].isEmpty()) {
                             final String rName = parts[4];
                             roles.stream().filter(r -> r.name.equals(rName)).findFirst().ifPresent(r -> item.role = r);
@@ -199,22 +267,22 @@ public class ProjectManager {
                         textManager.addTextItem(item);
                     }
                     case "SEP" -> {
-                        int band = Integer.parseInt(parts[1]);
+                        int band = Integer.parseInt(parts[2]);
                         maxBandIndex = Math.max(maxBandIndex, band);
-                        int x = Integer.parseInt(parts[2]);
-                        if (parts.length > 3) {
-                            SeparatorMark.Type type = SeparatorMark.Type.valueOf(parts[3]);
-                            int splitIndex = (parts.length > 4) ? Integer.parseInt(parts[4]) : -1;
-                            textManager.addSeparator(band, x, type, splitIndex);
-                        } else {
-                            // Backward compatibility with old projects
-                            textManager.addSeparator(band, x, SeparatorMark.Type.LEGACY);
+                        int x = Integer.parseInt(parts[1]);
+                        SeparatorMark.Type type;
+                        try {
+                            type = SeparatorMark.Type.valueOf(parts[3]);
+                        } catch (Exception ignored) {
+                            type = SeparatorMark.Type.LEGACY;
                         }
+                        textManager.addSeparator(band, x, type);
                     }
                 }
             }
-        } catch (Exception e) { e.printStackTrace(); }
-
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         int inferredBandCount = (maxBandIndex >= 0) ? (maxBandIndex + 1) : 4;
         int finalBandCount = loadedBandCount > 0 ? loadedBandCount : inferredBandCount;
         return new LoadedProject(videoFile, finalBandCount);
@@ -242,6 +310,18 @@ public class ProjectManager {
         if (value instanceof String) {
             try {
                 return Integer.parseInt((String) value);
+            } catch (Exception ignored) {
+                return fallback;
+            }
+        }
+        return fallback;
+    }
+
+    private static double asDouble(Object value, double fallback) {
+        if (value instanceof Number) return ((Number) value).doubleValue();
+        if (value instanceof String) {
+            try {
+                return Double.parseDouble((String) value);
             } catch (Exception ignored) {
                 return fallback;
             }

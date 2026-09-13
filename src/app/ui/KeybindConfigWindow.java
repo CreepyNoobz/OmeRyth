@@ -73,6 +73,30 @@ public class KeybindConfigWindow extends JDialog {
         gridPanel.add(new JLabel("Zoom arrière"));
         gridPanel.add(createKeybindField("zoomOutCode", KeyEvent.VK_MINUS));
 
+        // Fin de phrase
+        gridPanel.add(new JLabel("Fin de phrase"));
+        gridPanel.add(createKeybindField("finPhraseCode", KeyEvent.VK_NUMPAD3));
+
+        // Labiale MPB
+        gridPanel.add(new JLabel("Signe Labiale MPB (M, P, B)"));
+        gridPanel.add(createKeybindField("signeMpbCode", KeyEvent.VK_NUMPAD4));
+
+        // Demi-labiale / Dentale FVR
+        gridPanel.add(new JLabel("Signe Demi-labiale / Dentale (F, V, R)"));
+        gridPanel.add(createKeybindField("signeFvrCode", KeyEvent.VK_NUMPAD5));
+
+        // Consonne neutre
+        gridPanel.add(new JLabel("Signe Consonne Neutre"));
+        gridPanel.add(createKeybindField("signeNeutralCode", KeyEvent.VK_NUMPAD6));
+
+        // Grande ouverture A
+        gridPanel.add(new JLabel("Signe Grande Ouverture (A)"));
+        gridPanel.add(createKeybindField("signeVoyelleCode", KeyEvent.VK_NUMPAD7));
+
+        // Respiration / Souffle h/
+        gridPanel.add(new JLabel("Signe Respiration / Souffle (h/)"));
+        gridPanel.add(createKeybindField("signeRespirationCode", KeyEvent.VK_NUMPAD8));
+
         JScrollPane scrollPane = new JScrollPane(gridPanel);
         panel.add(scrollPane, BorderLayout.CENTER);
         
@@ -133,6 +157,12 @@ public class KeybindConfigWindow extends JDialog {
                         case "separateurKeyCode": mainFenetre.setSeparateurKeyCode(e.getKeyCode()); break;
                         case "zoomInCode": mainFenetre.setZoomInKeyCode(e.getKeyCode()); break;
                         case "zoomOutCode": mainFenetre.setZoomOutKeyCode(e.getKeyCode()); break;
+                        case "finPhraseCode": mainFenetre.setFinPhraseKeyCode(e.getKeyCode()); break;
+                        case "signeMpbCode": mainFenetre.setSigneMpbKeyCode(e.getKeyCode()); break;
+                        case "signeFvrCode": mainFenetre.setSigneFvrKeyCode(e.getKeyCode()); break;
+                        case "signeNeutralCode": mainFenetre.setSigneNeutralKeyCode(e.getKeyCode()); break;
+                        case "signeVoyelleCode": mainFenetre.setSigneVoyelleKeyCode(e.getKeyCode()); break;
+                        case "signeRespirationCode": mainFenetre.setSigneRespirationKeyCode(e.getKeyCode()); break;
                         default: break;
                     }
                     e.consume();
@@ -161,6 +191,12 @@ public class KeybindConfigWindow extends JDialog {
         props.setProperty("separateurKeyCode", String.valueOf(KeyEvent.VK_M));
         props.setProperty("zoomInCode", String.valueOf(KeyEvent.VK_EQUALS));
         props.setProperty("zoomOutCode", String.valueOf(KeyEvent.VK_MINUS));
+        props.setProperty("finPhraseCode", String.valueOf(KeyEvent.VK_NUMPAD3));
+        props.setProperty("signeMpbCode", String.valueOf(KeyEvent.VK_NUMPAD4));
+        props.setProperty("signeFvrCode", String.valueOf(KeyEvent.VK_NUMPAD5));
+        props.setProperty("signeNeutralCode", String.valueOf(KeyEvent.VK_NUMPAD6));
+        props.setProperty("signeVoyelleCode", String.valueOf(KeyEvent.VK_NUMPAD7));
+        props.setProperty("signeRespirationCode", String.valueOf(KeyEvent.VK_NUMPAD8));
 
         File file = new File(KEYBINDS_FILE);
         if (file.exists()) {
@@ -190,6 +226,24 @@ public class KeybindConfigWindow extends JDialog {
             if (keybinds.containsKey("zoomOutCode")) {
                 mainFenetre.setZoomOutKeyCode(Integer.parseInt(keybinds.getProperty("zoomOutCode")));
             }
+            if (keybinds.containsKey("finPhraseCode")) {
+                mainFenetre.setFinPhraseKeyCode(Integer.parseInt(keybinds.getProperty("finPhraseCode")));
+            }
+            if (keybinds.containsKey("signeMpbCode")) {
+                mainFenetre.setSigneMpbKeyCode(Integer.parseInt(keybinds.getProperty("signeMpbCode")));
+            }
+            if (keybinds.containsKey("signeFvrCode")) {
+                mainFenetre.setSigneFvrKeyCode(Integer.parseInt(keybinds.getProperty("signeFvrCode")));
+            }
+            if (keybinds.containsKey("signeNeutralCode")) {
+                mainFenetre.setSigneNeutralKeyCode(Integer.parseInt(keybinds.getProperty("signeNeutralCode")));
+            }
+            if (keybinds.containsKey("signeVoyelleCode")) {
+                mainFenetre.setSigneVoyelleKeyCode(Integer.parseInt(keybinds.getProperty("signeVoyelleCode")));
+            }
+            if (keybinds.containsKey("signeRespirationCode")) {
+                mainFenetre.setSigneRespirationKeyCode(Integer.parseInt(keybinds.getProperty("signeRespirationCode")));
+            }
         } catch (Exception e) {
             JOptionPane.showMessageDialog(this, 
                 "Erreur sauvegarde: " + e.getMessage(),
@@ -205,6 +259,12 @@ public class KeybindConfigWindow extends JDialog {
         keybinds.setProperty("separateurKeyCode", String.valueOf(KeyEvent.VK_M));
         keybinds.setProperty("zoomInCode", String.valueOf(KeyEvent.VK_EQUALS));
         keybinds.setProperty("zoomOutCode", String.valueOf(KeyEvent.VK_MINUS));
+        keybinds.setProperty("finPhraseCode", String.valueOf(KeyEvent.VK_NUMPAD3));
+        keybinds.setProperty("signeMpbCode", String.valueOf(KeyEvent.VK_NUMPAD4));
+        keybinds.setProperty("signeFvrCode", String.valueOf(KeyEvent.VK_NUMPAD5));
+        keybinds.setProperty("signeNeutralCode", String.valueOf(KeyEvent.VK_NUMPAD6));
+        keybinds.setProperty("signeVoyelleCode", String.valueOf(KeyEvent.VK_NUMPAD7));
+        keybinds.setProperty("signeRespirationCode", String.valueOf(KeyEvent.VK_NUMPAD8));
         
         dispose();
         new KeybindConfigWindow(mainFenetre).setVisible(true);

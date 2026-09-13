@@ -24,16 +24,26 @@ public class MenuBarPanel extends JMenuBar {
             JMenuItem nouveau = new JMenuItem("Nouveau");
             JMenuItem ouvrir = new JMenuItem("Ouvrir");
             JMenuItem sauvegarder = new JMenuItem("Sauvegarder");
-            JMenuItem prendreEnVideo = new JMenuItem("Prendre en vidéo");
             JMenuItem quitter = new JMenuItem("Quitter");
+
+        // Sous-menu Exporter
+        JMenu menuExporter = new JMenu("📤 Exporter");
+        JMenuItem exportRythmo = new JMenuItem("📦 Exporter en .rythmo (OmeRyth)...");
+        JMenuItem exportDetx = new JMenuItem("📜 Exporter en .detx (Cappella)...");
+        JMenuItem exportVideo = new JMenuItem("🎬 Exporter en vidéo (Classique ou Montage)...");
+        JMenuItem exportAudioSansVoix = new JMenuItem("🎤 Exporter l'audio sans voix (Doublage / Karaoké)...");
 
         // Création du menu de gestion
         JMenu menuGestion = new JMenu("Gestion");
             JCheckBoxMenuItem affichage_signes = new JCheckBoxMenuItem("Affichage des signes", true);
             JCheckBoxMenuItem affichage_graduations = new JCheckBoxMenuItem("Affichage des graduations", true);
+            JCheckBoxMenuItem affichage_waveform = new JCheckBoxMenuItem("Affichage de la waveform", timelinePanel.isWaveformVisible());
         JMenu menuEdition = new JMenu("Edition");
             JMenuItem annuler = new JMenuItem("Annuler");
             JMenuItem retablir = new JMenuItem("Retablir");
+            JMenuItem baisserSon = new JMenuItem("Baisser le son (-10%)");
+            JMenuItem monterSon = new JMenuItem("Monter le son (+10%)");
+            JMenuItem panneauSon = new JMenuItem("Panneau de son");
         // Création du menu Rôle
         JMenu menuRole = new JMenu("Rôle");
             JMenuItem gererRoles = new JMenuItem("Gérer les rôles...");
@@ -50,7 +60,10 @@ public class MenuBarPanel extends JMenuBar {
         nouveau.addActionListener(e -> mainFenetre.nouveauProjet(timelinePanel));
         ouvrir.addActionListener(e -> mainFenetre.ouvrirProjet(timelinePanel));
         sauvegarder.addActionListener(e -> mainFenetre.sauvegarderProjet(timelinePanel));
-        prendreEnVideo.addActionListener(e -> mainFenetre.exporterEnVideo());
+        exportRythmo.addActionListener(e -> mainFenetre.exporterRythmo());
+        exportDetx.addActionListener(e -> mainFenetre.exporterDetx());
+        exportVideo.addActionListener(e -> mainFenetre.exporterEnVideo());
+        exportAudioSansVoix.addActionListener(e -> mainFenetre.exporterAudioSansVoix());
         quitter.addActionListener(e -> mainFenetre.quitterApplication());
 
 
@@ -65,8 +78,13 @@ public class MenuBarPanel extends JMenuBar {
             timelinePanel.setSeparatorsVisible(affichage_signes.isSelected()));
         affichage_graduations.addActionListener(e ->
             timelinePanel.setGraduationsVisible(affichage_graduations.isSelected()));
+        affichage_waveform.addActionListener(e ->
+            mainFenetre.setWaveformVisible(affichage_waveform.isSelected()));
         annuler.addActionListener(e -> mainFenetre.undoAction());
         retablir.addActionListener(e -> mainFenetre.redoAction());
+        baisserSon.addActionListener(e -> mainFenetre.baisserSon());
+        monterSon.addActionListener(e -> mainFenetre.monterSon());
+        panneauSon.addActionListener(e -> mainFenetre.toggleVolumePanel());
 
         annuler.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_DOWN_MASK));
         retablir.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Y, InputEvent.CTRL_DOWN_MASK));
@@ -76,7 +94,12 @@ public class MenuBarPanel extends JMenuBar {
         menuFichier.add(ouvrir);
         menuFichier.add(sauvegarder);
         menuFichier.addSeparator();
-        menuFichier.add(prendreEnVideo);
+        menuExporter.add(exportRythmo);
+        menuExporter.add(exportDetx);
+        menuExporter.addSeparator();
+        menuExporter.add(exportVideo);
+        menuExporter.add(exportAudioSansVoix);
+        menuFichier.add(menuExporter);
         menuFichier.addSeparator();
         menuFichier.add(quitter);
 
@@ -85,9 +108,23 @@ public class MenuBarPanel extends JMenuBar {
 
         menuGestion.add(affichage_signes);
         menuGestion.add(affichage_graduations);
+        menuGestion.add(affichage_waveform);
 
         menuEdition.add(annuler);
         menuEdition.add(retablir);
+        menuEdition.addSeparator();
+        JMenuItem transcriptionItem = new JMenuItem("🎙️ Transcription Vocale (WhisperX)...");
+        transcriptionItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_T, java.awt.event.InputEvent.CTRL_DOWN_MASK));
+        transcriptionItem.addActionListener(e -> mainFenetre.ouvrirTranscriptionWhisperX());
+        menuEdition.add(transcriptionItem);
+        JMenuItem rolesEditionItem = new JMenuItem("🎭 Rôles...");
+        rolesEditionItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_R, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK));
+        rolesEditionItem.addActionListener(e -> mainFenetre.ouvrirRoleWindow());
+        menuEdition.add(rolesEditionItem);
+        menuEdition.addSeparator();
+        menuEdition.add(baisserSon);
+        menuEdition.add(monterSon);
+        menuEdition.add(panneauSon);
 
         menuParam.add(touches);
         menuParam.add(info);
@@ -95,6 +132,10 @@ public class MenuBarPanel extends JMenuBar {
         menuParam.addSeparator();
         menuParam.add(themeSombre);
         menuParam.add(themeClair);
+        menuParam.addSeparator();
+        JMenuItem associerRythmo = new JMenuItem("🔗 Associer les fichiers .rythmo au logo...");
+        associerRythmo.addActionListener(e -> app.services.FileAssociationService.associateNow(mainFenetre));
+        menuParam.add(associerRythmo);
 
         add(menuFichier);
         add(menuGestion);

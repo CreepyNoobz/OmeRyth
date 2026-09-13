@@ -3,6 +3,7 @@ package app.services;
 import app.MainFenetre;
 import app.ui.ImageBackgroundPanel;
 import app.ui.TimelinePanel;
+import app.ui.VolumePanel;
 import app.ui.AppCustomization;
 import app.ui.Role;
 import app.services.ActionHistoryService;
@@ -32,6 +33,7 @@ public class MainWindowBuilder {
         public JPanel mainPanel;
         public TimelinePanel timelinePanel;
         public TimerClass timer;
+        public VolumePanel volumePanel;
         public ImageBackgroundPanel mediaPanel;
         public JPanel timerPanel;
         public ImageBackgroundPanel mediaEmptyPanel;
@@ -58,6 +60,7 @@ public class MainWindowBuilder {
 
         // Timeline + services
         p.timelinePanel = new TimelinePanel();
+        p.timelinePanel.setRoles(roles);
         p.actionHistoryService = new ActionHistoryService(actionHistoryMaxLines, 250);
         p.actionHistoryService.bind(p.timelinePanel);
         p.autosaveService = new AutosaveService(autosaveFile, autosaveIntervalMs, window::autosaveProject);
@@ -101,6 +104,41 @@ public class MainWindowBuilder {
                 .embeddedMediaPlayer();
         mediaPlayerHost.add(p.mediaPlayerComponent, BorderLayout.CENTER);
 
+        p.mediaPlayerComponent.mediaPlayer().events().addMediaPlayerEventListener(new uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter() {
+            @Override
+            public void finished(uk.co.caprica.vlcj.player.base.MediaPlayer mediaPlayer) {
+                SwingUtilities.invokeLater(() -> {
+                    if (p.timer != null) {
+                        if (p.timer.isRunning()) {
+                            p.timer.toggle();
+                        }
+                        p.timer.setTime(p.timer.getMaxTime());
+                    }
+                });
+            }
+
+            @Override
+            public void playing(uk.co.caprica.vlcj.player.base.MediaPlayer mediaPlayer) {
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        mediaPlayer.audio().setVolume(window.getVolume());
+                    } catch (Throwable ignored) {}
+                });
+            }
+        });
+
+        p.timer.setOnStopCallback(() -> {
+            if (p.mediaPlayerComponent != null && p.mediaPlayerComponent.mediaPlayer() != null) {
+                try {
+                    var mp = p.mediaPlayerComponent.mediaPlayer();
+                    if (mp.status().isPlaying()) {
+                        mp.controls().pause();
+                    }
+                    mp.controls().setTime((long) (p.timer.getTime() * 1000));
+                } catch (Throwable ignored) {}
+            }
+        });
+
         p.mediaContentPanel.add(p.mediaEmptyPanel, "EMPTY");
         p.mediaContentPanel.add(mediaPlayerHost, "PLAYER");
         p.mediaCardLayout.show(p.mediaContentPanel, "EMPTY");
@@ -113,8 +151,18 @@ public class MainWindowBuilder {
         p.timerPanel.setOpaque(false);
         p.timerPanel.setPreferredSize(new Dimension(customization.timerPanelWidth, 220));
         p.timerPanel.setMinimumSize(new Dimension(customization.timerPanelWidth, 220));
+
+        p.volumePanel = new VolumePanel(window, customization);
+        p.volumePanel.setVolume(window.getVolume());
+        p.volumePanel.setVisible(true);
+
+        JPanel timerContainer = new JPanel(new BorderLayout());
+        timerContainer.setOpaque(false);
+        timerContainer.add(p.volumePanel, BorderLayout.NORTH);
+        timerContainer.add(p.timer, BorderLayout.SOUTH);
+
         p.timerPanel.add(p.actionHistoryService.createPanel(), BorderLayout.CENTER);
-        p.timerPanel.add(p.timer, BorderLayout.SOUTH);
+        p.timerPanel.add(timerContainer, BorderLayout.SOUTH);
 
         JPanel verticalSeparator = new JPanel();
         verticalSeparator.setPreferredSize(new Dimension(5, 1));

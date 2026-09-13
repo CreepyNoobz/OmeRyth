@@ -1,4 +1,4 @@
-package app;
+package tests;
 
 import app.utils.FileUtils;
 import java.io.File;

@@ -1,0 +1,797 @@
+"""
+OmeRyth STT Worker — Haute Précision & Lisibilité Maximale
+faster-whisper + Silero VAD + Word Timestamps
+Découpage intelligent en phrases rythmo avec séparateurs Début/Fin.
+
+Fonctionne 100% hors-ligne si les modèles sont cachés localement dans whisper/cache.
+"""
+
+import argparse
+import json
+import os
+import re
+import sys
+import time
+import warnings
+from datetime import datetime, timezone
+
+# Forcer UTF-8 sur stdout et stderr pour Windows
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+# Suppress unnecessary PyTorch/PyAnnote/HuggingFace user warnings in stderr
+warnings.filterwarnings("ignore")
+
+# Ensure local ffmpeg is in PATH
+ffmpeg_dir = os.path.abspath("ffmpeg")
+if os.path.exists(ffmpeg_dir):
+    os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ["PATH"]
+
+# Avoid Windows symlink privilege issues with HuggingFace hub and joblib loky issues
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+os.environ["LOKY_MAX_CPU_COUNT"] = "4"
+
+# ─────────────────────────────────────────────────────────
+# Communication protocol with Java (stdout lines)
+# ─────────────────────────────────────────────────────────
+
+def print_progress(step: int, total: int, message: str):
+    """Envoie la progression vers Java via stdout."""
+    print(f"PROGRESS:{step}:{total}:{message}", flush=True)
+
+def print_error(message: str):
+    """Envoie une erreur vers Java via stdout."""
+    print(f"ERROR:{message}", flush=True)
+
+def print_info(message: str):
+    """Envoie un message informatif vers Java via stdout."""
+    print(f"INFO:{message}", flush=True)
+
+def print_segment(seg_dict: dict):
+    """Envoie un segment détecté en temps réel vers Java."""
+    line = json.dumps(seg_dict, ensure_ascii=False)
+    print(f"SEGMENT:{line}", flush=True)
+
+def format_timecode(seconds: float) -> str:
+    """Formate des secondes en timecode HH:MM:SS.mmm."""
+    if seconds < 0:
+        seconds = 0.0
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int(round((seconds - int(seconds)) * 1000))
+    if millis >= 1000:
+        millis = 999
+    return f"{hours:02}:{minutes:02}:{secs:02}.{millis:03}"
+
+
+# ─────────────────────────────────────────────────────────
+# Text cleanup, French phonetic corrections & typography
+# ─────────────────────────────────────────────────────────
+
+# Patterns for Whisper hallucination artefacts
+_BRACKET_RE = re.compile(r"\[.*?\]|\(.*?\)")
+_REPEATED_PHRASE_RE = re.compile(r"\b(\w{3,}(?:\s+\w+){0,4})\b(?:\s+\1\b)+", re.IGNORECASE)
+_MULTI_SPACE_RE = re.compile(r"  +")
+
+FRENCH_PHONETIC_CORRECTIONS = [
+    # Verlan & Argot ("la tête de oim", etc.)
+    (re.compile(r"\b(j['’]?ai\s+jur[eé]\s+)?la\s+tête\s+d['’]homme\b", re.IGNORECASE), r"j'ai juré la tête de oim" if r"\1" else "la tête de oim"),
+    (re.compile(r"\bla\s+tête\s+d['’]homme\b", re.IGNORECASE), "la tête de oim"),
+    (re.compile(r"\bla\s+tête\s+de\s+homme\b", re.IGNORECASE), "la tête de oim"),
+    (re.compile(r"\bla\s+tête\s+d['’]oim\b", re.IGNORECASE), "la tête de oim"),
+    (re.compile(r"\bla\s+tête\s+d['’]oit\b", re.IGNORECASE), "la tête de oit"),
+    (re.compile(r"\bla\s+tête\s+de\s+ouam\b", re.IGNORECASE), "la tête de oim"),
+    # Salutations & expressions urbaines / familières
+    (re.compile(r"\b[Dd]io les gens\b", re.IGNORECASE), "Yo les gens"),
+    (re.compile(r"\byo les Jean\b", re.IGNORECASE), "Yo les gens"),
+    (re.compile(r"\b(y['’]?a\s+)?salam\s+elle\s+est\s+comme\b", re.IGNORECASE), "salam aleykoum"),
+    (re.compile(r"\bsalam\s+al[eé]y?k[ou]+m\b", re.IGNORECASE), "salam aleykoum"),
+    (re.compile(r"\bal[eé]y?k[ou]+m\s+salam\b", re.IGNORECASE), "aleykoum salam"),
+    (re.compile(r"\b(insulter|insulte|insulté|insultais|insultait|insulterai|insultera)\s+des\s+mers\b", re.IGNORECASE), r"\1 des mères"),
+    (re.compile(r"\b(niquer|nique|niqué)\s+des\s+mers\b", re.IGNORECASE), r"\1 des mères"),
+    (re.compile(r"\bbaise\s+des\s+mers\b", re.IGNORECASE), "baise des mères"),
+    # Reconstruction des contractions françaises détachées
+    (re.compile(r"\b([Tt])['’]\s*([aA]s?)\b"), r"t'as"),
+    (re.compile(r"\b([Jj])['’]\s*([aA]i)\b"), r"j'ai"),
+    (re.compile(r"\b([Cc])['’]\s*([eE]st)\b"), r"c'est"),
+    (re.compile(r"\b([Cc])['’]\s*([eéEÉ]tait)\b"), r"c'était"),
+    (re.compile(r"\b([Dd])['’]\s*accord\b", re.IGNORECASE), "d'accord"),
+    (re.compile(r"\b([Qq]u)['’]\s*est[- ]ce\s+que\b", re.IGNORECASE), "qu'est-ce que"),
+    (re.compile(r"\b([Qq]u)['’]\s*on\b", re.IGNORECASE), "qu'on"),
+    (re.compile(r"\b([Dd])['’]\s*un\b", re.IGNORECASE), "d'un"),
+    (re.compile(r"\b([Dd])['’]\s*une\b", re.IGNORECASE), "d'une"),
+    (re.compile(r"\b([Ss])['’]\s*il\s+te\s+pla[iî]t\b", re.IGNORECASE), "s'il te plaît"),
+    (re.compile(r"\b([Ss])['’]\s*il\s+vous\s+pla[iî]t\b", re.IGNORECASE), "s'il vous plaît"),
+    # Mots français articulés / syllabes découpées sur plusieurs temps
+    (re.compile(r"\bou\s+bli\s*[eéè](e?s?)\b", re.IGNORECASE), r"oublié\1"),
+    (re.compile(r"\bou\s+bli\b", re.IGNORECASE), "oubli"),
+    (re.compile(r"\bta\s+m[eèé]\s*re\b", re.IGNORECASE), "ta mère"),
+    (re.compile(r"\bma\s+m[eèé]\s*re\b", re.IGNORECASE), "ma mère"),
+    (re.compile(r"\bsa\s+m[eèé]\s*re\b", re.IGNORECASE), "sa mère"),
+    (re.compile(r"\bton\s+p[eèé]\s*re\b", re.IGNORECASE), "ton père"),
+    (re.compile(r"\bmon\s+p[eèé]\s*re\b", re.IGNORECASE), "mon père"),
+    (re.compile(r"\bm[eèé]\s+re(s)?\b", re.IGNORECASE), r"mère\1"),
+    (re.compile(r"\bp[eèé]\s+re(s)?\b", re.IGNORECASE), r"père\1"),
+    (re.compile(r"\bfr[eèé]\s+re(s)?\b", re.IGNORECASE), r"frère\1"),
+    (re.compile(r"\bat\s+tends?\b", re.IGNORECASE), "attends"),
+    (re.compile(r"\bre\s+gar\s+de(r?)\b", re.IGNORECASE), r"regarde\1"),
+    (re.compile(r"\bpour\s+quoi\b", re.IGNORECASE), "pourquoi"),
+    (re.compile(r"\bpar\s+ce\s+que\b", re.IGNORECASE), "parce que"),
+    (re.compile(r"\bau\s+jourd['’]\s*hui\b", re.IGNORECASE), "aujourd'hui"),
+    (re.compile(r"\bmain\s+te\s+nant\b", re.IGNORECASE), "maintenant"),
+    (re.compile(r"\btou\s+jours\b", re.IGNORECASE), "toujours"),
+    (re.compile(r"\bvrai\s+ment\b", re.IGNORECASE), "vraiment"),
+    (re.compile(r"\bcom\s+pren\s+dre\b", re.IGNORECASE), "comprendre"),
+    (re.compile(r"\bbon\s+jour\b", re.IGNORECASE), "bonjour"),
+    (re.compile(r"\bbon\s+soir\b", re.IGNORECASE), "bonsoir"),
+    (re.compile(r"\bdé\s+so\s+l[eé]\b", re.IGNORECASE), "désolé"),
+    (re.compile(r"\bab\s+so\s+lu\s+ment\b", re.IGNORECASE), "absolument"),
+    (re.compile(r"\bquel\s+qu['’]\s*un\b", re.IGNORECASE), "quelqu'un"),
+    # Réparer les '?' parasites introduits par de mauvais encodages sur les accents
+    (re.compile(r"(^|\s)\?\s*tous\b", re.IGNORECASE), r"\1à tous"),
+    (re.compile(r"(^|\s)\?\s*chaque\b", re.IGNORECASE), r"\1à chaque"),
+    (re.compile(r"(^|\s)\?\s*moi\b", re.IGNORECASE), r"\1à moi"),
+    (re.compile(r"(^|\s)\?\s*lui\b", re.IGNORECASE), r"\1à lui"),
+    (re.compile(r"(^|\s)\?\s*vous\b", re.IGNORECASE), r"\1à vous"),
+    (re.compile(r"(^|\s)\?\s*eux\b", re.IGNORECASE), r"\1à eux"),
+]
+
+def clean_text(raw: str, lang: str = "fr") -> str:
+    """
+    Nettoie et formate le texte transcrit pour une lisibilité maximale
+    sur la bande rythmo (sans artéfacts, avec accents et ponctuation propre).
+    """
+    text = raw.strip()
+    if not text:
+        return ""
+
+    # 1. Supprimer les annotations parasites entre crochets/parenthèses [Musique], (Rires), etc.
+    text = _BRACKET_RE.sub("", text)
+
+    # 2. Supprimer les répétitions consécutives (hallucinations Whisper)
+    text = _REPEATED_PHRASE_RE.sub(r"\1", text)
+
+    # 3. Normaliser les espaces multiples
+    text = _MULTI_SPACE_RE.sub(" ", text).strip()
+
+    # 4. Corrections phonétiques et rétablissement des accents français
+    if lang.startswith("fr"):
+        for pattern, repl in FRENCH_PHONETIC_CORRECTIONS:
+            text = pattern.sub(repl, text)
+
+        # Typographie française : un espace propre avant ? ! : ;
+        text = re.sub(r"\s*([?!:;])", r" \1", text)
+        # Pas d'espace avant virgule et point
+        text = re.sub(r"\s*([,.])", r"\1", text)
+
+    # 5. Points de suspension normalisés
+    text = text.replace("...", "…")
+    text = re.sub(r"\.{2,}", "…", text)
+
+    # 6. Guillemets
+    text = text.replace('"', "« ").replace('"', " »").replace('"', "« ")
+
+    # 7. Première lettre en majuscule
+    if text and text[0].islower():
+        text = text[0].upper() + text[1:]
+
+    # 8. Nettoyer les espaces résiduels
+    text = _MULTI_SPACE_RE.sub(" ", text).strip()
+
+    return text
+
+
+# ─────────────────────────────────────────────────────────
+# Phrase Segmentation & Acoustic Phrase Diarization
+# ─────────────────────────────────────────────────────────
+
+def segment_words_into_clean_phrases(words: list, pause_threshold: float = 0.38, lang: str = "fr") -> list:
+    """
+    Découpe les mots en répliques naturelles et complètes.
+    - Coupe dès qu'il y a un temps mort >= 0.38s (détection nette des silences de 0.5s).
+    - Coupe après ponctuation forte (?, !, ., …, :) dès qu'il y a un intervalle >= 0.15s.
+    - Conserve une haute précision temporelle à 2 décimales.
+    """
+    if not words:
+        return []
+
+    phrases = []
+    current_words = []
+    phrase_start = None
+
+    for w in words:
+        w_text = w.get("word", "").strip()
+        if not w_text:
+            continue
+
+        w_start = float(w.get("start", 0.0))
+        w_end = float(w.get("end", w_start + 0.05))
+
+        if not current_words:
+            phrase_start = w_start
+            current_words.append(w)
+            continue
+
+        prev_end = float(current_words[-1].get("end", 0.0))
+        gap = w_start - prev_end
+        phrase_duration = prev_end - phrase_start
+        prev_word_text = current_words[-1].get("word", "")
+
+        is_punct = any(prev_word_text.endswith(p) for p in ["?", "!", ".", "…", "...", "—", ":"])
+
+        should_split = (gap >= pause_threshold) or \
+                       (is_punct and gap >= 0.15) or \
+                       (phrase_duration >= 4.5 and any(prev_word_text.endswith(p) for p in [",", ";"]) and gap >= 0.18) or \
+                       (phrase_duration >= 6.0 and gap >= 0.20)
+
+        if should_split:
+            phrase_end = prev_end
+            raw_text = " ".join(cw.get("word", "").strip() for cw in current_words)
+            cleaned = clean_text(raw_text, lang)
+            if cleaned:
+                start_sec = round(phrase_start, 2)
+                end_sec = round(max(phrase_start + 0.25, phrase_end), 2)
+                if end_sec <= start_sec:
+                    end_sec = round(start_sec + 0.25, 2)
+
+                phrases.append({
+                    "start": start_sec,
+                    "end": end_sec,
+                    "text": cleaned,
+                    "words": [
+                        {
+                            "word": cw.get("word", "").strip(),
+                            "start": round(float(cw.get("start", 0.0)), 2),
+                            "end": round(float(cw.get("end", 0.0)), 2),
+                        }
+                        for cw in current_words
+                    ],
+                })
+            current_words = [w]
+            phrase_start = w_start
+        else:
+            current_words.append(w)
+
+    # Fermer la dernière phrase
+    if current_words:
+        phrase_end = float(current_words[-1].get("end", 0.0))
+        raw_text = " ".join(cw.get("word", "").strip() for cw in current_words)
+        cleaned = clean_text(raw_text, lang)
+        if cleaned:
+            start_sec = round(phrase_start, 2)
+            end_sec = round(max(phrase_start + 0.25, phrase_end), 2)
+            if end_sec <= start_sec:
+                end_sec = round(start_sec + 0.25, 2)
+
+            phrases.append({
+                "start": start_sec,
+                "end": end_sec,
+                "text": cleaned,
+                "words": [
+                    {
+                        "word": cw.get("word", "").strip(),
+                        "start": round(float(cw.get("start", 0.0)), 2),
+                        "end": round(float(cw.get("end", 0.0)), 2),
+                    }
+                    for cw in current_words
+                ],
+            })
+
+    return phrases
+
+
+os.environ["LOKY_MAX_CPU_COUNT"] = str(min(os.cpu_count() or 4, 8))
+
+
+def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0) -> list:
+    """
+    Analyse le profil vocal complet (Pitch médian frame-by-frame + MFCCs timbre + brillance)
+    de chaque réplique entière et regroupe les répliques par personnage.
+    Si num_speakers <= 0, détecte automatiquement tous les personnages différents (Auto-détection).
+    """
+    if not phrases:
+        return []
+
+    if num_speakers == 1 or len(phrases) < 2:
+        for p in phrases:
+            p["speaker"] = "SPEAKER_00"
+        return phrases
+
+    try:
+        import numpy as np
+        import soundfile as sf
+        import torch
+        import torchaudio.transforms as T
+        import scipy.signal as signal
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.cluster import KMeans
+
+        audio_data, sr = sf.read(audio_path, dtype="float32")
+        if audio_data.ndim > 1:
+            audio_data = np.mean(audio_data, axis=1)
+
+        target_sr = 16000
+        frame_len = int(target_sr * 0.030)  # 30ms
+        hop_len = int(target_sr * 0.020)    # 20ms (rapide et précis)
+        min_lag = int(target_sr / 450)
+        max_lag = int(target_sr / 65)
+
+        mfcc_transform = T.MFCC(
+            sample_rate=target_sr,
+            n_mfcc=13,
+            melkwargs={"n_fft": 512, "win_length": 400, "hop_length": 160, "n_mels": 40}
+        )
+
+        sos_pitch = signal.butter(4, [65, 450], btype="bandpass", fs=target_sr, output="sos")
+
+        features = []
+
+        for p in phrases:
+            s_idx = max(0, int(p["start"] * sr))
+            e_idx = min(len(audio_data), int(p["end"] * sr))
+            y = audio_data[s_idx:e_idx] if e_idx > s_idx else np.zeros(frame_len, dtype=np.float32)
+            if len(y) < frame_len:
+                y = np.pad(y, (0, frame_len - len(y)))
+
+            # Extraction fine du pitch F0 image par image sur toute la phrase
+            y_filt = signal.sosfilt(sos_pitch, y)
+            pitches = []
+            for i in range(0, len(y_filt) - frame_len, hop_len):
+                frame = y_filt[i:i + frame_len]
+                energy = np.sum(frame ** 2)
+                if energy < 1e-4:
+                    continue
+                corr = signal.correlate(frame, frame, mode="full")
+                corr = corr[len(corr) // 2:]
+                if len(corr) > max_lag:
+                    pk = min_lag + np.argmax(corr[min_lag:max_lag])
+                    if corr[0] > 1e-5 and (corr[pk] / corr[0]) > 0.28:
+                        pitches.append(target_sr / pk)
+
+            if len(pitches) >= 2:
+                med_pitch = np.median(pitches)
+            elif len(pitches) == 1:
+                med_pitch = pitches[0]
+            else:
+                med_pitch = 0.0
+
+            log_pitch = np.log2(med_pitch / 55.0) if med_pitch > 50 else 0.0
+
+            # MFCCs globaux de la phrase (timbre vocal)
+            tensor = torch.tensor(y, dtype=torch.float32).unsqueeze(0)
+            with torch.no_grad():
+                mfcc = mfcc_transform(tensor).squeeze(0).numpy()
+                mfcc_mean = np.mean(mfcc, axis=1)
+                mfcc_std = np.std(mfcc, axis=1) if mfcc.shape[1] > 1 else np.zeros(13)
+
+            # Brillance et centroïde spectral
+            spec = np.abs(np.fft.rfft(y))
+            freqs = np.fft.rfftfreq(len(y), 1.0 / target_sr)
+            spec_sum = np.sum(spec) + 1e-9
+            centroid = np.sum(freqs * spec) / spec_sum
+            norm_centroid = centroid / 4000.0
+
+            # Pondération forte sur la hauteur de voix (Pitch homme/femme) et le timbre
+            feat = np.hstack([
+                [log_pitch * 6.0],
+                mfcc_mean[:8],
+                mfcc_std[:4],
+                [norm_centroid * 2.0]
+            ])
+            features.append(feat)
+
+        X = np.array(features)
+        scaler = StandardScaler()
+        X_norm = scaler.fit_transform(X)
+
+        if num_speakers > 1:
+            target_k = min(num_speakers, len(phrases))
+        else:
+            # Mode Auto-détection : recherche automatique de tous les personnages distincts
+            from sklearn.metrics import silhouette_score
+            max_candidates = min(12, max(2, len(phrases) // 2))
+            best_k = 1
+            best_score = -1.0
+
+            for k in range(2, max_candidates + 1):
+                try:
+                    cl = KMeans(n_clusters=k, random_state=42, n_init=10)
+                    labels = cl.fit_predict(X_norm)
+                    score = float(silhouette_score(X_norm, labels))
+                    if score > best_score:
+                        best_score = score
+                        best_k = k
+                except Exception:
+                    pass
+
+            if best_score < 0.12 or best_k < 2:
+                target_k = 1
+            else:
+                target_k = best_k
+
+            print_info(f"Auto-détection vocale : {target_k} personnage(s) distinct(s) identifié(s) (indice de séparation: {best_score:.2f})")
+
+        if target_k <= 1:
+            for p in phrases:
+                p["speaker"] = "SPEAKER_00"
+            return phrases
+
+        clusterer = KMeans(n_clusters=target_k, random_state=42, n_init=15)
+        raw_labels = clusterer.fit_predict(X_norm)
+
+        # Réassignation chronologique (premier intervenant = SPEAKER_00)
+        label_map = {}
+        next_speaker_id = 0
+        for lbl in raw_labels:
+            if lbl not in label_map:
+                label_map[lbl] = next_speaker_id
+                next_speaker_id += 1
+
+        for i, p in enumerate(phrases):
+            spk_num = label_map.get(raw_labels[i], 0)
+            p["speaker"] = f"SPEAKER_{spk_num:02d}"
+
+        return phrases
+
+    except Exception as e:
+        print_error(f"Diarisation des phrases : {e}")
+        for p in phrases:
+            if "speaker" not in p:
+                p["speaker"] = "SPEAKER_00"
+        return phrases
+
+
+def merge_consecutive_same_speaker_phrases(phrases: list, max_gap: float = 0.25, max_duration: float = 5.0, max_words: int = 12) -> list:
+    """
+    Fusionne uniquement les micro-morceaux immédiatement consécutifs (< 0.25s)
+    appartenant au même locuteur, sans jamais avaler les temps morts de 0.5s
+    ni les répliques terminées par une ponctuation forte.
+    """
+    if not phrases:
+        return []
+
+    merged = []
+    for p in phrases:
+        if not merged:
+            merged.append(p)
+            continue
+
+        prev = merged[-1]
+        gap = p["start"] - prev["end"]
+        combined_dur = p["end"] - prev["start"]
+        combined_words = len(prev.get("words", [])) + len(p.get("words", []))
+
+        prev_text = prev.get("text", "").strip()
+        ends_with_strong_punct = any(prev_text.endswith(pt) for pt in [".", "!", "?", "…", "...", ":"])
+
+        if (not ends_with_strong_punct and
+            prev.get("speaker") == p.get("speaker") and
+            gap < max_gap and
+            combined_dur <= max_duration and
+            combined_words <= max_words):
+            prev["end"] = p["end"]
+            prev["text"] = (prev["text"] + " " + p["text"]).strip()
+            prev["words"] = prev.get("words", []) + p.get("words", [])
+        else:
+            merged.append(p)
+
+    return merged
+
+
+# ─────────────────────────────────────────────────────────
+# Main transcription pipeline
+# ─────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(description="OmeRyth STT Worker – Haute Précision")
+    parser.add_argument("--audio", required=True, help="Chemin du fichier audio WAV")
+    parser.add_argument("--num-speakers", type=int, default=0, help="Nombre de locuteurs attendus (0 = Auto-détection de tous les personnages)")
+    parser.add_argument("--lang", default="fr", help="Code langue (fr, en, auto)")
+    parser.add_argument("--model", default="small", help="Modèle faster-whisper (tiny, base, small, medium)")
+    parser.add_argument("--threads", type=int, default=4, help="Nombre de threads CPU")
+    parser.add_argument("--device", default="auto", help="Périphérique de calcul (auto, cuda, cpu)")
+    parser.add_argument("--compute-type", default="auto", help="Type de calcul (auto, float16, int8_float16, int8)")
+    parser.add_argument("--batch-size", type=int, default=16, help="Taille des batchs pour GPU Tensor Cores (1-32)")
+    parser.add_argument("--output", required=True, help="Fichier JSON de sortie principal")
+    parser.add_argument("--report", required=True, help="Fichier JSON de rapport complet")
+    args = parser.parse_args()
+
+    start_time = time.time()
+    print_progress(5, 100, "Initialisation du moteur STT...")
+
+    # ── Import de faster-whisper ──
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as e:
+        print_error(f"Bibliothèque faster-whisper manquante : {e}")
+        sys.exit(1)
+
+    # ── Configuration ──
+    model_name = args.model.lower().strip()
+    if model_name not in ("tiny", "base", "small", "medium", "large-v2", "large-v3"):
+        model_name = "small"
+
+    cpu_threads = max(1, min(args.threads, 16))
+    lang_param = None if args.lang.lower() == "auto" else args.lang.lower()
+
+    # ── Vérification du fichier audio ──
+    if not os.path.exists(args.audio):
+        print_error(f"Fichier audio introuvable : {args.audio}")
+        sys.exit(1)
+
+    # ── Détection automatique de l'accélération GPU NVIDIA CUDA ──
+    req_device = args.device.lower().strip()
+    req_compute = args.compute_type.lower().strip()
+    device = "cpu"
+    compute_type = "int8"
+
+    if req_device in ("auto", "cuda"):
+        try:
+            import ctranslate2
+            if ctranslate2.get_cuda_device_count() > 0:
+                device = "cuda"
+                supported = ctranslate2.get_supported_compute_types("cuda")
+                if req_compute in supported:
+                    compute_type = req_compute
+                elif "float16" in supported:
+                    compute_type = "float16"
+                elif "int8_float16" in supported:
+                    compute_type = "int8_float16"
+                elif "int8" in supported:
+                    compute_type = "int8"
+                else:
+                    compute_type = "float32"
+        except Exception:
+            device = "cpu"
+            compute_type = "int8"
+    else:
+        device = "cpu"
+        compute_type = "int8" if req_compute == "auto" else req_compute
+
+    # ── Chargement du modèle (cache local prioritaire) ──
+    print_progress(10, 100, f"Chargement du modèle {model_name.upper()} sur {device.upper()} ({compute_type})...")
+
+    local_cache = os.path.abspath("whisper/cache")
+    download_root = local_cache if os.path.isdir(local_cache) else None
+
+    try:
+        model = WhisperModel(
+            model_name,
+            device=device,
+            compute_type=compute_type,
+            cpu_threads=cpu_threads,
+            download_root=download_root,
+        )
+    except Exception as e:
+        if device == "cuda":
+            print_error(f"Échec initialisation CUDA ({e}), bascule automatique sur CPU...")
+            device = "cpu"
+            compute_type = "int8"
+            model = WhisperModel(
+                model_name,
+                device="cpu",
+                compute_type="int8",
+                cpu_threads=cpu_threads,
+                download_root=download_root,
+            )
+        else:
+            print_error(f"Échec du chargement du modèle {model_name} : {e}")
+            sys.exit(1)
+
+    # ── Inférence par lots (BatchedInferencePipeline) pour vitesse maximale sur GPU ──
+    use_batched = False
+    pipeline = model
+    batch_size = max(1, min(args.batch_size, 32))
+    if device == "cuda":
+        try:
+            from faster_whisper import BatchedInferencePipeline
+            pipeline = BatchedInferencePipeline(model=model)
+            use_batched = True
+            print_progress(15, 100, f"Accélération Tensor Cores active (Batch size {batch_size}, {compute_type})...")
+        except Exception:
+            pipeline = model
+            use_batched = False
+
+    # ── Transcription haute vitesse avec VAD optimisé ──
+    print_progress(20, 100, f"Transcription en cours ({model_name.upper()} sur {device.upper()})...")
+
+    # Prompt initial riche en français pour orienter le modèle sur le vocabulaire et les accents
+    initial_prompt_text = None
+    if lang_param == "fr" or lang_param is None:
+        initial_prompt_text = (
+            "Transcription française fidèle, rythmée et parfaitement ponctuée pour le doublage et la bande rythmo : "
+            "T'as oublié que je suis ta mère ? Mais qu'est-ce que tu racontes ! Attends... Regarde-moi. "
+            "Pourquoi tu fais ça ? C'est pas possible ! D'accord, je comprends, mais s'il te plaît, écoute-moi. "
+            "Yo les gens, salut à tous, salam aleykoum, frères et sœurs, la tête de oim, la tête de oit, j'ai juré. "
+            "Wesh, wallah, en sah, de ouf, frérot, t'inquiète, vas-y, c'est parti, oui, non, merci, absolument."
+        )
+
+    # Décodage haute précision multi-faisceaux (Beam size 5 avec repli de température)
+    # Garantit la reconnaissance optimale même sur paroles lentes, cadences atypiques ou émotions
+    beam_size = 5
+
+    transcribe_kwargs = dict(
+        language=lang_param,
+        beam_size=beam_size,
+        best_of=5,
+        patience=1.0,
+        word_timestamps=True,
+        vad_filter=True,
+        vad_parameters={
+            "threshold": 0.20,
+            "min_speech_duration_ms": 50,
+            "max_speech_duration_s": 30,
+            "min_silence_duration_ms": 160,
+            "speech_pad_ms": 80,
+        },
+        condition_on_previous_text=False,
+        initial_prompt=initial_prompt_text,
+        no_speech_threshold=0.45,
+        log_prob_threshold=-1.5,
+        temperature=[0.0, 0.2, 0.4],
+    )
+    if use_batched:
+        transcribe_kwargs["batch_size"] = batch_size
+
+    try:
+        segments_iter, info = pipeline.transcribe(args.audio, **transcribe_kwargs)
+        detected_lang = info.language if info.language else (lang_param or "fr")
+        total_audio_duration = info.duration if hasattr(info, "duration") and info.duration else 0.0
+
+    except Exception as e:
+        print_error(f"Échec de la transcription : {e}")
+        sys.exit(1)
+
+    # ── Collecte garantie de tous les mots (avec fallback de sécurité anti-perte) ──
+    all_words = []
+    raw_segment_count = 0
+    last_reported_pct = 20
+
+    for segment in segments_iter:
+        raw_segment_count += 1
+        seg_text = segment.text.strip() if segment.text else ""
+        if not seg_text:
+            continue
+
+        # Progression en temps réel basée sur le timecode pour les fichiers longs (1h, 4h)
+        if total_audio_duration > 0:
+            current_progress_sec = min(segment.end, total_audio_duration)
+            calc_pct = int(20 + (current_progress_sec / total_audio_duration) * 70)
+            if calc_pct > last_reported_pct:
+                last_reported_pct = calc_pct
+                cur_str = format_timecode(current_progress_sec)[:8]
+                tot_str = format_timecode(total_audio_duration)[:8]
+                print_progress(calc_pct, 100, f"Transcription en cours ({cur_str} / {tot_str})...")
+
+        # Émission du segment en direct vers l'interface
+        print_segment({
+            "id": raw_segment_count,
+            "speaker": "SPEAKER_00",
+            "start": round(float(segment.start), 2),
+            "end": round(float(segment.end), 2),
+            "text": clean_text(seg_text, detected_lang),
+        })
+
+        if segment.words and len(segment.words) > 0:
+            for w in segment.words:
+                w_str = w.word.strip() if w.word else ""
+                if w_str:
+                    all_words.append({
+                        "word": w_str,
+                        "start": float(w.start),
+                        "end": float(w.end),
+                    })
+        else:
+            # Fallback de sécurité : si le word-alignment échoue sur un segment,
+            # on découpe le texte du segment et on interpole les timestamps
+            tokens = seg_text.split()
+            if tokens:
+                seg_dur = max(0.1, float(segment.end) - float(segment.start))
+                step = seg_dur / len(tokens)
+                for i, token in enumerate(tokens):
+                    all_words.append({
+                        "word": token,
+                        "start": float(segment.start) + i * step,
+                        "end": float(segment.start) + (i + 1) * step,
+                    })
+
+    if not all_words:
+        print_progress(100, 100, "Aucune parole détectée dans le fichier.")
+        os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+        with open(args.output, "w", encoding="utf-8") as f:
+            json.dump({"segments": []}, f, ensure_ascii=False, indent=2)
+        os.makedirs(os.path.dirname(os.path.abspath(args.report)), exist_ok=True)
+        with open(args.report, "w", encoding="utf-8") as f:
+            json.dump({
+                "metadata": {
+                    "engine": "OmeRyth STT (faster-whisper + Silero VAD)",
+                    "audio_file": os.path.abspath(args.audio),
+                    "model": model_name,
+                    "language": detected_lang,
+                    "total_segments": 0,
+                },
+                "segments": [],
+            }, f, ensure_ascii=False, indent=2)
+        sys.exit(0)
+
+    # ── 1. Découpage en répliques naturelles et complètes (sans hachage) ──
+    print_progress(70, 100, "Découpage en phrases naturelles pour la bande rythmo...")
+
+    phrases = segment_words_into_clean_phrases(all_words, pause_threshold=0.22, lang=detected_lang)
+
+    # ── 2. Diarisation vocale haute précision sur phrases complètes (Pitch F0 + MFCCs) ──
+    num_spk = args.num_speakers
+    if num_spk != 1 and len(phrases) > 1:
+        spk_label = "Auto-détection de tous les personnages" if num_spk <= 0 else f"{num_spk} locuteurs"
+        print_progress(80, 100, f"Diarisation des répliques ({spk_label}, analyse pitch F0 & timbre)...")
+        phrases = diarize_clean_phrases(args.audio, phrases, num_spk)
+
+        # ── 3. Fusion des répliques consécutives du même locuteur pour un flux fluide ──
+        phrases = merge_consecutive_same_speaker_phrases(phrases, max_gap=0.35, max_duration=5.5, max_words=14)
+    else:
+        for p in phrases:
+            p["speaker"] = "SPEAKER_00"
+
+    # ── 4. Construction des segments finaux et streaming direct ──
+    print_progress(90, 100, "Génération des repères et envoi vers OmeRyth...")
+
+    final_segments = []
+    for idx, phrase in enumerate(phrases):
+        seg_data = {
+            "id": idx + 1,
+            "speaker": phrase.get("speaker", "SPEAKER_00"),
+            "start": phrase["start"],
+            "end": phrase["end"],
+            "start_timecode": format_timecode(phrase["start"]),
+            "end_timecode": format_timecode(phrase["end"]),
+            "duration": round(max(0.1, phrase["end"] - phrase["start"]), 3),
+            "text": phrase["text"],
+            "words": phrase.get("words", []),
+        }
+        final_segments.append(seg_data)
+
+        # Envoi en direct vers Java pour affichage dans le tableau
+        print_segment(seg_data)
+
+    print_progress(98, 100, "Sauvegarde du rapport final...")
+
+    # ── Écriture du JSON principal pour injection OmeRyth ──
+    output_payload = {"segments": final_segments}
+    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+    with open(args.output, "w", encoding="utf-8") as f:
+        json.dump(output_payload, f, ensure_ascii=False, indent=2)
+
+    # ── Écriture du rapport détaillé ──
+    processing_time = round(time.time() - start_time, 2)
+    report_payload = {
+        "metadata": {
+            "engine": "OmeRyth STT (faster-whisper + Silero VAD + Word Timestamps)",
+            "audio_file": os.path.abspath(args.audio),
+            "model": model_name,
+            "language": detected_lang,
+            "device": "cpu",
+            "compute_type": "int8",
+            "threads": cpu_threads,
+            "total_segments": len(final_segments),
+            "total_words": len(all_words),
+            "raw_whisper_segments": raw_segment_count,
+            "processing_time_seconds": processing_time,
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        },
+        "full_transcript": " ".join(s["text"] for s in final_segments),
+        "segments": final_segments,
+    }
+
+    os.makedirs(os.path.dirname(os.path.abspath(args.report)), exist_ok=True)
+    with open(args.report, "w", encoding="utf-8") as f:
+        json.dump(report_payload, f, ensure_ascii=False, indent=2)
+
+    print_progress(100, 100, f"Transcription terminée ! {len(final_segments)} répliques détectées en {processing_time}s")
+
+
+if __name__ == "__main__":
+    main()

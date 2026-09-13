@@ -23,6 +23,7 @@ public class MainWindowEventBinder {
     public void bind(JFrame frame,
                      TimelinePanel timelinePanel,
                      KeyBoardListener keyBoardListener,
+                     ActionHistoryService actionHistoryService,
                      Consumer<MouseWheelEvent> wheelHandler,
                      Runnable onWindowClosing) {
 
@@ -49,6 +50,17 @@ public class MainWindowEventBinder {
             Component src = mwe.getComponent();
             if (src == null) return;
             if (!SwingUtilities.isDescendingFrom(src, frame) && src != frame) return;
+
+            // Ne pas intercepter la molette si la souris se trouve sur le panneau d'historique ou un JScrollPane
+            if (actionHistoryService != null && actionHistoryService.isHistoryComponent(src)) {
+                return;
+            }
+            if (src instanceof javax.swing.JScrollPane || src instanceof javax.swing.JScrollBar
+                    || SwingUtilities.getAncestorOfClass(javax.swing.JScrollPane.class, src) != null) {
+                return;
+            }
+
+            mwe.consume();
             wheelHandler.accept(mwe);
         }, AWTEvent.MOUSE_WHEEL_EVENT_MASK);
 
@@ -83,6 +95,14 @@ public class MainWindowEventBinder {
                 onWindowClosing.run();
             }
         });
+    }
+
+    public void bind(JFrame frame,
+                     TimelinePanel timelinePanel,
+                     KeyBoardListener keyBoardListener,
+                     Consumer<MouseWheelEvent> wheelHandler,
+                     Runnable onWindowClosing) {
+        bind(frame, timelinePanel, keyBoardListener, null, wheelHandler, onWindowClosing);
     }
 
     private boolean isFromMainOrOwnedWindow(JFrame frame, Component src) {

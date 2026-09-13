@@ -1,24 +1,30 @@
 # OmeRyth
 
-## 🎉 Version 1.0 - INTERFACE COMPLÈTEMENT SIMPLIFIÉE !
+## 🚀 Version 1.2 — Export Vidéo Ultra-Rapide, Format Mobile, IA Demucs & Association Windows
 
-La prise en main d'OmeRyth a été **révolutionnée** pour être **500% plus facile** !
+La version 1.2 d'OmeRyth apporte des performances industrielles et une intégration complète au système d'exploitation :
 
-### ✨ Nouveautés principales :
-- ✅ **Page d'accueil simplifiée** avec 3 boutons clairs
-- ✅ **Assistant de création pas-à-pas** (3 étapes guidées)
-- ✅ **Tutoriel interactif complet** en 8 étapes
-- ✅ **Menu drastiquement réduit** (80% moins d'options)
-- ✅ **5 raccourcis clavier essentiels** seulement (au lieu de 15+)
-- ✅ **Barre d'outils visuelle** pour les actions principales
-- ✅ **Présets de rôles** (Chanteur, Danseur, Narrateur, Duo, Trio, Quartet)
-- ✅ **Onboarding automatique** au premier lancement
-
-📖 **Lire le guide complet** : [SIMPLIFICATION_GUIDE.md](SIMPLIFICATION_GUIDE.md)
+### ✨ Nouveautés majeures :
+- ⚡ **Export Vidéo Ultra-Rapide (Streaming Mémoire Direct)** : Le moteur vidéo n'écrit plus aucun fichier temporaire sur le disque. Les frames sont transmises en temps réel via un pipe RAM directement à FFmpeg avec accélération matérielle GPU (**NVIDIA NVENC, AMD AMF, Intel QSV**) ou CPU multi-cœurs. Un export de 8 minutes passe de ~30 minutes à quelques dizaines de secondes !
+- 📱 **Format Mobile Direct (1080×1920 — 9:16)** : Un seul clic pour basculer en format vertical pour **TikTok, Instagram Reels et YouTube Shorts** avec ajustement automatique de la vidéo 16:9 au centre et de la bande rythmo en dessous.
+- 🎤 **Séparation Vocale IA Demucs (Facebook Research)** : Suppression chirurgicale des dialogues et voix tout en préservant la musique, les bruitages et les ambiances acoustiques grâce au modèle officiel HTDemucs.
+- 🏷️ **Association Officielle des Fichiers `.rythmo`** : Les fichiers `.rythmo` arborent désormais le logo officiel OmeRyth dans l'Explorateur Windows et s'ouvrent directement au double-clic !
+- 📜 **Compatibilité Professionnelle DETX (Cappella)** : Import et export fidèles des fichiers de doublage cinéma/TV avec synchronisation labiale (lipsync FVR, MPB, voyelles ouvertes, neutres).
+- 🎨 **Ergonomie & Lisibilité Accrue** : Textes des boutons écrits en noir sur fond contrasté, ouverture instantanée des fichiers via `NativeDialog.exe` (dialogue natif Windows 10/11 sans latence).
+- 🌊 **Waveform Audio Vocale** : Visualisation en direct de l'onde sonore sous la bande rythmo (`Ctrl+W`).
 
 ---
 
-## Update Log
+## 📋 Journal des Mises à Jour (Update Log)
+
+### 2026-09-14 — Version 1.2 : Export Rapide, Format Mobile, IA Demucs & Windows Integration
+- ⚡ Rendu vidéo en streaming RAM direct sans disques I/O intermédiaires
+- 📱 Boutons et préréglages 1080×1920 (9:16) dans l'atelier d'export et de montage
+- 🎤 Intégration du worker Demucs IA (`htdemucs`) pour l'isolation vocale doublage/karaoké
+- 🏷️ Service d'association Windows automatique (`FileAssociationService`), `logo.ico` multi-tailles (16px à 256px) et `associer_fichiers_rythmo.bat`
+- 📂 Gestion de l'ouverture de projet en argument de ligne de commande (double-clic Windows Explorer)
+- 🎨 Textes des boutons stylisés en noir pour un contraste maximal
+- 📜 Import/Export DETX complet (Cappella) avec détection et conservation des signes
 
 ### 2026-08-23 — Version 1.0 : Simplification UI/UX Complète
 - 🎨 Nouvelle page d'accueil avec boutons simples
@@ -30,92 +36,55 @@ La prise en main d'OmeRyth a été **révolutionnée** pour être **500% plus fa
 - 🎭 Présets de rôles prédéfinis
 - 👋 Onboarding automatique au premier lancement
 
-### 2026-08-23 - Version 0.5 : Fix de bug
-- Liste bugs fix
-	- Création d'un fichier sans vidéo
-	- Désynchronisation des bandes
-	- Chronomètre non fixe
-	- Vidéo non affichée
-
-### 2026-05-31 — Ajout du tutoriel
-- Ajout d'un tutoriel interactif (fenêtre Next/Back) couvrant :
-	- Fichiers (ouvrir/sauvegarder, glisser-déposer)
-	- Édition (édition de phrases, séparateurs internes)
-	- Paramètres (personnalisation des bandes, police)
-	- Raccourcis (configuration des touches)
-	- Astuces (autosave, annuler/rétablir)
+### 2026-08-23 — Version 0.5 : Fix de bugs
+- Création d'un fichier sans vidéo
+- Résolution des désynchronisations de bandes
+- Stabilisation du chronomètre
+- Affichage vidéo fiable
 
 ---
 
-## Description
+## 📖 Description
 
-OmeRyth est un outil professionnel de synchronisation de **rythme et typographie**.
+OmeRyth est un logiciel professionnel de création et synchronisation de **bandes rythmo pour le doublage, la post-synchronisation et le karaoké**.
 
-Synchronisez votre texte avec la musique ou la vidéo pour créer des contenus visuels impressionnants !
+Synchronisez facilement le texte, les signes de synchronisation labiale et la vidéo pour un doublage précis et confortable des comédiens.
 
-## Fonctionnalités principales
+---
 
-✅ **Synchronisation facile**
-- Importez une vidéo/audio
-- Divisez en bandes (lignes de texte)
-- Synchronisez avec la musique
+## 📦 Fichiers Volumineux & Dépendances Externes
 
-✅ **Gestion des rôles**
-- Assignez des rôles aux bandes (Chanteur, Danseur, etc.)
-- Personnalisez les couleurs
-- Utilisez des présets prédéfinis
-
-✅ **Interface intuitive**
-- Page d'accueil claire
-- Menu simplifié
-- Barre d'outils visuelle
-- Raccourcis clavier essentiels
-
-✅ **Sauvegarde et export**
-- Autosave intégré
-- Annuler/Rétablir
-- Export en vidéo
-
-## Installation
-
-> ⚠️ **Dépendances non incluses dans le repo (trop volumineuses)**
+> ⚠️ **Fichiers exclus du dépôt Git (> 100 Mo ou générés localement)**
 >
-> Les dossiers suivants **ne sont pas sur GitHub** et doivent être obtenus séparément puis placés à la racine du projet :
+> Pour respecter les limites de GitHub (fichiers plafonnés à 100 Mo) et garder un dépôt Git léger, les composants suivants ne sont pas versionnés dans le dépôt :
 >
-> | Dossier | Description | Source |
-> |---------|-------------|--------|
-> | `jre/`  | Java Runtime Environment (JRE 17+) | [Adoptium](https://adoptium.net/) — extraire dans `jre/` |
-> | `vlc/`  | Bibliothèques VLC (libvlc) | [VideoLAN](https://www.videolan.org/vlc/) — copier le contenu de VLC dans `vlc/` |
-> | `libs/` | JARs de dépendances (vlcj, etc.) | Demander au contributeur ou voir `run.bat` |
-> | `ffmpeg/` | Binaires FFmpeg | [ffmpeg.org](https://ffmpeg.org/download.html) — placer `ffmpeg.exe`, `ffprobe.exe` dans `ffmpeg/` |
->
-> Une fois ces dossiers en place, la structure racine doit ressembler à :
-> ```
-> OmeRyth/
-> ├── src/         ← code source (dans le repo)
-> ├── jre/         ← à ajouter manuellement
-> ├── vlc/         ← à ajouter manuellement
-> ├── libs/        ← à ajouter manuellement
-> ├── ffmpeg/      ← à ajouter manuellement
-> ├── run.bat      ← script de lancement
-> └── ...
-> ```
+> | Dossier / Fichier | Taille approx. | Raison & Emplacement |
+> |-------------------|----------------|----------------------|
+> | `OmeRyth_Portable.zip` | ~208 Mo | Archive portable complète générée via `creer_zip_portable.bat` |
+> | `whisper/` | ~2.7 Go | Cache et poids neuronaux IA (téléchargés automatiquement par Demucs / WhisperX à la première extraction) |
+> | `ffmpeg/` | ~120 Mo | Binaires FFmpeg pour l'encodage vidéo |
+> | `vlc/` | ~80 Mo | Bibliothèques libvlc et codecs |
+> | `jre/` | ~150 Mo | Runtime Java 17 portable |
+> | `temp/` & `scratch/` | Variable | Fichiers de travail et de rendu temporaires |
 
-### Étapes
+Une fois les dépendances nécessaires installées ou récupérées :
+```
+OmeRyth/
+├── src/                      ← Code source Java (dans le repo Git)
+├── whisperx_engine/          ← Workers Python IA Demucs / WhisperX (dans le repo Git)
+├── logo.ico                  ← Icône Windows officielle du logo (dans le repo Git)
+├── NativeDialog.exe          ← Helper natif dialogue Windows (dans le repo Git)
+├── associer_fichiers_rythmo.bat ← Script d'association d'icône Windows (dans le repo Git)
+├── creer_zip_portable.bat    ← Script de création de l'archive portable (dans le repo Git)
+├── libs/                     ← Bibliothèques JAR (vlcj, etc.)
+├── ffmpeg/                   ← Binaires ffmpeg.exe, ffprobe.exe
+├── vlc/                      ← Dossier plugins et bibliothèques VLC
+└── jre/                      ← Runtime Java
+```
 
-1. Clonez le repository : `git clone <url>`
-2. Ajoutez les dossiers manquants (voir tableau ci-dessus)
-3. Compilez le projet Java avec votre IDE (IntelliJ, Eclipse…) ou via `run.bat`
-4. Exécutez `MainFenetre.main()`
-5. Le tutoriel s'affichera automatiquement au premier lancement !
+---
 
-## Utilisation Rapide
-
-### Première utilisation
-1. Lancez l'application
-2. Cliquez sur **"Tutoriel Interactif"** (recommandé)
-3. Cliquez sur **"Nouveau Projet"**
-4. Suivez les 3 étapes simples
+## ⚡ Utilisation Rapide
 
 ### Raccourcis clavier essentiels
 ```
@@ -124,28 +93,24 @@ ESPACE          = Lecture / Arrêt
 R               = Retour au début
 M               = Ajouter séparateur
 CTRL+Z / Y      = Annuler / Rétablir
+CTRL+W          = Afficher / Masquer la Waveform
 ```
-(possibilité de les changer sur l'application)
+*(Personnalisables à tout moment dans le menu Paramètre > Touches)*
 
-### Actions principales
-- **Fichier** : Nouveau, Ouvrir, Sauvegarder, Exporter
-- **Édition** : Annuler, Rétablir
-- **Affichage** : Afficher/masquer séparateurs et graduations
-- **Aide** : Tutoriel, Raccourcis, À propos
-
-## Contributeurs
-
-- **Kripy** - Développeur (v2.0 : Simplification UI/UX)
-- **Ometitz** - Owner et producteur
-
-## Licence
-
-OmeRyth - Tous droits réservés
+### Formats supportés
+- **Projets OmeRyth** : `.rythmo`, `autosave.rythmo.json`
+- **Doublage professionnel** : `.detx` (Cappella)
+- **Vidéos & Audios** : MP4, MKV, MOV, AVI, MP3, WAV, FLAC, AAC
 
 ---
 
-## 🚀 Prêt à démarrer ?
+## 👥 Contributeurs
 
-Lancez l'application et profitez de l'expérience simplifiée !
+- **Kripy** — Développeur
+- **Ometitz** — Owner et producteur
 
-💡 **Astuce** : Le tutoriel s'ouvre automatiquement au premier lancement. Profitez-en ! 📚
+---
+
+## 📄 Licence
+
+OmeRyth — Tous droits réservés.

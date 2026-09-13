@@ -4,11 +4,14 @@ import java.awt.Toolkit;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
+import java.io.File;
 import java.util.ArrayList;
 import app.utils.TimerClass;
+import app.MainFenetre;
 import app.ui.TimelinePanel;
 import app.ui.Role;
 import app.ui.RoleWindow;
+import app.ui.SeparatorMark;
 import uk.co.caprica.vlcj.player.component.EmbeddedMediaPlayerComponent;
 
 public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreationListener {
@@ -24,6 +27,12 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
     private int separateurKeyCode;
     private int zoomInKeyCode;
     private int zoomOutKeyCode;
+    private int finPhraseKeyCode = KeyEvent.VK_NUMPAD3;
+    private int signeMpbKeyCode = KeyEvent.VK_NUMPAD4;
+    private int signeFvrKeyCode = KeyEvent.VK_NUMPAD5;
+    private int signeNeutralKeyCode = KeyEvent.VK_NUMPAD6;
+    private int signeVoyelleKeyCode = KeyEvent.VK_NUMPAD7;
+    private int signeRespirationKeyCode = KeyEvent.VK_NUMPAD8;
     private boolean skipNextTyped = false;
     private TimelinePanel timelinePanel;
     
@@ -41,6 +50,33 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         ArrayList<Role> roles,
         java.awt.Component parentComponent
     ) {
+        this(panel, timer, mediaPlayerComponent, marcheArretKeyCode, avanceMSKeyCode, reculerMSKeyCode,
+             retourDebutKeyCode, separateurKeyCode, zoomInKeyCode, zoomOutKeyCode,
+             KeyEvent.VK_NUMPAD3, KeyEvent.VK_NUMPAD4, KeyEvent.VK_NUMPAD5,
+             KeyEvent.VK_NUMPAD6, KeyEvent.VK_NUMPAD7, KeyEvent.VK_NUMPAD8,
+             roles, parentComponent);
+    }
+
+    public KeyBoardListener(
+        TimelinePanel panel,
+        TimerClass timer,
+        EmbeddedMediaPlayerComponent mediaPlayerComponent,
+        int marcheArretKeyCode,
+        int avanceMSKeyCode,
+        int reculerMSKeyCode,
+        int retourDebutKeyCode,
+        int separateurKeyCode,
+        int zoomInKeyCode,
+        int zoomOutKeyCode,
+        int finPhraseKeyCode,
+        int signeMpbKeyCode,
+        int signeFvrKeyCode,
+        int signeNeutralKeyCode,
+        int signeVoyelleKeyCode,
+        int signeRespirationKeyCode,
+        ArrayList<Role> roles,
+        java.awt.Component parentComponent
+    ) {
         this.timelinePanel = panel;
         this.timer = timer;
         this.mediaPlayerComponent = mediaPlayerComponent;
@@ -51,10 +87,23 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         this.separateurKeyCode = separateurKeyCode;
         this.zoomInKeyCode = zoomInKeyCode;
         this.zoomOutKeyCode = zoomOutKeyCode;
+        this.finPhraseKeyCode = finPhraseKeyCode;
+        this.signeMpbKeyCode = signeMpbKeyCode;
+        this.signeFvrKeyCode = signeFvrKeyCode;
+        this.signeNeutralKeyCode = signeNeutralKeyCode;
+        this.signeVoyelleKeyCode = signeVoyelleKeyCode;
+        this.signeRespirationKeyCode = signeRespirationKeyCode;
         this.roles = roles;
         this.parentComponent = parentComponent;
         panel.setPhraseCreationListener(this);
     }
+
+    public void setFinPhraseKeyCode(int keyCode) { this.finPhraseKeyCode = keyCode; }
+    public void setSigneMpbKeyCode(int keyCode) { this.signeMpbKeyCode = keyCode; }
+    public void setSigneFvrKeyCode(int keyCode) { this.signeFvrKeyCode = keyCode; }
+    public void setSigneNeutralKeyCode(int keyCode) { this.signeNeutralKeyCode = keyCode; }
+    public void setSigneVoyelleKeyCode(int keyCode) { this.signeVoyelleKeyCode = keyCode; }
+    public void setSigneRespirationKeyCode(int keyCode) { this.signeRespirationKeyCode = keyCode; }
 
     public void setZoomInKeyCode(int keyCode) {
         this.zoomInKeyCode = keyCode;
@@ -85,9 +134,95 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
     }
 
     public boolean dispatchKeyEvent(KeyEvent e) {
+        // ★ Séparateur standard (M ou configuré)
+        if (e.getKeyCode() == separateurKeyCode) {
+            skipNextTyped = true;
+            int band = timelinePanel.getSelectedBand();
+            if (band < 0) {
+                band = 0;
+            }
+            timelinePanel.addSeparatorAtCursor(band);
+            e.consume();
+            return true;
+        }
+
+        // ★ Fin de phrase (Pavé numérique 3 par défaut ou touche configurée)
+        if (e.getKeyCode() == finPhraseKeyCode || (e.getKeyCode() == KeyEvent.VK_NUMPAD3 && finPhraseKeyCode == KeyEvent.VK_NUMPAD3)) {
+            skipNextTyped = true;
+            int band = timelinePanel.getSelectedBand();
+            if (band < 0) band = 0;
+            timelinePanel.endPhraseAtCursor(band);
+            e.consume();
+            return true;
+        }
+
+        // ★ Labiale MPB (Pavé numérique 4 par défaut ou touche configurée)
+        if (e.getKeyCode() == signeMpbKeyCode || (e.getKeyCode() == KeyEvent.VK_NUMPAD4 && signeMpbKeyCode == KeyEvent.VK_NUMPAD4)) {
+            skipNextTyped = true;
+            int band = timelinePanel.getSelectedBand();
+            if (band < 0) band = 0;
+            timelinePanel.addSeparatorAtCursor(band, SeparatorMark.SignType.MPB);
+            e.consume();
+            return true;
+        }
+
+        // ★ Demi-labiale / Dentale FVR (Pavé numérique 5 par défaut ou touche configurée)
+        if (e.getKeyCode() == signeFvrKeyCode || (e.getKeyCode() == KeyEvent.VK_NUMPAD5 && signeFvrKeyCode == KeyEvent.VK_NUMPAD5)) {
+            skipNextTyped = true;
+            int band = timelinePanel.getSelectedBand();
+            if (band < 0) band = 0;
+            timelinePanel.addSeparatorAtCursor(band, SeparatorMark.SignType.FVR);
+            e.consume();
+            return true;
+        }
+
+        // ★ Consonne neutre (Pavé numérique 6 par défaut ou touche configurée)
+        if (e.getKeyCode() == signeNeutralKeyCode || (e.getKeyCode() == KeyEvent.VK_NUMPAD6 && signeNeutralKeyCode == KeyEvent.VK_NUMPAD6)) {
+            skipNextTyped = true;
+            int band = timelinePanel.getSelectedBand();
+            if (band < 0) band = 0;
+            timelinePanel.addSeparatorAtCursor(band, SeparatorMark.SignType.NEUTRAL);
+            e.consume();
+            return true;
+        }
+
+        // ★ Grande ouverture A / voyelles (Pavé numérique 7 par défaut ou touche configurée)
+        if (e.getKeyCode() == signeVoyelleKeyCode || (e.getKeyCode() == KeyEvent.VK_NUMPAD7 && signeVoyelleKeyCode == KeyEvent.VK_NUMPAD7)) {
+            skipNextTyped = true;
+            int band = timelinePanel.getSelectedBand();
+            if (band < 0) band = 0;
+            timelinePanel.addSeparatorAtCursor(band, SeparatorMark.SignType.OPEN_A);
+            e.consume();
+            return true;
+        }
+
+        // ★ Signe Respiration / Souffle h/ (Pavé numérique 8 par défaut ou touche configurée)
+        if (e.getKeyCode() == signeRespirationKeyCode || (e.getKeyCode() == KeyEvent.VK_NUMPAD8 && signeRespirationKeyCode == KeyEvent.VK_NUMPAD8)) {
+            skipNextTyped = true;
+            if (timelinePanel.isEditing()) {
+                timelinePanel.pasteText("h/ ");
+            } else {
+                int band = timelinePanel.getSelectedBand();
+                if (band < 0) band = 0;
+                timelinePanel.addSeparatorAtCursor(band, SeparatorMark.SignType.RESPIRATION);
+            }
+            e.consume();
+            return true;
+        }
+
+        // ★ Basculer l'affichage de la waveform (Ctrl+W)
+        if ((e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0 && e.getKeyCode() == KeyEvent.VK_W) {
+            skipNextTyped = true;
+            if (parentComponent instanceof MainFenetre) {
+                ((MainFenetre) parentComponent).toggleWaveformVisible();
+            } else {
+                timelinePanel.setWaveformVisible(!timelinePanel.isWaveformVisible());
+            }
+            e.consume();
+            return true;
+        }
+
         // En mode édition : seules les touches d'édition et raccourcis Ctrl sont actives.
-        // La touche séparateur et toutes les autres touches spéciales sont neutralisées
-        // pour ne pas interférer avec la saisie de texte.
         if (timelinePanel.isEditing()) {
 
             // Undo / Redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y) — autorisés en édition
@@ -114,18 +249,7 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
             // On tombe directement dessus (pas de return false ici).
 
         } else {
-            // Hors mode édition : séparateur, undo/redo, zoom, et commandes de lecture actives.
-
-            // ★ Séparateur — uniquement hors mode édition
-            if (e.getKeyCode() == separateurKeyCode) {
-                int band = timelinePanel.getSelectedBand();
-                skipNextTyped = true;
-                if (band != -1) {
-                    timelinePanel.addSeparatorAtCursor(band);
-                }
-                e.consume();
-                return true;
-            }
+            // Hors mode édition : undo/redo, zoom, et commandes de lecture actives.
 
             // Undo / Redo
             if ((e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) {
@@ -260,6 +384,7 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         
         // ===== Marche / Arrêt =====
         if (e.getKeyCode() == marcheArretKeyCode) {
+            skipNextTyped = true;
             togglePlayback();
             e.consume();
             return true;
@@ -267,6 +392,7 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
 
         // ===== Avancer / Reculer =====
         if (e.getKeyCode() == avanceMSKeyCode || e.getKeyCode() == reculerMSKeyCode) {
+            skipNextTyped = true;
             boolean forward = e.getKeyCode() == avanceMSKeyCode;
             boolean ctrl = (e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0;
             boolean shift = (e.getModifiersEx() & KeyEvent.SHIFT_DOWN_MASK) != 0;
@@ -290,13 +416,12 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
 
         // ===== Retour au début =====
         else if (e.getKeyCode() == retourDebutKeyCode) {
-            timer.reset();
-            if (mediaPlayerComponent != null) {
-                mediaPlayerComponent.mediaPlayer().controls().setTime(0);
-                if (mediaPlayerComponent.mediaPlayer().status().isPlaying()) {
-                    mediaPlayerComponent.mediaPlayer().controls().pause();
-                }
+            skipNextTyped = true;
+            if (timer.isRunning()) {
+                timer.toggle();
             }
+            timer.reset();
+            safeSeekAndPause(0);
             e.consume();
             return true;
         }
@@ -315,6 +440,11 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
     public void keyTyped(KeyEvent e) {
         if (skipNextTyped) {
             skipNextTyped = false;
+            e.consume();
+            return;
+        }
+        if (!timelinePanel.isEditing()) {
+            e.consume();
             return;
         }
         char c = e.getKeyChar();
@@ -346,47 +476,117 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         timelinePanel.requestFocusInWindow();
     }
 
-    private void togglePlayback() {
+    public void togglePlayback() {
         togglePlayback(1);
     }
 
-    private void togglePlayback(int direction) {
-        if (mediaPlayerComponent != null) {
-            float rate = direction >= 0 ? 1.0f : -1.0f;
-            boolean playing = mediaPlayerComponent.mediaPlayer().status().isPlaying();
-            if (playing) {
-                if (timer.getDirection() == direction) {
-                    // On pause : d'abord stopper VLC, puis toggler le timer (qui arrondit le temps),
-                    // puis resynchroniser VLC sur le temps arrondi du timer.
-                    mediaPlayerComponent.mediaPlayer().controls().pause();
+    public void togglePlayback(int direction) {
+        if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+            try {
+                var mp = mediaPlayerComponent.mediaPlayer();
+                float rate = direction >= 0 ? 1.0f : -1.0f;
+                var state = mp.status().state();
+
+                if (timer.isRunning()) {
+                    // On met en pause : stopper le timer et VLC
                     timer.toggle(direction);
-                    mediaPlayerComponent.mediaPlayer().controls().setTime((long) (timer.getTime() * 1000));
-                    return; // déjà togglé, on sort
+                    if (mp.status().isPlaying()) {
+                        mp.controls().pause();
+                    }
+                    mp.controls().setTime((long) (timer.getTime() * 1000));
                 } else {
-                    mediaPlayerComponent.mediaPlayer().controls().setRate(rate);
+                    // On démarre la lecture
+                    long targetMs = (long) (timer.getTime() * 1000);
+                    if (state == uk.co.caprica.vlcj.player.base.State.ENDED || state == uk.co.caprica.vlcj.player.base.State.STOPPED) {
+                        String path = getMediaFilePath();
+                        if (path != null) {
+                            mp.media().play(path, ":start-time=" + (targetMs / 1000.0));
+                        } else {
+                            mp.controls().play();
+                        }
+                        mp.controls().setRate(rate);
+                        mp.controls().setTime(targetMs);
+                    } else {
+                        mp.controls().setRate(rate);
+                        mp.controls().setTime(targetMs);
+                        mp.controls().play();
+                    }
+                    timer.toggle(direction);
                 }
-            } else {
-                // On démarre : synchroniser VLC sur le timer, puis lancer la lecture.
-                mediaPlayerComponent.mediaPlayer().controls().setRate(rate);
-                mediaPlayerComponent.mediaPlayer().controls().setTime((long) (timer.getTime() * 1000));
-                mediaPlayerComponent.mediaPlayer().controls().play();
+            } catch (Throwable t) {
+                timer.toggle(direction);
             }
+        } else {
+            timer.toggle(direction);
         }
-        timer.toggle(direction);
     }
 
-    private void seekTime(double deltaSeconds) {
+    public void seekTime(double deltaSeconds) {
         if (deltaSeconds == 0) return;
         if (timer.isRunning()) {
             timer.toggle();
         }
 
-        timer.addTime(deltaSeconds);
-        if (timer.getTime() < 0) {
-            timer.reset();
+        // Toujours caler sur les graduations exactes de 0.1s (1 marquage par 1 marquage)
+        long currentTenths = Math.round(timer.getTime() * 10.0);
+        long deltaTenths = Math.round(deltaSeconds * 10.0);
+        if (deltaTenths == 0) {
+            deltaTenths = deltaSeconds > 0 ? 1L : -1L;
         }
-        if (mediaPlayerComponent != null) {
-            mediaPlayerComponent.mediaPlayer().controls().setTime((long) (timer.getTime() * 1000));
+        double targetSec = Math.max(0.0, (currentTenths + deltaTenths) / 10.0);
+        timer.setTime(targetSec);
+
+        safeSeekAndPause((long) (targetSec * 1000));
+    }
+
+    public void seekToTime(double targetSeconds) {
+        if (timer.isRunning()) {
+            timer.toggle();
         }
+
+        // Toujours caler sur les graduations exactes de 0.1s (1 marquage par 1 marquage)
+        double targetSec = Math.max(0.0, Math.round(targetSeconds * 10.0) / 10.0);
+        timer.setTime(targetSec);
+
+        safeSeekAndPause((long) (targetSec * 1000));
+    }
+
+    private void safeSeekAndPause(long targetMs) {
+        if (mediaPlayerComponent == null || mediaPlayerComponent.mediaPlayer() == null) return;
+        try {
+            var mp = mediaPlayerComponent.mediaPlayer();
+            var state = mp.status().state();
+            if (state == uk.co.caprica.vlcj.player.base.State.ENDED || state == uk.co.caprica.vlcj.player.base.State.STOPPED) {
+                String path = getMediaFilePath();
+                if (path != null) {
+                    mp.media().startPaused(path, ":start-time=" + (targetMs / 1000.0));
+                    mp.controls().setTime(targetMs);
+                } else {
+                    mp.controls().play();
+                    mp.controls().setTime(targetMs);
+                    mp.controls().pause();
+                }
+            } else {
+                if (mp.status().isPlaying()) {
+                    mp.controls().pause();
+                }
+                mp.controls().setTime(targetMs);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private String getMediaFilePath() {
+        if (parentComponent instanceof app.MainFenetre) {
+            File f = ((app.MainFenetre) parentComponent).getFichierSelectionne();
+            if (f != null && f.exists()) return f.getAbsolutePath();
+        }
+        if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+            try {
+                if (mediaPlayerComponent.mediaPlayer().media().info() != null) {
+                    return mediaPlayerComponent.mediaPlayer().media().info().mrl();
+                }
+            } catch (Throwable ignored) {}
+        }
+        return null;
     }
 }

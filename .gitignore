@@ -1,4 +1,4 @@
-﻿# ===== Distribution / Packaging (trop lourds ou inutiles pour le code) =====
+# ===== Distribution / Packaging (trop lourds ou inutiles pour le code) =====
 dist/
 OmeRyth/
 OmeRyth.exe
@@ -12,8 +12,18 @@ launch4j-config.xml
 launch4j.log
 *.gitattributes
 
-# ===== Fichiers > 100 MB =====
+# ===== Fichiers > 100 MB et Packages Volumineux =====
 ffmpeg/ffmpeg.exe
+*.zip
+OmeRyth_Portable.zip
+
+# ===== Modèles et caches IA lourds (plusieurs Go, téléchargés à la demande) =====
+whisper/
+temp/
+scratch/
+__pycache__/
+*.pyc
+.src_files.txt
 
 # ===== Fichiers compilés =====
 *.class

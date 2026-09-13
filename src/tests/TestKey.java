@@ -1,6 +1,7 @@
+package tests;
+
 import javax.swing.*;
 import java.awt.*;
-import java.awt.geom.RoundRectangle2D;
 
 public class TestKey {
     public static void main(String[] args) {

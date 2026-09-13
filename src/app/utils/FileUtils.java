@@ -122,6 +122,9 @@ public class FileUtils {
         c.globalBandImagePath = props.getProperty("globalBandImagePath", c.globalBandImagePath);
         c.perBandImagePaths = props.getProperty("perBandImagePaths", c.perBandImagePaths);
         c.timelineFontFamily = props.getProperty("timelineFontFamily", c.timelineFontFamily);
+        c.showWaveform = Boolean.parseBoolean(props.getProperty("showWaveform", String.valueOf(c.showWaveform)));
+        c.waveformColor = parseColor(props.getProperty("waveformColor"), c.waveformColor);
+        c.defaultProjectFormat = props.getProperty("defaultProjectFormat", c.defaultProjectFormat);
         return c;
     }
 
@@ -154,6 +157,9 @@ public class FileUtils {
         props.setProperty("globalBandImagePath", safe(c.globalBandImagePath));
         props.setProperty("perBandImagePaths", safe(c.perBandImagePaths));
         props.setProperty("timelineFontFamily", safe(c.timelineFontFamily));
+        props.setProperty("showWaveform", Boolean.toString(c.showWaveform));
+        props.setProperty("waveformColor", Integer.toString(c.waveformColor.getRGB()));
+        props.setProperty("defaultProjectFormat", safe(c.defaultProjectFormat));
 
         try (FileOutputStream fos = new FileOutputStream(CUSTOMIZATION_FILE)) {
             props.store(fos, "App customization");
@@ -215,6 +221,23 @@ public class FileUtils {
         }
     }
 
+    /**
+     * Charge le volume sonore sauvegardé (0 à 100). Défaut: 100.
+     */
+    public static int loadVolume() {
+        Properties props = loadAppState();
+        return parseInt(props.getProperty("volume"), 100);
+    }
+
+    /**
+     * Sauvegarde le volume sonore dans appstate.properties.
+     */
+    public static void saveVolume(int volume) {
+        Properties props = loadAppState();
+        props.setProperty("volume", String.valueOf(Math.max(0, Math.min(100, volume))));
+        saveAppState(props);
+    }
+
     private static int parseInt(String value, int fallback) {
         try {
             return Integer.parseInt(value);
@@ -236,25 +259,167 @@ public class FileUtils {
     }
 
     public static File chooseOpenFile(Window parent, String title, String... extensions) {
-        String script = buildPowerShellOpenDialogScript(title, extensions);
-        return runPowerShellDialog(script);
+        String filter = buildOpenFilter(extensions);
+
+        // 1. Essai via le helper natif ultra-rapide (Microsoft.Win32.OpenFileDialog moderne)
+        File nativeExe = getNativeDialogExe();
+        if (nativeExe != null) {
+            File selected = runNativeDialog(nativeExe.getAbsolutePath(), "open", title, filter);
+            if (selected != null) return selected;
+        }
+
+        // 2. Repli PowerShell (même dialogue moderne Microsoft.Win32.OpenFileDialog)
+        try {
+            String psScript = buildPowerShellOpenDialogScript(title, filter);
+            File selected = runPowerShellDialog(psScript);
+            if (selected != null) return selected;
+        } catch (Throwable ignored) {}
+
+        // 3. Repli AWT FileDialog
+        if (!GraphicsEnvironment.isHeadless()) {
+            try {
+                FileDialog fd;
+                if (parent instanceof Frame) {
+                    fd = new FileDialog((Frame) parent, title, FileDialog.LOAD);
+                } else if (parent instanceof Dialog) {
+                    fd = new FileDialog((Dialog) parent, title, FileDialog.LOAD);
+                } else {
+                    fd = new FileDialog((Frame) null, title, FileDialog.LOAD);
+                }
+                if (extensions != null && extensions.length > 0) {
+                    fd.setFilenameFilter((dir, name) -> {
+                        String lower = name.toLowerCase(Locale.ROOT);
+                        for (String ext : extensions) {
+                            if (lower.endsWith("." + ext.toLowerCase(Locale.ROOT))) return true;
+                        }
+                        return false;
+                    });
+                }
+                fd.setVisible(true);
+                String file = fd.getFile();
+                String dir = fd.getDirectory();
+                if (file != null && dir != null) {
+                    return new File(dir, file);
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        // 4. Repli ultime JFileChooser
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle(title);
+        if (extensions != null && extensions.length > 0) {
+            chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                    "Fichiers supportes", extensions));
+        }
+        int res = chooser.showOpenDialog(parent);
+        return res == JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null;
     }
 
     public static File chooseSaveFile(Window parent, String title, String defaultExtension) {
-        String script = buildPowerShellSaveDialogScript(title, defaultExtension);
-        File selected = runPowerShellDialog(script);
-        if (selected == null) return null;
+        String filter = buildSaveFilter(defaultExtension);
+        String defExt = defaultExtension != null ? defaultExtension : "";
 
-        if (defaultExtension != null && !defaultExtension.isEmpty()) {
-            String ext = "." + defaultExtension.toLowerCase(Locale.ROOT);
-            if (!selected.getName().toLowerCase(Locale.ROOT).endsWith(ext)) {
-                selected = new File(selected.getAbsolutePath() + ext);
+        // 1. Essai via le helper natif ultra-rapide (Microsoft.Win32.SaveFileDialog moderne)
+        File nativeExe = getNativeDialogExe();
+        if (nativeExe != null) {
+            File selected = runNativeDialog(nativeExe.getAbsolutePath(), "save", title, filter, defExt);
+            if (selected != null) {
+                return ensureExtension(selected, defaultExtension);
             }
         }
-        return selected;
+
+        // 2. Repli PowerShell (même dialogue moderne Microsoft.Win32.SaveFileDialog)
+        try {
+            String psScript = buildPowerShellSaveDialogScript(title, filter);
+            File selected = runPowerShellDialog(psScript);
+            if (selected != null) {
+                return ensureExtension(selected, defaultExtension);
+            }
+        } catch (Throwable ignored) {}
+
+        // 3. Repli AWT FileDialog
+        if (!GraphicsEnvironment.isHeadless()) {
+            try {
+                FileDialog fd;
+                if (parent instanceof Frame) {
+                    fd = new FileDialog((Frame) parent, title, FileDialog.SAVE);
+                } else if (parent instanceof Dialog) {
+                    fd = new FileDialog((Dialog) parent, title, FileDialog.SAVE);
+                } else {
+                    fd = new FileDialog((Frame) null, title, FileDialog.SAVE);
+                }
+                if (defaultExtension != null && !defaultExtension.isEmpty()) {
+                    fd.setFile("*." + defaultExtension.toLowerCase(Locale.ROOT));
+                }
+                fd.setVisible(true);
+                String file = fd.getFile();
+                String dir = fd.getDirectory();
+                if (file != null && dir != null) {
+                    return ensureExtension(new File(dir, file), defaultExtension);
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        // 4. Repli ultime JFileChooser
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle(title);
+        if (defaultExtension != null && !defaultExtension.isEmpty()) {
+            chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                    defaultExtension.toUpperCase(Locale.ROOT) + " (*." + defaultExtension + ")", defaultExtension));
+        }
+        int res = chooser.showSaveDialog(parent);
+        if (res == JFileChooser.APPROVE_OPTION) {
+            return ensureExtension(chooser.getSelectedFile(), defaultExtension);
+        }
+        return null;
     }
 
-    private static String buildPowerShellOpenDialogScript(String title, String[] extensions) {
+    private static File ensureExtension(File file, String defaultExtension) {
+        if (file == null) return null;
+        if (defaultExtension != null && !defaultExtension.isEmpty()) {
+            String ext = "." + defaultExtension.toLowerCase(Locale.ROOT);
+            if (!file.getName().toLowerCase(Locale.ROOT).endsWith(ext)) {
+                return new File(file.getAbsolutePath() + ext);
+            }
+        }
+        return file;
+    }
+
+    private static File getNativeDialogExe() {
+        File[] candidates = new File[] {
+            new File("NativeDialog.exe"),
+            new File("bin/NativeDialog.exe"),
+            new File("OmeRyth/NativeDialog.exe")
+        };
+        for (File c : candidates) {
+            if (c.exists() && c.isFile()) return c;
+        }
+        return null;
+    }
+
+    private static File runNativeDialog(String... command) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(false);
+            Process p = pb.start();
+
+            BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8));
+            String line;
+            String result = null;
+            while ((line = reader.readLine()) != null) {
+                if (!line.trim().isEmpty()) {
+                    result = line.trim();
+                }
+            }
+            int exitCode = p.waitFor();
+            if (exitCode == 0 && result != null && !result.isEmpty()) {
+                return new File(result);
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private static String buildOpenFilter(String[] extensions) {
         StringBuilder filter = new StringBuilder("Fichiers supportes|");
         if (extensions != null && extensions.length > 0) {
             for (int i = 0; i < extensions.length; i++) {
@@ -265,21 +430,28 @@ public class FileUtils {
             filter.append("*.*");
         }
         filter.append("|Tous les fichiers|*.*");
+        return filter.toString();
+    }
 
+    private static String buildSaveFilter(String defaultExtension) {
+        if (defaultExtension != null && !defaultExtension.isEmpty()) {
+            String ext = defaultExtension.toLowerCase(Locale.ROOT);
+            return defaultExtension.toUpperCase(Locale.ROOT) + " (*." + ext + ")|*." + ext + "|Tous les fichiers|*.*";
+        }
+        return "Fichiers|*.*|Tous les fichiers|*.*";
+    }
+
+    private static String buildPowerShellOpenDialogScript(String title, String filter) {
         return "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n" +
                "Add-Type -AssemblyName PresentationFramework\n" +
                "$dlg = New-Object Microsoft.Win32.OpenFileDialog\n" +
                "$dlg.Title = '" + title.replace("'", "''") + "'\n" +
-               "$dlg.Filter = '" + filter.toString().replace("'", "''") + "'\n" +
+               "$dlg.Filter = '" + filter.replace("'", "''") + "'\n" +
                "$res = $dlg.ShowDialog()\n" +
                "if ($res -eq $true) { Write-Output $dlg.FileName }";
     }
 
-    private static String buildPowerShellSaveDialogScript(String title, String defaultExtension) {
-        String filter = "Fichiers|*.*";
-        if (defaultExtension != null && !defaultExtension.isEmpty()) {
-            filter = defaultExtension.toUpperCase() + "|*." + defaultExtension.toLowerCase() + "|Tous les fichiers|*.*";
-        }
+    private static String buildPowerShellSaveDialogScript(String title, String filter) {
         return "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n" +
                "Add-Type -AssemblyName PresentationFramework\n" +
                "$dlg = New-Object Microsoft.Win32.SaveFileDialog\n" +
@@ -291,11 +463,8 @@ public class FileUtils {
 
     private static File runPowerShellDialog(String script) {
         try {
-            // Encode en Base64 pour éviter les problèmes de guillemets dans la ligne de commande
             String b64 = java.util.Base64.getEncoder().encodeToString(script.getBytes("UTF-16LE"));
-            // On ajoute -Sta pour forcer le Single Thread Apartment (obligatoire pour WPF)
             ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Sta", "-EncodedCommand", b64);
-            // On ne redirige pas les erreurs (stderr) vers stdout pour éviter les parasites XML/CLIXML
             pb.redirectErrorStream(false);
             Process p = pb.start();
 
@@ -308,18 +477,13 @@ public class FileUtils {
                 }
             }
             p.waitFor();
-            
-            // Nettoyage des balises CLIXML résiduelles (au cas où powershell forcerait le format)
             if (result != null && result.contains("<Objs ")) {
                 result = null;
             }
-            
             if (result != null && !result.isEmpty()) {
                 return new File(result);
             }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        } catch (Exception ignored) {}
         return null;
     }
 }

@@ -25,14 +25,28 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
         JMenuItem ouvrir = new JMenuItem("📂 Ouvrir Projet");
         JMenuItem sauvegarder = new JMenuItem("💾 Sauvegarder");
         sauvegarder.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_DOWN_MASK));
-        
-        JMenuItem exporter = new JMenuItem("🎬 Exporter en vidéo");
+
+        // Sous-menu Exporter
+        JMenu menuExporter = new JMenu("📤 Exporter");
+        JMenuItem exportRythmo = new JMenuItem("📦 Exporter en .rythmo (OmeRyth)...");
+        JMenuItem exportDetx = new JMenuItem("📜 Exporter en .detx (Cappella)...");
+        JMenuItem exportVideo = new JMenuItem("🎬 Exporter en vidéo (Classique ou Montage)...");
+        JMenuItem exportAudioSansVoix = new JMenuItem("🎤 Exporter l'audio sans voix (Doublage / Karaoké)...");
+        exportRythmo.addActionListener(e -> mainFenetre.exporterRythmo());
+        exportDetx.addActionListener(e -> mainFenetre.exporterDetx());
+        exportVideo.addActionListener(e -> mainFenetre.exporterEnVideo());
+        exportAudioSansVoix.addActionListener(e -> mainFenetre.exporterAudioSansVoix());
+        menuExporter.add(exportRythmo);
+        menuExporter.add(exportDetx);
+        menuExporter.addSeparator();
+        menuExporter.add(exportVideo);
+        menuExporter.add(exportAudioSansVoix);
+
         JMenuItem quitter = new JMenuItem("❌ Quitter");
 
         nouveau.addActionListener(e -> mainFenetre.nouveauProjet(timelinePanel));
         ouvrir.addActionListener(e -> mainFenetre.ouvrirProjet(timelinePanel));
         sauvegarder.addActionListener(e -> mainFenetre.sauvegarderProjet(timelinePanel));
-        exporter.addActionListener(e -> mainFenetre.exporterEnVideo());
         quitter.addActionListener(e -> mainFenetre.quitterApplication());
 
         menuFichier.add(nouveau);
@@ -40,7 +54,7 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
         menuFichier.addSeparator();
         menuFichier.add(sauvegarder);
         menuFichier.addSeparator();
-        menuFichier.add(exporter);
+        menuFichier.add(menuExporter);
         menuFichier.addSeparator();
         menuFichier.add(quitter);
 
@@ -55,11 +69,31 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
         JMenuItem retablir = new JMenuItem("↷ Rétablir");
         retablir.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Y, InputEvent.CTRL_DOWN_MASK));
 
+        JMenuItem baisserSon = new JMenuItem("🔉 Baisser le son (-10%)");
+        JMenuItem monterSon = new JMenuItem("🔊 Monter le son (+10%)");
+        JMenuItem panneauSon = new JMenuItem("🎚️ Panneau de son (Slider)");
+
         annuler.addActionListener(e -> mainFenetre.undoAction());
         retablir.addActionListener(e -> mainFenetre.redoAction());
+        baisserSon.addActionListener(e -> mainFenetre.baisserSon());
+        monterSon.addActionListener(e -> mainFenetre.monterSon());
+        panneauSon.addActionListener(e -> mainFenetre.toggleVolumePanel());
 
         menuEdition.add(annuler);
         menuEdition.add(retablir);
+        menuEdition.addSeparator();
+        JMenuItem transcriptionItem = new JMenuItem("🎙️ Transcription Vocale (WhisperX)...");
+        transcriptionItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_T, java.awt.event.InputEvent.CTRL_DOWN_MASK));
+        transcriptionItem.addActionListener(e -> mainFenetre.ouvrirTranscriptionWhisperX());
+        menuEdition.add(transcriptionItem);
+        JMenuItem rolesItem = new JMenuItem("🎭 Rôles...");
+        rolesItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_R, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK));
+        rolesItem.addActionListener(e -> mainFenetre.ouvrirRoleWindow());
+        menuEdition.add(rolesItem);
+        menuEdition.addSeparator();
+        menuEdition.add(baisserSon);
+        menuEdition.add(monterSon);
+        menuEdition.add(panneauSon);
 
         add(menuEdition);
 
@@ -68,14 +102,19 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
         
         JCheckBoxMenuItem affichage_signes = new JCheckBoxMenuItem("Afficher les séparateurs", true);
         JCheckBoxMenuItem affichage_graduations = new JCheckBoxMenuItem("Afficher les graduations", true);
+        JCheckBoxMenuItem affichage_waveform = new JCheckBoxMenuItem("Afficher la waveform (onde audio)", timelinePanel.isWaveformVisible());
+        affichage_waveform.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_W, InputEvent.CTRL_DOWN_MASK));
 
         affichage_signes.addActionListener(e ->
             timelinePanel.setSeparatorsVisible(affichage_signes.isSelected()));
         affichage_graduations.addActionListener(e ->
             timelinePanel.setGraduationsVisible(affichage_graduations.isSelected()));
+        affichage_waveform.addActionListener(e ->
+            mainFenetre.setWaveformVisible(affichage_waveform.isSelected()));
 
         menuAffichage.add(affichage_signes);
         menuAffichage.add(affichage_graduations);
+        menuAffichage.add(affichage_waveform);
 
         add(menuAffichage);
 
@@ -97,6 +136,10 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
         
         menuOptions.add(personnalisation);
         menuOptions.add(configurer);
+        menuOptions.addSeparator();
+        JMenuItem associerRythmo = new JMenuItem("🔗 Associer les fichiers .rythmo au logo...");
+        associerRythmo.addActionListener(e -> app.services.FileAssociationService.associateNow(mainFenetre));
+        menuOptions.add(associerRythmo);
         add(menuOptions);
 
         // ===== MENU AIDE =====

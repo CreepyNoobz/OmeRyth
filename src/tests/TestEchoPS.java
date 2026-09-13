@@ -1,3 +1,5 @@
+package tests;
+
 import java.io.*;
 
 public class TestEchoPS {

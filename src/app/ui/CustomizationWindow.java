@@ -16,9 +16,10 @@ public class CustomizationWindow extends JDialog {
     private final AppCustomization customization;
 
     private JSpinner bandCount, bandHeight, cursorX, timerWidth, timerFontSize;
-    private JCheckBox autoResizeTimerFont;
+    private JCheckBox autoResizeTimerFont, showWaveform;
+    private JComboBox<String> defaultProjectFormat;
     private ColorPreviewButton timerBgBtn, timerTextBtn, historyBgBtn, mediaBgBtn, evenBandBtn, oddBandBtn;
-    private ColorPreviewButton selectedBandBtn, gridBtn, cursorBtn, sepBtn;
+    private ColorPreviewButton selectedBandBtn, gridBtn, cursorBtn, sepBtn, waveformColorBtn;
     private JTextField timerImagePath, historyImagePath, mediaImagePath, globalBandImagePath;
     private JComboBox<String> bandBgMode, timelineFontFamily;
     private JTextArea perBandImages;
@@ -63,6 +64,7 @@ public class CustomizationWindow extends JDialog {
         c.weightx = 1;
 
         int row = 0;
+        addRow(basicPanel, c, row++, "Format de projet par défaut:", defaultProjectFormat);
         addRow(basicPanel, c, row++, "Nombre de bandes (Lignes):", bandCount);
         addRow(basicPanel, c, row++, "Hauteur de chaque bande (px):", bandHeight);
         addRow(basicPanel, c, row++, "Position du curseur temporel (px):", cursorX);
@@ -74,6 +76,10 @@ public class CustomizationWindow extends JDialog {
         
         c.gridwidth = 1; c.weightx = 0;
         addRow(basicPanel, c, row++, "Taille de police du timer (manuel):", timerFontSize);
+
+        c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.weightx = 1;
+        basicPanel.add(showWaveform, c);
+        row++;
 
         mainContent.add(createSection("Réglages Généraux", basicPanel));
         mainContent.add(Box.createVerticalStrut(15));
@@ -106,6 +112,7 @@ public class CustomizationWindow extends JDialog {
         colorsPanel.add(createColorRow("Grille temporel:", gridBtn));
         colorsPanel.add(createColorRow("Curseur temporel:", cursorBtn));
         colorsPanel.add(createColorRow("Séparateurs:", sepBtn));
+        colorsPanel.add(createColorRow("Forme d'onde vocale:", waveformColorBtn));
 
         advancedPanel.add(createSection("Couleurs", colorsPanel));
         advancedPanel.add(Box.createVerticalStrut(15));
@@ -184,6 +191,16 @@ public class CustomizationWindow extends JDialog {
         timerFontSize.setEnabled(autoResizeTimerFont.isSelected());
         autoResizeTimerFont.addActionListener(e -> timerFontSize.setEnabled(autoResizeTimerFont.isSelected()));
 
+        showWaveform = new JCheckBox("Afficher la forme d'onde audio (vocale)");
+        showWaveform.setSelected(customization.showWaveform);
+
+        defaultProjectFormat = new JComboBox<>(new String[]{"rythmo (OmeRyth)", "detx (Cappella)"});
+        if ("detx".equalsIgnoreCase(customization.defaultProjectFormat)) {
+            defaultProjectFormat.setSelectedIndex(1);
+        } else {
+            defaultProjectFormat.setSelectedIndex(0);
+        }
+
         timerBgBtn = createColorButton(customization.timerBackground);
         timerTextBtn = createColorButton(customization.timerTextColor);
         historyBgBtn = createColorButton(customization.historyBackground);
@@ -194,6 +211,7 @@ public class CustomizationWindow extends JDialog {
         gridBtn = createColorButton(customization.timelineGrid);
         cursorBtn = createColorButton(customization.timelineCursor);
         sepBtn = createColorButton(customization.timelineSeparator);
+        waveformColorBtn = createColorButton(customization.waveformColor);
 
         timerImagePath = new JTextField(customization.timerImagePath);
         historyImagePath = new JTextField(customization.historyImagePath);
@@ -284,6 +302,8 @@ public class CustomizationWindow extends JDialog {
         timerFontSize.setValue(def.timerFontSize);
         autoResizeTimerFont.setSelected(!def.autoResizeTimerFont);
         timerFontSize.setEnabled(!def.autoResizeTimerFont);
+        showWaveform.setSelected(def.showWaveform);
+        defaultProjectFormat.setSelectedIndex("detx".equalsIgnoreCase(def.defaultProjectFormat) ? 1 : 0);
         timerBgBtn.setPreviewColor(def.timerBackground);
         timerTextBtn.setPreviewColor(def.timerTextColor);
         historyBgBtn.setPreviewColor(def.historyBackground);
@@ -294,6 +314,7 @@ public class CustomizationWindow extends JDialog {
         gridBtn.setPreviewColor(def.timelineGrid);
         cursorBtn.setPreviewColor(def.timelineCursor);
         sepBtn.setPreviewColor(def.timelineSeparator);
+        waveformColorBtn.setPreviewColor(def.waveformColor);
         timerImagePath.setText(def.timerImagePath);
         historyImagePath.setText(def.historyImagePath);
         mediaImagePath.setText(def.mediaImagePath);
@@ -310,6 +331,8 @@ public class CustomizationWindow extends JDialog {
         customization.timerPanelWidth = (Integer) timerWidth.getValue();
         customization.timerFontSize = (Integer) timerFontSize.getValue();
         customization.autoResizeTimerFont = !autoResizeTimerFont.isSelected();
+        customization.showWaveform = showWaveform.isSelected();
+        customization.defaultProjectFormat = defaultProjectFormat.getSelectedIndex() == 1 ? "detx" : "rythmo";
 
         // Only apply advanced (colors/images/font) if the section is enabled
         if (applyAdvanced) {
@@ -323,6 +346,7 @@ public class CustomizationWindow extends JDialog {
             customization.timelineGrid = gridBtn.getBackground();
             customization.timelineCursor = cursorBtn.getBackground();
             customization.timelineSeparator = sepBtn.getBackground();
+            customization.waveformColor = waveformColorBtn.getBackground();
 
             customization.timerImagePath = timerImagePath.getText().trim();
             customization.historyImagePath = historyImagePath.getText().trim();

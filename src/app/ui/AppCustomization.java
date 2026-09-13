@@ -36,4 +36,9 @@ public class AppCustomization {
     // ';' separated paths, one per band index.
     public String perBandImagePaths = "";
     public String timelineFontFamily = "Segoe UI";
+    
+    public boolean showWaveform = true;
+    public Color waveformColor = new Color(0, 180, 255, 40);
+    
+    public String defaultProjectFormat = "rythmo"; // "rythmo" or "detx"
 }

@@ -42,12 +42,18 @@ public class ProjectWorkflowService {
     }
 
     public File askProjectToOpen(JFrame parent) {
-        return FileUtils.chooseOpenFile(parent, "Ouvrir projet", "rythmo", "json");
+        return FileUtils.chooseOpenFile(parent, "Ouvrir projet", "rythmo", "json", "detx", "xml", "cappella");
     }
 
     public File ensureProjectSavePath(JFrame parent, File currentProjectFile) {
+        return ensureProjectSavePath(parent, currentProjectFile, "rythmo");
+    }
+
+    public File ensureProjectSavePath(JFrame parent, File currentProjectFile, String defaultFormat) {
         if (currentProjectFile != null) return currentProjectFile;
-        return FileUtils.chooseSaveFile(parent, "Sauvegarder projet", "rythmo");
+        String ext = (defaultFormat != null && defaultFormat.equalsIgnoreCase("detx")) ? "detx" : "rythmo";
+        String title = ext.equals("detx") ? "Sauvegarder projet (.detx)" : "Sauvegarder projet (.rythmo)";
+        return FileUtils.chooseSaveFile(parent, title, ext);
     }
 
     /** Apply a freshly created project: clear roles/timeline and set band count. */

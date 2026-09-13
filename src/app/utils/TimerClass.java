@@ -8,9 +8,10 @@ import javax.imageio.ImageIO;
 import java.io.File;
 
 /**
- * Petit composant de timer affichant le temps courant et pilotant la timeline.
- * Gère le formatage du temps, la cadence du timer Swing et la communication
- * avec la `TimelinePanel` pour mettre à jour la position de lecture.
+ * Composant de timer affichant le temps courant et pilotant la timeline.
+ * Utilise une horloge système en temps réel (System.currentTimeMillis()) pour garantir
+ * une synchronisation 1:1 absolue avec la vitesse de la vidéo (sans retard ni lenteur)
+ * tout en conservant une fluidité d'affichage 60 FPS parfaite.
  */
 public class TimerClass extends JPanel {
     private double time = 0; // secondes
@@ -24,6 +25,10 @@ public class TimerClass extends JPanel {
     private BufferedImage cachedImage;
 
     private TimelinePanel timeline;
+
+    // Horloge haute précision (nanoTime) pour éviter les micro-saccades de 15.6ms de Windows
+    private long startRealTimeNs = 0;
+    private double startRythmoTime = 0;
 
     /**
      * Crée un composant timer lié à une `TimelinePanel` pour propager la position temporelle.
@@ -44,20 +49,33 @@ public class TimerClass extends JPanel {
 
         add(timerLabel, BorderLayout.CENTER);
 
-        timer = new Timer(10, e -> update());
+        // 60 FPS (16ms) pour une fluidité d'affichage optimale sans surcharger le thread Swing
+        timer = new Timer(16, e -> update());
+    }
+
+    private Runnable onStopCallback;
+
+    public void setOnStopCallback(Runnable onStopCallback) {
+        this.onStopCallback = onStopCallback;
     }
 
     private void update() {
         if (timeline == null) return;
-        time += 0.01 * direction;
+
+        // Calcul haute précision du temps réel écoulé (sans saccades)
+        long now = System.nanoTime();
+        double elapsedSec = (now - startRealTimeNs) / 1_000_000_000.0;
+        time = startRythmoTime + (elapsedSec * direction);
 
         if (time >= maxTime) {
             time = maxTime; // bloque le timer
             timer.stop();
+            if (onStopCallback != null) onStopCallback.run();
         }
         if (time <= 0) {
             time = 0;
             timer.stop();
+            if (onStopCallback != null) onStopCallback.run();
         }
 
         timerLabel.setText(format());
@@ -85,13 +103,18 @@ public class TimerClass extends JPanel {
                 timer.stop();
                 // On pause, truncate to the lower tenth (ex: 1.32 -> 1.30).
                 time = Math.floor(time * 10.0) / 10.0;
+                startRythmoTime = time;
                 timerLabel.setText(format());
                 timeline.setTime(time);
             } else {
                 direction = requestedDirection;
+                startRealTimeNs = System.nanoTime();
+                startRythmoTime = time;
             }
         } else {
             direction = requestedDirection;
+            startRealTimeNs = System.nanoTime();
+            startRythmoTime = time;
             timer.start();
         }
     }
@@ -100,6 +123,7 @@ public class TimerClass extends JPanel {
     public void reset() {
         timer.stop();
         time = 0;
+        startRythmoTime = 0;
         timerLabel.setText(format());
         timeline.setTime(0);
     }
@@ -125,6 +149,8 @@ public class TimerClass extends JPanel {
 
     public void setDirection(int newDirection) {
         this.direction = newDirection >= 0 ? 1 : -1;
+        startRealTimeNs = System.nanoTime();
+        startRythmoTime = this.time;
     }
     
     public void setTime(double newTime) {
@@ -132,6 +158,8 @@ public class TimerClass extends JPanel {
         if (maxTime > 0 && this.time > maxTime) {
             this.time = maxTime;
         }
+        startRealTimeNs = System.nanoTime();
+        startRythmoTime = this.time;
         timerLabel.setText(format());
         if (timeline != null) {
             timeline.setTime(this.time);
@@ -141,16 +169,21 @@ public class TimerClass extends JPanel {
     public double getMaxTime() {
         return maxTime;
     }
+
     /** Add delta seconds to the current timer and update the timeline. */
     public void addTime(double delta) {
         this.time += delta;
+        if (this.time < 0) this.time = 0;
 
         // Capper à la durée max si tu as défini setMaxTime
         if (maxTime > 0 && time > maxTime) {
             time = maxTime;
             timer.stop();
+            if (onStopCallback != null) onStopCallback.run();
         }
 
+        startRealTimeNs = System.nanoTime();
+        startRythmoTime = this.time;
         timerLabel.setText(format());
         timeline.setTime(time);
     }
@@ -214,6 +247,4 @@ public class TimerClass extends JPanel {
             return null;
         }
     }
-    
-
 }

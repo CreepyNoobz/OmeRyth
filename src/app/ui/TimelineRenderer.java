@@ -34,6 +34,10 @@ public class TimelineRenderer {
         this.cursorX = cursorX;
     }
 
+    public int getCursorX() {
+        return cursorX;
+    }
+
     /** Set customization parameters (colors, fonts, images) used for rendering. */
     public void setCustomization(AppCustomization customization) {
         this.customization = customization != null ? customization : new AppCustomization();
@@ -58,7 +62,8 @@ public class TimelineRenderer {
                        boolean caretVisible,
                        boolean separatorsVisible,
                        boolean graduationsVisible,
-                       ArrayList<Integer> planMarkers) {
+                       ArrayList<Integer> planMarkers,
+                       app.services.AudioWaveformData waveformData) {
 
         Graphics2D g2 = (Graphics2D) g;
 
@@ -71,13 +76,18 @@ public class TimelineRenderer {
 
         int editingBand = isEditing ? (editingItem != null ? editingItem.band : activeBand) : -1;
         drawBands(g2, panelWidth, panelHeight, bandHeight, selectedBand, editingBand);
+        
+        if (customization.showWaveform) {
+            drawWaveform(g2, waveformData, panelWidth, panelHeight, bandHeight, offsetX, pixelsPerSecond, customization.waveformColor);
+        }
+        
         if (graduationsVisible) {
             drawGrid(g2, panelWidth, panelHeight, bandHeight, offsetX, pixelsPerSecond);
         }
         drawTexts(g2, texts, bandSeparators, bandHeight, offsetX, activeBand, isEditing, textX, currentInput, editingItem, cursorIndex, cursorRightSide, caretVisible, panelWidth);
         if (separatorsVisible) {
-            drawSeparators(g2, bandSeparators, bandHeight, offsetX);
-            drawPlanMarkers(g2, planMarkers, offsetX, panelHeight);
+            drawSeparators(g2, bandSeparators, bandHeight, offsetX, panelWidth);
+            drawPlanMarkers(g2, planMarkers, offsetX, panelHeight, panelWidth);
         }
         drawCursor(g2, panelHeight);
     }
@@ -149,16 +159,37 @@ public class TimelineRenderer {
         }
     }
 
+    private void drawWaveform(Graphics2D g2, app.services.AudioWaveformData waveformData, int panelWidth, int panelHeight, int bandHeight, int offsetX, double pixelsPerSecond, Color waveformColor) {
+        if (waveformData == null || waveformData.isEmpty()) return;
+
+        g2.setColor(waveformColor);
+        int totalHeight = Math.max(bandHeight, Math.min(panelHeight, bandCount * bandHeight));
+        int centerY = totalHeight / 2;
+
+        for (int screenX = 0; screenX < panelWidth; screenX++) {
+            double timeSeconds = (screenX - offsetX) / pixelsPerSecond;
+            if (timeSeconds < 0 || timeSeconds > waveformData.getDurationSeconds()) continue;
+
+            float amplitude = waveformData.getAmplitudeAt(timeSeconds);
+            if (amplitude > 0) {
+                int barHeight = (int) (amplitude * (totalHeight / 2.0) * 0.92);
+                if (barHeight < 1) barHeight = 1;
+
+                g2.drawLine(screenX, centerY - barHeight, screenX, centerY + barHeight);
+            }
+        }
+    }
+
     private void drawGrid(Graphics2D g2, int panelWidth, int panelHeight, int bandHeight, int offsetX, double pixelsPerSecond) {
         g2.setColor(customization.timelineGrid);
 
-        int minorStepPx = Math.max(2, (int) Math.round(pixelsPerSecond * 0.1)); // 0.1s
+        double minorStepPx = Math.max(2.0, pixelsPerSecond * 0.1); // 0.1s
         int majorEvery = 5; // 0.5s
 
-        int firstTickIndex = (int) Math.floor((-offsetX) / (double) minorStepPx) - 1;
+        int firstTickIndex = (int) Math.floor((-offsetX) / minorStepPx) - 1;
 
         for (int i = firstTickIndex; ; i++) {
-            int x = i * minorStepPx + offsetX;
+            int x = (int) Math.round(i * minorStepPx) + offsetX;
             if (x > panelWidth) break;
             if (x < -minorStepPx) continue;
 
@@ -207,41 +238,88 @@ public class TimelineRenderer {
         }
 
         for (TextItem t : texts) {
+            if (t.text == null || t.text.isEmpty()) continue;
+
+            // Pré-filtrage ultra-rapide côté droit : si le début est déjà loin après l'écran à droite,
+            // l'élément n'a pas encore atteint l'affichage.
+            if (t.x + offsetX > panelWidth + 500) {
+                continue;
+            }
+
             int bandBaselineY = computeBaselineY(t.band, bandHeight, textTopY, fm, targetTextHeight);
 
-            int segmentStart = t.x;
-            int segmentEnd = t.x + 300;
-
             ArrayList<SeparatorMark> sepList = bandSeparators.get(t.band);
-
             int leftSep = Integer.MIN_VALUE;
             int rightSep = Integer.MAX_VALUE;
+            ArrayList<SeparatorMark> innerMarks = new ArrayList<>();
 
-            if (sepList != null) {
-                for (SeparatorMark sep : sepList) {
-                    if (sep.isStartBoundary() && sep.x <= t.x && sep.x > leftSep) leftSep = sep.x;
-                    if (sep.isEndBoundary() && sep.x > t.x && sep.x < rightSep) rightSep = sep.x;
+            if (sepList != null && !sepList.isEmpty()) {
+                int searchIdx = findSepIndex(sepList, t.x);
+                // Recherche vers la gauche du START le plus proche <= t.x
+                for (int i = Math.min(searchIdx, sepList.size() - 1); i >= 0; i--) {
+                    SeparatorMark s = sepList.get(i);
+                    if (s.x > t.x) continue;
+                    if (s.isStartBoundary()) {
+                        leftSep = s.x;
+                        break;
+                    }
+                    if (s.isEndBoundary() && s.x < t.x) {
+                        break; // On a dépassé la phrase précédente vers la gauche
+                    }
+                }
+                // Recherche vers la droite du END le plus proche >= t.x
+                for (int i = Math.max(0, searchIdx - 1); i < sepList.size(); i++) {
+                    SeparatorMark s = sepList.get(i);
+                    if (s.x < t.x) continue;
+                    if (s.isEndBoundary()) {
+                        rightSep = s.x;
+                        break;
+                    }
+                    if (s.isStartBoundary() && s.x > t.x) {
+                        break; // Nouvelle phrase commence à droite
+                    }
                 }
             }
 
-            boolean anchoredRight = false;
+            int segmentStart = (leftSep != Integer.MIN_VALUE) ? leftSep : t.x;
+            int segmentEnd;
+            boolean anchoredRight;
 
-            if (leftSep != Integer.MIN_VALUE && rightSep != Integer.MAX_VALUE) {
-                segmentStart = leftSep;
-                segmentEnd = rightSep;
+            double textWidth = fm.stringWidth(t.text);
+            int naturalWidth = Math.max(100, (int) Math.round(textWidth * 1.25));
+
+            if (rightSep != Integer.MAX_VALUE) {
+                segmentEnd = Math.max(segmentStart + 10, rightSep);
                 anchoredRight = true;
-            } else if (rightSep != Integer.MAX_VALUE) {
-                segmentEnd = rightSep;
-                anchoredRight = true;
-            } else if (leftSep != Integer.MIN_VALUE) {
-                segmentStart = leftSep;
-                segmentEnd = leftSep + 300;
+            } else {
+                segmentEnd = segmentStart + naturalWidth;
+                anchoredRight = false;
             }
 
-            int availableWidth = segmentEnd - t.x;
-            if (availableWidth <= 5) continue;
+            // Viewport Culling Mathématiquement Exact & Optimal (supporte des timelines de 7h+) :
+            // Un texte n'est ignoré que si son extrémité droite est complètement sortie à gauche (< -300px),
+            // ou si son début n'a pas encore atteint l'écran (> panelWidth + 300px).
+            int screenStart = segmentStart + offsetX;
+            int screenEnd = segmentEnd + offsetX;
+            if (screenEnd < -300 || screenStart > panelWidth + 300) {
+                continue;
+            }
 
-            // Role label: prefer to place it left of the start boundary for readability.
+            // Collecte des marques internes INNER situées strictement entre segmentStart et segmentEnd
+            if (sepList != null && !sepList.isEmpty()) {
+                int startI = findSepIndex(sepList, segmentStart + 1);
+                for (int i = startI; i < sepList.size(); i++) {
+                    SeparatorMark m = sepList.get(i);
+                    if (m.x >= segmentEnd) break;
+                    if (m.type == SeparatorMark.Type.INNER && m.x > segmentStart) {
+                        innerMarks.add(m);
+                    }
+                }
+            }
+
+            int availableWidth = Math.max(20, segmentEnd - segmentStart);
+
+            // Role label: badge du personnage affiché proprement avant le séparateur de début
             if (t.role != null && t.role.name != null && !t.role.name.isEmpty()) {
                 Color roleColor = (t.role.color != null) ? t.role.color : Color.WHITE;
                 boolean useDarkText = isDarkColor(roleColor);
@@ -249,42 +327,44 @@ public class TimelineRenderer {
                 Color labelTextColor = useDarkText ? Color.WHITE : Color.BLACK;
 
                 Font oldFont = g2.getFont();
-                Font labelFont = oldFont.deriveFont(Font.BOLD, 12f);
+                float labelFontSize = Math.max(9.5f, Math.min(13.5f, (float) (bandHeight * 0.16f)));
+                Font labelFont = oldFont.deriveFont(Font.BOLD, labelFontSize);
                 g2.setFont(labelFont);
                 FontMetrics lfm = g2.getFontMetrics();
-                int lw = lfm.stringWidth(t.role.name) + 8;
-                int labelY = t.band * bandHeight + 12;
+
+                int padX = Math.max(3, Math.round(labelFontSize * 0.35f));
+                int padY = Math.max(1, Math.round(labelFontSize * 0.12f));
+                int lw = lfm.stringWidth(t.role.name) + padX * 2;
+                int lh = lfm.getHeight() + padY;
+                int arc = Math.max(3, Math.round(lh * 0.35f));
+
+                int badgeTop = t.band * bandHeight + 2;
+                int labelY = badgeTop + padY + lfm.getAscent() - 1;
                 int labelX;
-                // If we have a left separator (start boundary), always show label to the left of it.
+
                 if (leftSep != Integer.MIN_VALUE) {
-                    labelX = segmentStart + offsetX - lw - 4;
+                    labelX = segmentStart + offsetX - lw - 2;
                 } else {
-                    labelX = segmentStart + offsetX + 4;
+                    labelX = segmentStart + offsetX + 2;
                 }
 
                 g2.setColor(labelBackground);
-                g2.fillRoundRect(labelX - 2, labelY - 11, lw, 14, 6, 6);
+                g2.fillRoundRect(labelX, badgeTop, lw, lh, arc, arc);
                 g2.setColor(labelTextColor);
-                g2.drawString(t.role.name, labelX + 2, labelY);
+                g2.drawString(t.role.name, labelX + padX, labelY);
                 g2.setFont(oldFont);
             }
 
-            double textWidth = fm.stringWidth(t.text);
             if (textWidth <= 0) continue;
             Color roleColor = (t.role != null && t.role.color != null) ? t.role.color : Color.WHITE;
-
-            ArrayList<SeparatorMark> innerMarks = new ArrayList<>();
-            if (sepList != null && rightSep != Integer.MAX_VALUE) {
-                for (SeparatorMark mark : sepList) {
-                    if (mark.type == SeparatorMark.Type.INNER && mark.x > segmentStart && mark.x < rightSep) {
-                        innerMarks.add(mark);
-                    }
-                }
+            double luminance = 0.299 * roleColor.getRed() + 0.587 * roleColor.getGreen() + 0.114 * roleColor.getBlue();
+            if (luminance < 45) {
+                roleColor = new Color(225, 225, 225);
             }
 
             if (innerMarks.isEmpty()) {
                 g2.setColor(roleColor);
-                int drawX = anchoredRight ? segmentEnd + offsetX : t.x + offsetX;
+                int drawX = anchoredRight ? segmentEnd + offsetX : segmentStart + offsetX;
                 drawScaledText(g2, fm, t.text, drawX, bandBaselineY, availableWidth, targetTextHeight, anchoredRight);
             } else {
                 int len = t.text.length();
@@ -292,10 +372,16 @@ public class TimelineRenderer {
                 int prevIdx = 0;
                 g2.setColor(roleColor);
 
-                for (SeparatorMark mark : innerMarks) {
+                for (int mi = 0; mi < innerMarks.size(); mi++) {
+                    SeparatorMark mark = innerMarks.get(mi);
                     int segStart = prevX;
                     int segEnd = mark.x;
                     int idx = mark.splitIndex;
+                    if (idx < 0) {
+                        // Réparation automatique de l'index de découpe si non défini
+                        double ratio = (double) (mark.x - segmentStart) / Math.max(1, segmentEnd - segmentStart);
+                        idx = (int) Math.round(ratio * len);
+                    }
                     if (idx < prevIdx) idx = prevIdx;
                     if (idx > len) idx = len;
 
@@ -359,6 +445,24 @@ public class TimelineRenderer {
         return luminance < 0.55;
     }
 
+    public static int findSepIndex(ArrayList<SeparatorMark> list, int targetX) {
+        if (list == null || list.isEmpty()) return 0;
+        int low = 0;
+        int high = list.size() - 1;
+        while (low <= high) {
+            int mid = (low + high) >>> 1;
+            int midVal = list.get(mid).x;
+            if (midVal < targetX) {
+                low = mid + 1;
+            } else if (midVal > targetX) {
+                high = mid - 1;
+            } else {
+                return mid;
+            }
+        }
+        return low;
+    }
+
     private void drawScaledText(Graphics2D g2,
                                 FontMetrics fm,
                                 String text,
@@ -372,10 +476,14 @@ public class TimelineRenderer {
         if (sourceWidth <= 0) return;
 
         double scaleY = (double) targetTextHeight / Math.max(1, fm.getHeight());
-        // Keep text attached to segment width when a target width is provided.
         double scaleX = scaleY;
         if (targetWidth != null && targetWidth > 0) {
             scaleX = (double) targetWidth / sourceWidth;
+            if (Double.isNaN(scaleX) || Double.isInfinite(scaleX) || scaleX <= 0) {
+                scaleX = scaleY;
+            } else {
+                scaleX = Math.max(0.05, Math.min(scaleX, 15.0));
+            }
         }
 
         AffineTransform old = g2.getTransform();
@@ -402,6 +510,10 @@ public class TimelineRenderer {
             int segStart = prevX;
             int segEnd = mark.x + offsetX;
             int idx = mark.splitIndex;
+            if (idx < 0) {
+                double ratio = (double) (mark.x - startWorldX) / Math.max(1, endWorldX - startWorldX);
+                idx = (int) Math.round(ratio * len);
+            }
             if (idx < prevIdx) idx = prevIdx;
             if (idx > len) idx = len;
 
@@ -432,15 +544,32 @@ public class TimelineRenderer {
         return (int) (prevX + (bw / total) * segWidth);
     }
 
-    private void drawSeparators(Graphics2D g2, Map<Integer, ArrayList<SeparatorMark>> bandSeparators, int bandHeight, int offsetX) {
-        g2.setStroke(new BasicStroke(2));
+    private void drawSeparators(Graphics2D g2, Map<Integer, ArrayList<SeparatorMark>> bandSeparators, int bandHeight, int offsetX, int panelWidth) {
+        float strokeW = Math.max(2f, (float) (bandHeight * 0.035f));
+        g2.setStroke(new BasicStroke(strokeW));
+        int triSize = Math.max(8, (int) Math.round(bandHeight * 0.15f));
+        int dotR = Math.max(3, (int) Math.round(bandHeight * 0.06f));
+
+        int minWorldX = -offsetX - 70;
+        int maxWorldX = panelWidth - offsetX + 70;
+
         for (int band : bandSeparators.keySet()) {
             ArrayList<SeparatorMark> list = bandSeparators.get(band);
+            if (list == null || list.isEmpty()) continue;
             int bandTop = band * bandHeight;
             int bandMid = bandTop + bandHeight / 2;
-            int triSize = 8;
-            for (SeparatorMark mark : list) {
+
+            int startIdx = Math.max(0, findSepIndex(list, minWorldX) - 1);
+
+            for (int i = startIdx; i < list.size(); i++) {
+                SeparatorMark mark = list.get(i);
                 int sx = mark.x + offsetX;
+                if (mark.x > maxWorldX) {
+                    break; // La liste étant triée, tous les suivants sont hors écran à droite
+                }
+                if (sx < -70) {
+                    continue; // Hors champ visible à gauche
+                }
                 switch (mark.type) {
                     case START -> {
                         g2.setColor(new Color(80, 220, 120));
@@ -457,11 +586,45 @@ public class TimelineRenderer {
                         g2.fillPolygon(xLeft, yLeft, 3);
                     }
                     case INNER -> {
-                        g2.setColor(customization.timelineSeparator);
+                        Color sepCol = customization.timelineSeparator;
+                        String badge = null;
+                        if (mark.signType == SeparatorMark.SignType.FVR) {
+                            sepCol = new Color(0, 190, 255); // Cyan pour FVR
+                            badge = "F";
+                        } else if (mark.signType == SeparatorMark.SignType.OPEN_A) {
+                            sepCol = new Color(255, 190, 0); // Jaune / Or pour voyelle ouverte A
+                            badge = "A";
+                        } else if (mark.signType == SeparatorMark.SignType.NEUTRAL) {
+                            sepCol = new Color(180, 150, 230); // Mauve pour consonne neutre
+                            badge = "N";
+                        } else if (mark.signType == SeparatorMark.SignType.MPB) {
+                            sepCol = new Color(255, 90, 150); // Rose / Magenta pour labiale MPB
+                            badge = "M";
+                        } else if (mark.signType == SeparatorMark.SignType.RESPIRATION) {
+                            sepCol = new Color(70, 210, 200); // Turquoise pour respiration
+                            badge = "h/";
+                        }
+
+                        g2.setColor(sepCol);
                         g2.drawLine(sx, bandTop, sx, bandTop + bandHeight);
-                        g2.fillOval(sx - 3, bandMid - 3, 6, 6);
+                        g2.fillOval(sx - dotR, bandMid - dotR, dotR * 2, dotR * 2);
                         g2.setColor(new Color(30, 30, 30));
-                        g2.drawOval(sx - 3, bandMid - 3, 6, 6);
+                        g2.drawOval(sx - dotR, bandMid - dotR, dotR * 2, dotR * 2);
+
+                        if (badge != null) {
+                            Font origFont = g2.getFont();
+                            Font badgeFont = new Font(origFont.getName(), Font.BOLD, Math.max(9, (int)(bandHeight * 0.2f)));
+                            g2.setFont(badgeFont);
+                            FontMetrics bfm = g2.getFontMetrics();
+                            int bw = bfm.stringWidth(badge);
+                            int bx = sx - bw / 2;
+                            int by = bandTop + bfm.getAscent() + 2;
+                            g2.setColor(new Color(20, 20, 20, 200));
+                            g2.fillRoundRect(bx - 2, by - bfm.getAscent(), bw + 4, bfm.getHeight(), 3, 3);
+                            g2.setColor(sepCol);
+                            g2.drawString(badge, bx, by);
+                            g2.setFont(origFont);
+                        }
                     }
                     case LEGACY -> {
                         g2.setColor(customization.timelineSeparator);
@@ -482,16 +645,20 @@ public class TimelineRenderer {
 
     private void drawCursor(Graphics2D g2, int panelHeight) {
         g2.setColor(customization.timelineCursor);
-        g2.setStroke(new BasicStroke(2));
+        float strokeW = Math.max(2f, (float) (panelHeight * 0.006f));
+        g2.setStroke(new BasicStroke(strokeW));
         g2.drawLine(cursorX, 0, cursorX, panelHeight);
+        g2.setStroke(new BasicStroke(1));
     }
 
-    private void drawPlanMarkers(Graphics2D g2, ArrayList<Integer> planMarkers, int offsetX, int panelHeight) {
+    private void drawPlanMarkers(Graphics2D g2, ArrayList<Integer> planMarkers, int offsetX, int panelHeight, int panelWidth) {
         if (planMarkers == null || planMarkers.isEmpty()) return;
         g2.setColor(new Color(220, 220, 220, 120));
-        g2.setStroke(new BasicStroke(2));
+        float strokeW = Math.max(2f, (float) (panelHeight * 0.006f));
+        g2.setStroke(new BasicStroke(strokeW));
         for (Integer markerX : planMarkers) {
             int sx = markerX + offsetX;
+            if (sx < -10 || sx > panelWidth + 10) continue;
             g2.drawLine(sx, 0, sx, panelHeight);
         }
         g2.setStroke(new BasicStroke(1));

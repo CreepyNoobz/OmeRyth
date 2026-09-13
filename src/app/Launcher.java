@@ -15,6 +15,8 @@ public class Launcher {
         System.setProperty("sun.awt.windows.useCommonItemDialog", "true");
         
         VlcLogFilter.install();
-        SwingUtilities.invokeLater(MainFenetre::new);
+        app.services.FileAssociationService.ensureRythmoAssociationAsync();
+        final String fileToOpen = (args != null && args.length > 0) ? args[0] : null;
+        SwingUtilities.invokeLater(() -> new MainFenetre(fileToOpen));
     }
 }

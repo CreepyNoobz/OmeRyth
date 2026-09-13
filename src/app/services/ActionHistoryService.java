@@ -3,23 +3,36 @@ package app.services;
 import app.ui.TimelinePanel;
 
 import javax.swing.BorderFactory;
+import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.ScrollPaneConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
-import java.awt.Color;
-import java.awt.Font;
 import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Cursor;
+import java.awt.Font;
+import java.awt.Point;
+import java.awt.geom.Rectangle2D;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import javax.swing.JPanel;
+import java.util.function.Consumer;
 
 public class ActionHistoryService {
 
     private final int maxLines;
     private final int refreshMs;
     private final JTextArea historyArea;
+    private final List<TimelinePanel.ActionHistoryEntry> currentEntries = new ArrayList<>();
+    private Consumer<Double> onSeekRequested;
     private Timer refreshTimer;
     private TimelinePanel timelinePanel;
+    private app.ui.ImageBackgroundPanel containerPanel;
+    private JScrollPane scrollPane;
+    private String lastRenderedText = "";
 
     public ActionHistoryService(int maxLines, int refreshMs) {
         this.maxLines = Math.max(1, maxLines);
@@ -39,12 +52,82 @@ public class ActionHistoryService {
         historyArea.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         historyArea.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         historyArea.setText("Historique en attente...");
+        historyArea.setToolTipText("Cliquez sur une phrase pour vous y rendre directement.");
+
+        historyArea.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    handleHistoryClick(e.getPoint());
+                }
+            }
+        });
+
+        historyArea.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(java.awt.event.MouseEvent e) {
+                int line = getEntryIndexAtPoint(e.getPoint());
+                if (line >= 0) {
+                    historyArea.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                } else {
+                    historyArea.setCursor(Cursor.getDefaultCursor());
+                }
+            }
+        });
     }
 
-    private app.ui.ImageBackgroundPanel containerPanel;
+    public void setOnSeekRequested(Consumer<Double> onSeekRequested) {
+        this.onSeekRequested = onSeekRequested;
+    }
+
+    public List<TimelinePanel.ActionHistoryEntry> getCurrentEntries() {
+        return Collections.unmodifiableList(currentEntries);
+    }
+
+    public boolean isHistoryComponent(Component c) {
+        if (c == null) return false;
+        if (c == historyArea || c == scrollPane || c == containerPanel) return true;
+        if (scrollPane != null && (c == scrollPane.getViewport() || c == scrollPane.getVerticalScrollBar() || c == scrollPane.getHorizontalScrollBar())) return true;
+        if (containerPanel != null && SwingUtilities.isDescendingFrom(c, containerPanel)) return true;
+        if (scrollPane != null && SwingUtilities.isDescendingFrom(c, scrollPane)) return true;
+        return false;
+    }
+
+    public int getEntryIndexAtPoint(Point pt) {
+        if (currentEntries.isEmpty() || pt == null) return -1;
+        try {
+            int offset = historyArea.viewToModel2D(pt);
+            if (offset >= 0 && offset < historyArea.getDocument().getLength()) {
+                Rectangle2D r = historyArea.modelToView2D(offset);
+                if (r != null && pt.y >= r.getY() - 4 && pt.y <= r.getY() + r.getHeight() + 6) {
+                    int line = historyArea.getLineOfOffset(offset);
+                    if (line >= 0 && line < currentEntries.size()) {
+                        return line;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        return -1;
+    }
+
+    public void handleHistoryClick(Point pt) {
+        int index = getEntryIndexAtPoint(pt);
+        if (index >= 0) {
+            triggerEntryClick(index);
+        }
+    }
+
+    public void triggerEntryClick(int index) {
+        if (index >= 0 && index < currentEntries.size()) {
+            TimelinePanel.ActionHistoryEntry entry = currentEntries.get(index);
+            if (entry != null && onSeekRequested != null) {
+                onSeekRequested.accept(entry.startTimeSeconds);
+            }
+        }
+    }
 
     public JPanel createPanel() {
-        JScrollPane scrollPane = new JScrollPane(historyArea);
+        scrollPane = new JScrollPane(historyArea);
         scrollPane.setOpaque(false);
         scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         scrollPane.setBackground(new Color(0, 0, 0, 0));
@@ -52,8 +135,27 @@ public class ActionHistoryService {
         scrollPane.getViewport().setBackground(new Color(0, 0, 0, 0));
         scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
-        
+        scrollPane.getVerticalScrollBar().setUnitIncrement(18);
+
+        java.awt.event.MouseWheelListener wheelListener = e -> {
+            if (scrollPane != null) {
+                javax.swing.JScrollBar bar = scrollPane.getVerticalScrollBar();
+                if (bar != null) {
+                    int rotation = e.getWheelRotation();
+                    int amount = e.getScrollAmount();
+                    int delta = rotation * bar.getUnitIncrement() * amount;
+                    bar.setValue(bar.getValue() + delta);
+                    e.consume();
+                }
+            }
+        };
+
+        historyArea.addMouseWheelListener(wheelListener);
+        scrollPane.addMouseWheelListener(wheelListener);
+        scrollPane.getViewport().addMouseWheelListener(wheelListener);
+
         containerPanel = new app.ui.ImageBackgroundPanel(new BorderLayout());
+        containerPanel.addMouseWheelListener(wheelListener);
         containerPanel.add(scrollPane, BorderLayout.CENTER);
         return containerPanel;
     }
@@ -89,19 +191,26 @@ public class ActionHistoryService {
     public void refreshNow() {
         if (timelinePanel == null) return;
 
-        List<TimelinePanel.ActionHistoryEntry> entries = timelinePanel.getActionHistory(maxLines);
+        List<TimelinePanel.ActionHistoryEntry> entries = timelinePanel.getAllActionHistory();
+        currentEntries.clear();
+
         if (entries.isEmpty()) {
-            historyArea.setText("Aucune action pour l'instant.");
+            if (!"Aucune action pour l'instant.".equals(lastRenderedText)) {
+                lastRenderedText = "Aucune action pour l'instant.";
+                historyArea.setText(lastRenderedText);
+            }
             return;
         }
+
+        currentEntries.addAll(entries);
 
         StringBuilder sb = new StringBuilder(512);
         for (TimelinePanel.ActionHistoryEntry entry : entries) {
             String start = formatTenths(entry.startTimeSeconds);
             String end = entry.endTimeSeconds == null ? "..." : formatTenths(entry.endTimeSeconds);
-            sb.append(entry.active ? "> " : "  ")
+            sb.append(entry.active ? "▶ " : "  ")
                     .append(start)
-                    .append(" -> ")
+                    .append(" → ")
                     .append(end)
                     .append(" | ")
                     .append(entry.roleName)
@@ -109,8 +218,25 @@ public class ActionHistoryService {
                     .append(entry.text == null ? "" : entry.text)
                     .append('\n');
         }
-        historyArea.setText(sb.toString());
-        historyArea.setCaretPosition(historyArea.getDocument().getLength());
+
+        String newText = sb.toString();
+        if (!newText.equals(lastRenderedText)) {
+            // Conserver la position de défilement actuelle de l'utilisateur
+            int scrollVal = (scrollPane != null && scrollPane.getVerticalScrollBar() != null)
+                    ? scrollPane.getVerticalScrollBar().getValue()
+                    : -1;
+
+            lastRenderedText = newText;
+            historyArea.setText(newText);
+
+            if (scrollVal >= 0 && scrollPane != null && scrollPane.getVerticalScrollBar() != null) {
+                SwingUtilities.invokeLater(() -> {
+                    if (scrollPane != null && scrollPane.getVerticalScrollBar() != null) {
+                        scrollPane.getVerticalScrollBar().setValue(scrollVal);
+                    }
+                });
+            }
+        }
     }
 
     private static String formatTenths(double seconds) {
@@ -121,3 +247,4 @@ public class ActionHistoryService {
         return String.format("%02d;%02d.%d", min, sec, tenth);
     }
 }
+

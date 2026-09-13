@@ -66,8 +66,8 @@ public class HomePanel extends JPanel {
         btn.setFont(new Font("Arial", Font.PLAIN, 16));
         btn.setAlignmentX(Component.CENTER_ALIGNMENT);
         btn.setMaximumSize(new Dimension(350, 50));
-        btn.setBackground(new Color(70, 130, 180));
-        btn.setForeground(Color.WHITE);
+        btn.setBackground(new Color(225, 235, 245));
+        btn.setForeground(Color.BLACK);
         btn.setFocusPainted(false);
         btn.setBorder(BorderFactory.createRaisedBevelBorder());
         btn.addActionListener(listener);
@@ -76,10 +76,10 @@ public class HomePanel extends JPanel {
         // Hover effect
         btn.addMouseListener(new java.awt.event.MouseAdapter() {
             public void mouseEntered(java.awt.event.MouseEvent evt) {
-                btn.setBackground(new Color(100, 150, 200));
+                btn.setBackground(new Color(200, 220, 240));
             }
             public void mouseExited(java.awt.event.MouseEvent evt) {
-                btn.setBackground(new Color(70, 130, 180));
+                btn.setBackground(new Color(225, 235, 245));
             }
         });
         

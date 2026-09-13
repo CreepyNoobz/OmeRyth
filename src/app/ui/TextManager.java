@@ -79,45 +79,105 @@ public class TextManager {
         return (int) Math.round(anchor + (value - anchor) * ratio);
     }
 
-    /** Add an INNER separator at x inside the currently edited phrase for band. */
+    /** Add an INNER separator at x inside or outside the phrase for band. */
     public void addSeparator(int band, int x) {
-        // User separator key creates an INNER separator only inside the current phrase.
-        if (!isEditing || selectedText == null || activeBand != band) return;
+        if (hasSeparatorAt(band, x)) {
+            return;
+        }
 
-        Integer leftBoundary = getLeftBoundary(band, selectedText.x);
-        if (leftBoundary == null) return;
+        // Si on est en train d'éditer une phrase sur cette bande
+        if (isEditing && activeBand == band && selectedText != null) {
+            Integer leftBoundary = getLeftBoundary(band, selectedText.x);
+            Integer rightBoundary = getRightBoundary(band, selectedText.x);
 
-        Integer rightBoundary = getRightBoundary(band, selectedText.x);
-        if (x <= leftBoundary) return;
-        if (rightBoundary != null && x >= rightBoundary) return;
+            // Si x est à l'intérieur de la phrase en cours d'édition (même sans fin définie !)
+            if (leftBoundary != null && x > leftBoundary && (rightBoundary == null || x < rightBoundary)) {
+                int len = currentInput.length();
+                int safeCursor = Math.max(0, Math.min(cursorIndex, len));
+                addSeparator(band, x, SeparatorMark.Type.INNER, safeCursor);
+                cursorIndex = Math.max(0, safeCursor - 1);
+                return;
+            }
+        }
 
-        int len = currentInput.length();
-        if (len == 0) return;
+        // Si hors édition OU si le curseur est après la fin / en dehors de la phrase :
+        // On vérifie si x est dans les limites d'une autre phrase
+        for (TextItem t : texts) {
+            if (t.band != band) continue;
+            int[] bounds = getSegmentBounds(t);
+            if (x >= bounds[0] && x <= bounds[1]) {
+                int splitIdx = t.text.length();
+                addSeparator(band, x, SeparatorMark.Type.INNER, splitIdx);
+                return;
+            }
+        }
 
-        // Texte avant le curseur = gauche du séparateur, texte après = droite.
-        int safeCursor = Math.max(0, Math.min(cursorIndex, len));
-        // On garde le texte intact, splitIndex indique la frontière.
-        addSeparator(band, x, SeparatorMark.Type.INNER, safeCursor);
-        // Positionne le curseur juste avant la frontière pour qu'une flèche droite
-        // l'emmène immédiatement côté droit du séparateur.
-        cursorIndex = Math.max(0, safeCursor - 1);
+        // Sinon, zone libre ou après la fin de la phrase : créer un séparateur INNER à la position x
+        addSeparator(band, x, SeparatorMark.Type.INNER, -1);
+    }
+
+    public void addSeparator(int band, int x, SeparatorMark.SignType signType) {
+        addSeparatorAtCursorWithSign(band, x, signType);
+    }
+
+    public void addSeparatorAtCursorWithSign(int band, int x, SeparatorMark.SignType signType) {
+        if (bandSeparators.containsKey(band)) {
+            for (SeparatorMark sep : bandSeparators.get(band)) {
+                if (sep.x == x) {
+                    return;
+                }
+            }
+        }
+
+        // Si on est en train d'éditer une phrase sur cette bande
+        if (isEditing && activeBand == band && selectedText != null) {
+            Integer leftBoundary = getLeftBoundary(band, selectedText.x);
+            Integer rightBoundary = getRightBoundary(band, selectedText.x);
+
+            if (leftBoundary != null && x > leftBoundary && (rightBoundary == null || x < rightBoundary)) {
+                int len = currentInput.length();
+                int safeCursor = Math.max(0, Math.min(cursorIndex, len));
+                addSeparator(band, x, SeparatorMark.Type.INNER, safeCursor, signType);
+                cursorIndex = Math.max(0, safeCursor - 1);
+                return;
+            }
+        }
+
+        for (TextItem t : texts) {
+            if (t.band != band) continue;
+            int[] bounds = getSegmentBounds(t);
+            if (x >= bounds[0] && x <= bounds[1]) {
+                int splitIdx = t.text.length();
+                addSeparator(band, x, SeparatorMark.Type.INNER, splitIdx, signType);
+                return;
+            }
+        }
+
+        addSeparator(band, x, SeparatorMark.Type.INNER, -1, signType);
     }
 
     /** Add a separator of the specified type at x on the given band. */
     public void addSeparator(int band, int x, SeparatorMark.Type type) {
-        addSeparator(band, x, type, -1);
+        addSeparator(band, x, type, -1, SeparatorMark.SignType.DEFAULT);
     }
 
     /** Add a separator with optional split index at x on band. */
     public void addSeparator(int band, int x, SeparatorMark.Type type, int splitIndex) {
+        addSeparator(band, x, type, splitIndex, SeparatorMark.SignType.DEFAULT);
+    }
+
+    /** Add a separator with optional split index and sign type at x on band. */
+    public SeparatorMark addSeparator(int band, int x, SeparatorMark.Type type, int splitIndex, SeparatorMark.SignType signType) {
         ArrayList<SeparatorMark> list = bandSeparators.computeIfAbsent(band, k -> new ArrayList<>());
         for (SeparatorMark mark : list) {
             if (mark.x == x) {
-                return;
+                return mark;
             }
         }
-        list.add(new SeparatorMark(x, type, splitIndex));
+        SeparatorMark sm = new SeparatorMark(x, type, splitIndex, signType);
+        list.add(sm);
         sortSeparators(list);
+        return sm;
     }
 
     public void addPlanMarker(int x) {
@@ -744,6 +804,242 @@ public class TextManager {
             }
         }
         return false;
+    }
+
+    /**
+     * Supprime l'intégralité d'une phrase commençant au séparateur START à startX :
+     * texte, séparateur START, tous les séparateurs internes et le séparateur END.
+     */
+    public boolean deleteFullPhraseAtStart(int band, int startX) {
+        ArrayList<SeparatorMark> list = bandSeparators.get(band);
+        if (list == null) return false;
+
+        SeparatorMark startMark = null;
+        int startIndex = -1;
+        for (int i = 0; i < list.size(); i++) {
+            SeparatorMark m = list.get(i);
+            if (m.x == startX && m.type == SeparatorMark.Type.START) {
+                startMark = m;
+                startIndex = i;
+                break;
+            }
+        }
+        if (startMark == null) return false;
+
+        // Trouver la fin de la phrase (prochain END, ou arrêt avant le prochain START)
+        int endX = Integer.MAX_VALUE;
+        for (int i = startIndex + 1; i < list.size(); i++) {
+            SeparatorMark m = list.get(i);
+            if (m.type == SeparatorMark.Type.START) {
+                break;
+            }
+            if (m.type == SeparatorMark.Type.END) {
+                endX = m.x;
+                break;
+            }
+        }
+
+        // Si la phrase était en cours d'édition, stopper l'édition
+        if (isEditing && activeBand == band) {
+            if (selectedText != null && selectedText.x >= startX && (endX == Integer.MAX_VALUE || selectedText.x <= endX)) {
+                stopTyping();
+            }
+        }
+
+        final int finalEndX = endX;
+        // Supprimer tous les TextItems de cette réplique
+        texts.removeIf(t -> t.band == band && t.x >= startX && (finalEndX == Integer.MAX_VALUE || t.x <= finalEndX));
+
+        // Supprimer tous les séparateurs (START, INNER, END) compris dans cette réplique
+        list.removeIf(m -> m.x >= startX && (finalEndX == Integer.MAX_VALUE ? (m.x == startX || m.type != SeparatorMark.Type.START) : m.x <= finalEndX));
+
+        if (list.isEmpty()) {
+            bandSeparators.remove(band);
+        }
+        return true;
+    }
+
+    public Integer getStartSeparatorXForText(TextItem t) {
+        if (t == null) return null;
+        ArrayList<SeparatorMark> sepList = bandSeparators.get(t.band);
+        if (sepList == null) return t.x;
+        int leftSep = Integer.MIN_VALUE;
+        for (SeparatorMark sep : sepList) {
+            if (sep.isStartBoundary() && sep.x <= t.x && sep.x > leftSep) {
+                leftSep = sep.x;
+            }
+        }
+        return (leftSep == Integer.MIN_VALUE) ? t.x : leftSep;
+    }
+
+    public int[] getPhraseBoundsAtStart(int band, int startX) {
+        ArrayList<SeparatorMark> list = bandSeparators.get(band);
+        if (list == null) return null;
+
+        SeparatorMark startMark = null;
+        int startIndex = -1;
+        for (int i = 0; i < list.size(); i++) {
+            SeparatorMark m = list.get(i);
+            if (m.x == startX && m.type == SeparatorMark.Type.START) {
+                startMark = m;
+                startIndex = i;
+                break;
+            }
+        }
+        if (startMark == null) return null;
+
+        int endX = Integer.MIN_VALUE;
+        for (int i = startIndex + 1; i < list.size(); i++) {
+            SeparatorMark m = list.get(i);
+            if (m.type == SeparatorMark.Type.START) {
+                break;
+            }
+            if (m.type == SeparatorMark.Type.END) {
+                endX = m.x;
+                break;
+            }
+        }
+
+        if (endX == Integer.MIN_VALUE) {
+            // Pas de séparateur END explicite : trouver l'étendue maximale
+            int maxInnerOrText = startX + 300;
+            for (int i = startIndex + 1; i < list.size(); i++) {
+                SeparatorMark m = list.get(i);
+                if (m.type == SeparatorMark.Type.START) break;
+                if (m.x > maxInnerOrText) maxInnerOrText = m.x;
+            }
+            for (TextItem t : texts) {
+                if (t.band == band && t.x >= startX) {
+                    int tEnd = t.x + Math.max(300, t.text.length() * 12);
+                    if (tEnd > maxInnerOrText) maxInnerOrText = tEnd;
+                }
+            }
+            endX = maxInnerOrText;
+        }
+
+        return new int[]{startX, endX};
+    }
+
+    public Role getPhraseRole(int band, int startX) {
+        int[] bounds = getPhraseBoundsAtStart(band, startX);
+        int phraseStart = (bounds != null) ? bounds[0] : startX;
+        int phraseEnd = (bounds != null) ? bounds[1] : (startX + 300);
+        for (TextItem t : texts) {
+            if (t.band == band && t.x >= phraseStart && t.x <= phraseEnd) {
+                if (t.role != null) return t.role;
+            }
+        }
+        for (TextItem t : texts) {
+            if (t.band == band && t.x == startX) {
+                return t.role;
+            }
+        }
+        return null;
+    }
+
+    public void setPhraseRole(int band, int startX, Role role) {
+        int[] bounds = getPhraseBoundsAtStart(band, startX);
+        int phraseStart = (bounds != null) ? bounds[0] : startX;
+        int phraseEnd = (bounds != null) ? bounds[1] : (startX + 300);
+        boolean matched = false;
+        for (TextItem t : texts) {
+            if (t.band == band && t.x >= phraseStart && t.x <= phraseEnd) {
+                t.role = role;
+                matched = true;
+            }
+        }
+        if (!matched) {
+            for (TextItem t : texts) {
+                if (t.band == band && Math.abs(t.x - startX) <= 15) {
+                    t.role = role;
+                }
+            }
+        }
+    }
+
+    public void setPhraseRole(TextItem item, Role role) {
+        if (item == null) return;
+        Integer startX = getStartSeparatorXForText(item);
+        if (startX == null) startX = item.x;
+        setPhraseRole(item.band, startX, role);
+        item.role = role;
+    }
+
+    public boolean isSpaceFreeOnBand(int targetBand, int startX, int endX) {
+        ArrayList<SeparatorMark> targetSeps = bandSeparators.get(targetBand);
+        if (targetSeps != null) {
+            for (SeparatorMark m : targetSeps) {
+                if (m.x >= startX && m.x <= endX) {
+                    return false;
+                }
+                if (m.type == SeparatorMark.Type.START) {
+                    int[] pBounds = getPhraseBoundsAtStart(targetBand, m.x);
+                    if (pBounds != null) {
+                        if (Math.max(startX, pBounds[0]) <= Math.min(endX, pBounds[1])) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        for (TextItem t : texts) {
+            if (t.band == targetBand) {
+                int[] bounds = getSegmentBounds(t);
+                if (Math.max(startX, bounds[0]) <= Math.min(endX, bounds[1])) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    public boolean movePhraseToBand(int sourceBand, int startX, int targetBand) {
+        if (sourceBand == targetBand) return true;
+        int[] bounds = getPhraseBoundsAtStart(sourceBand, startX);
+        if (bounds == null) return false;
+        if (!isSpaceFreeOnBand(targetBand, bounds[0], bounds[1])) {
+            return false;
+        }
+
+        int phraseStart = bounds[0];
+        int phraseEnd = bounds[1];
+
+        // 1. Déplacer les TextItems de la phrase
+        for (TextItem t : texts) {
+            if (t.band == sourceBand && t.x >= phraseStart && t.x <= phraseEnd) {
+                t.band = targetBand;
+            }
+        }
+
+        // 2. Extraire et déplacer les séparateurs de la phrase
+        ArrayList<SeparatorMark> srcList = bandSeparators.get(sourceBand);
+        if (srcList != null) {
+            ArrayList<SeparatorMark> toMove = new ArrayList<>();
+            for (SeparatorMark m : srcList) {
+                if (m.x >= phraseStart && m.x <= phraseEnd) {
+                    toMove.add(m);
+                }
+            }
+            srcList.removeAll(toMove);
+            if (srcList.isEmpty()) {
+                bandSeparators.remove(sourceBand);
+            }
+
+            ArrayList<SeparatorMark> dstList = bandSeparators.computeIfAbsent(targetBand, k -> new ArrayList<>());
+            dstList.addAll(toMove);
+            sortSeparators(dstList);
+        }
+
+        // 3. Mettre à jour activeBand si la phrase était en cours d'édition
+        if (isEditing && activeBand == sourceBand) {
+            if (selectedText != null && selectedText.band == targetBand) {
+                activeBand = targetBand;
+            }
+        }
+
+        return true;
     }
 
     /** Change le type d'un marqueur interne/legacy. Ignoré pour START et END. */

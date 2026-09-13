@@ -5,11 +5,13 @@ import java.awt.*;
 import java.awt.event.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
-import java.util.ArrayList;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Panneau principal de la timeline : gère l'affichage des bandes, des formes de séparation
@@ -49,6 +51,8 @@ public class TimelinePanel extends JPanel {
         int band;
         int x;
         SeparatorMark.Type type;
+        SeparatorMark.SignType signType;
+        String rawDetxType;
         int splitIndex;
     }
 
@@ -57,12 +61,12 @@ public class TimelinePanel extends JPanel {
     private int bandHeight = 50;
     private int cursorX = 80;
     private static final double BASE_PIXELS_PER_SECOND = 80.0;
-    private static final double[] ZOOM_LEVELS = {1.0, 1.5, 2.0};
+    private static final double[] ZOOM_LEVELS = {1.0, 1.5, 2.0, 2.5, 3.0};
     private int zoomLevelIndex = 0;
 
     private double currentTime = 0;
     private double pixelsPerSecond = BASE_PIXELS_PER_SECOND;
-    private int offsetX = 0;
+    private int offsetX = 80;
     private int selectedBand = -1;
     private boolean draggingSeparator = false;      // Ctrl+drag : déplace le symbole
     private boolean draggingPlanMarker = false;
@@ -88,14 +92,26 @@ public class TimelinePanel extends JPanel {
     private boolean graduationsVisible = true;
     private final Timer insertionPulseTimer;
     private final AppCustomization customization = new AppCustomization();
+    private ArrayList<Role> roles = new ArrayList<>();
+    private app.services.AudioWaveformData waveformData;
 
     private final TimelineRenderer renderer = new TimelineRenderer(bandCount, cursorX);
     private final TextManager textManager = new TextManager();
+
+    public void setWaveformData(app.services.AudioWaveformData data) {
+        this.waveformData = data;
+        repaint();
+    }
+
+    public app.services.AudioWaveformData getWaveformData() {
+        return waveformData;
+    }
     private final Deque<TimelineSnapshot> undoStack = new ArrayDeque<>();
     private final Deque<TimelineSnapshot> redoStack = new ArrayDeque<>();
     private static final int MAX_HISTORY_DEPTH = 80;
     private boolean restoringHistory = false;
     private boolean dirty = false;
+    private boolean hasMovedDuringDrag = false;
 
     // ================= CONSTRUCTEUR =================
     /**
@@ -154,6 +170,10 @@ public class TimelinePanel extends JPanel {
                     double ratio = (double) dragPixelAccum / Math.max(1, pixelsPerChar);
                     int steps = (ratio > 0) ? (int) Math.floor(ratio) : (int) Math.ceil(ratio);
                     if (steps != 0) {
+                        if (!hasMovedDuringDrag) {
+                            recordUndoSnapshot();
+                            hasMovedDuringDrag = true;
+                        }
                         textManager.shiftInnerSepTextBy(draggingSeparatorBand, shiftingBaseSeparatorX, steps);
                         dragPixelAccum -= steps * pixelsPerChar;
                         repaint();
@@ -163,16 +183,28 @@ public class TimelinePanel extends JPanel {
 
                 if (draggingPlanMarker) {
                     int snappedWorldX = snapWorldXDownToTenth(newWorldX);
-                    textManager.movePlanMarker(draggingPlanMarkerX, snappedWorldX);
-                    draggingPlanMarkerX = snappedWorldX;
-                    repaint();
+                    if (snappedWorldX != draggingPlanMarkerX) {
+                        if (!hasMovedDuringDrag) {
+                            recordUndoSnapshot();
+                            hasMovedDuringDrag = true;
+                        }
+                        textManager.movePlanMarker(draggingPlanMarkerX, snappedWorldX);
+                        draggingPlanMarkerX = snappedWorldX;
+                        repaint();
+                    }
                 } else if (draggingSeparator) {
                     // Ctrl+drag : déplace physiquement le symbole, pas de transfert de chars
                     int snappedWorldX = snapWorldXDownToTenth(newWorldX);
                     snappedWorldX = clampSeparatorMove(draggingSeparatorBand, draggingSeparatorX, snappedWorldX);
-                    textManager.moveSeparator(draggingSeparatorBand, draggingSeparatorX, snappedWorldX);
-                    draggingSeparatorX = snappedWorldX;
-                    repaint();
+                    if (snappedWorldX != draggingSeparatorX) {
+                        if (!hasMovedDuringDrag) {
+                            recordUndoSnapshot();
+                            hasMovedDuringDrag = true;
+                        }
+                        textManager.moveSeparator(draggingSeparatorBand, draggingSeparatorX, snappedWorldX);
+                        draggingSeparatorX = snappedWorldX;
+                        repaint();
+                    }
                 }
             }
         });
@@ -180,8 +212,10 @@ public class TimelinePanel extends JPanel {
         addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                int bandHeight = getHeight() / bandCount;
-                selectedBand = e.getY() / bandHeight;
+                int h = getHeight() > 0 ? getHeight() : Math.max(20, TimelinePanel.this.bandHeight * Math.max(1, bandCount));
+                int bHeight = Math.max(1, h / Math.max(1, bandCount));
+                selectedBand = e.getY() / bHeight;
+                hasMovedDuringDrag = false;
 
                 if ((e.getModifiersEx() & InputEvent.CTRL_DOWN_MASK) != 0
                         && SwingUtilities.isLeftMouseButton(e)) {
@@ -194,14 +228,12 @@ public class TimelinePanel extends JPanel {
                         }
                     }
                     if (hitMarker != null) {
-                        recordUndoSnapshot();
                         draggingPlanMarker = true;
                         draggingPlanMarkerX = hitMarker;
                     } else {
                         int[] hit = textManager.findSeparatorAtScaled(
                                 e.getX(), e.getY(), offsetX, getHeight(), bandCount, 8);
                         if (hit != null) {
-                            recordUndoSnapshot();
                             draggingSeparator = true;
                             draggingSeparatorBand = hit[0];
                             draggingSeparatorX = hit[1];
@@ -212,7 +244,6 @@ public class TimelinePanel extends JPanel {
                     int[] hit = textManager.findSeparatorAtScaled(
                             e.getX(), e.getY(), offsetX, getHeight(), bandCount, 8);
                     if (hit != null && textManager.getSeparatorType(hit[0], hit[1]) == SeparatorMark.Type.INNER) {
-                        recordUndoSnapshot();
                         shiftingText = true;
                         draggingSeparatorBand = hit[0];
                         shiftingBaseSeparatorX = hit[1];
@@ -226,6 +257,9 @@ public class TimelinePanel extends JPanel {
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (draggingSeparator || shiftingText || draggingPlanMarker) {
+                    if (hasMovedDuringDrag) {
+                        suppressNextClick = true;
+                    }
                     draggingSeparator = false;
                     shiftingText = false;
                     draggingPlanMarker = false;
@@ -236,7 +270,7 @@ public class TimelinePanel extends JPanel {
                     // reset shifting helper state
                     shiftingBaseSeparatorX = Integer.MIN_VALUE;
                     shiftingPointerPrevX = Integer.MIN_VALUE;
-                    suppressNextClick = true;
+                    hasMovedDuringDrag = false;
                 }
             }
 
@@ -249,10 +283,11 @@ public class TimelinePanel extends JPanel {
 
                 int x = e.getX();
                 int y = e.getY();
-                int bandHeight = getHeight() / bandCount;
-                int band = y / bandHeight;
+                int h = getHeight() > 0 ? getHeight() : Math.max(20, TimelinePanel.this.bandHeight * Math.max(1, bandCount));
+                int bHeight = Math.max(1, h / Math.max(1, bandCount));
+                int band = y / bHeight;
 
-                // Clic droit → menu contextuel sur un symbole ou repère de plan
+                // Clic droit → menu contextuel sur un symbole ou repère de plan ou texte de phrase
                 if (SwingUtilities.isRightMouseButton(e)) {
                     int worldX = e.getX() - offsetX;
                     for (Integer markerX : textManager.getPlanMarkers()) {
@@ -265,8 +300,27 @@ public class TimelinePanel extends JPanel {
                     int[] hit = textManager.findSeparatorAtScaled(x, y, offsetX, getHeight(), bandCount, 10);
                     if (hit != null) {
                         showSeparatorContextMenu(e.getComponent(), e.getX(), e.getY(), hit[0], hit[1]);
+                        return;
+                    }
+
+                    TextItem existing = textManager.getTextAtScaled(x, y, offsetX, getHeight(), bandCount);
+                    if (existing == null) {
+                        existing = textManager.getTextInSegmentAt(x, y, offsetX, getHeight(), bandCount);
+                    }
+                    if (existing != null) {
+                        showPhraseContextMenu(e.getComponent(), e.getX(), e.getY(), existing);
+                        return;
                     }
                     return;
+                }
+
+                // Clic gauche sur le début de phrase (séparateur START) -> menu pour changer de bande
+                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
+                    int[] hit = textManager.findSeparatorAtScaled(x, y, offsetX, getHeight(), bandCount, 10);
+                    if (hit != null && textManager.getSeparatorType(hit[0], hit[1]) == SeparatorMark.Type.START) {
+                        showSeparatorContextMenu(e.getComponent(), e.getX(), e.getY(), hit[0], hit[1]);
+                        return;
+                    }
                 }
 
                 if (e.getClickCount() == 2) {
@@ -357,36 +411,149 @@ public class TimelinePanel extends JPanel {
             }
         });
 
-        // Changer le type — seulement pour INNER et LEGACY
-        if (type == SeparatorMark.Type.INNER || type == SeparatorMark.Type.LEGACY) {
-            JMenu changeTypeMenu = new JMenu("Changer le symbole");
-
-            JMenuItem toInner = new JMenuItem("Séparateur interne");
-            toInner.addActionListener(ev -> {
-                recordUndoSnapshot();
-                textManager.setSeparatorType(band, worldX, SeparatorMark.Type.INNER);
-                repaint();
+        // Pour un séparateur START (début de phrase) : proposer "Changer le rôle", "Changer de bande" et "Supprimer la phrase"
+        if (type == SeparatorMark.Type.START) {
+            JMenuItem changerRole = new JMenuItem("🎭 Changer le rôle...");
+            changerRole.addActionListener(ev -> {
+                changePhraseRole(band, worldX);
             });
-            JMenuItem toLegacy = new JMenuItem("Séparateur double (legacy)");
-            toLegacy.addActionListener(ev -> {
-                recordUndoSnapshot();
-                textManager.setSeparatorType(band, worldX, SeparatorMark.Type.LEGACY);
-                repaint();
-            });
+            menu.add(changerRole);
+            menu.addSeparator();
 
-            changeTypeMenu.add(toInner);
-            changeTypeMenu.add(toLegacy);
-            menu.add(changeTypeMenu);
+            if (bandCount > 1) {
+                JMenu changerBandeMenu = new JMenu("Changer de bande");
+                for (int b = 0; b < bandCount; b++) {
+                    final int targetB = b;
+                    if (targetB == band) continue;
+                    String label = "Bande " + (targetB + 1);
+                    JMenuItem item = new JMenuItem(label);
+                    item.addActionListener(ev -> {
+                        movePhraseToBandWithFeedback(band, worldX, targetB);
+                    });
+                    changerBandeMenu.add(item);
+                }
+                menu.add(changerBandeMenu);
+                menu.addSeparator();
+            }
+
+            JMenuItem supprimerPhrase = new JMenuItem("Supprimer la phrase");
+            supprimerPhrase.addActionListener(ev -> {
+                deletePhraseAtStartSeparator(band, worldX);
+            });
+            menu.add(supprimerPhrase);
+        } else {
+            // Changer le type — seulement pour INNER et LEGACY
+            if (type == SeparatorMark.Type.INNER || type == SeparatorMark.Type.LEGACY) {
+                JMenu changeTypeMenu = new JMenu("Changer le symbole");
+
+                JMenuItem toInner = new JMenuItem("Séparateur interne");
+                toInner.addActionListener(ev -> {
+                    recordUndoSnapshot();
+                    textManager.setSeparatorType(band, worldX, SeparatorMark.Type.INNER);
+                    repaint();
+                });
+                JMenuItem toLegacy = new JMenuItem("Séparateur double (legacy)");
+                toLegacy.addActionListener(ev -> {
+                    recordUndoSnapshot();
+                    textManager.setSeparatorType(band, worldX, SeparatorMark.Type.LEGACY);
+                    repaint();
+                });
+
+                changeTypeMenu.add(toInner);
+                changeTypeMenu.add(toLegacy);
+                menu.add(changeTypeMenu);
+                menu.addSeparator();
+            }
+
+            JMenuItem supprimer = new JMenuItem("Supprimer");
+            supprimer.addActionListener(ev -> {
+                deleteContextSelectedSeparator();
+            });
+            menu.add(supprimer);
+        }
+
+        menu.show(parent, screenX, screenY);
+    }
+
+    private void showPhraseContextMenu(Component parent, int screenX, int screenY, TextItem item) {
+        if (item == null) return;
+        Integer startX = textManager.getStartSeparatorXForText(item);
+        if (startX == null) {
+            startX = item.x;
+        }
+        final int phraseStartX = startX;
+        final int phraseBand = item.band;
+
+        JPopupMenu menu = new JPopupMenu();
+        menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {}
+
+            @Override
+            public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {
+                requestFocusInWindow();
+            }
+
+            @Override
+            public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {
+                requestFocusInWindow();
+            }
+        });
+
+        JMenuItem changerRole = new JMenuItem("🎭 Changer le rôle...");
+        changerRole.addActionListener(ev -> {
+            changePhraseRole(phraseBand, phraseStartX);
+        });
+        menu.add(changerRole);
+        menu.addSeparator();
+
+        if (bandCount > 1) {
+            JMenu changerBandeMenu = new JMenu("Changer de bande");
+            for (int b = 0; b < bandCount; b++) {
+                final int targetB = b;
+                if (targetB == phraseBand) continue;
+                String label = "Bande " + (targetB + 1);
+                JMenuItem bItem = new JMenuItem(label);
+                bItem.addActionListener(ev -> {
+                    movePhraseToBandWithFeedback(phraseBand, phraseStartX, targetB);
+                });
+                changerBandeMenu.add(bItem);
+            }
+            menu.add(changerBandeMenu);
             menu.addSeparator();
         }
 
-        JMenuItem supprimer = new JMenuItem("Supprimer");
-        supprimer.addActionListener(ev -> {
-            deleteContextSelectedSeparator();
+        JMenuItem supprimerPhrase = new JMenuItem("Supprimer la phrase");
+        supprimerPhrase.addActionListener(ev -> {
+            deletePhraseAtStartSeparator(phraseBand, phraseStartX);
         });
-        menu.add(supprimer);
+        menu.add(supprimerPhrase);
 
         menu.show(parent, screenX, screenY);
+    }
+
+    public void changePhraseRole(int band, int phraseStartX) {
+        if (roles == null) {
+            roles = new ArrayList<>();
+        }
+        Role currentRole = textManager.getPhraseRole(band, phraseStartX);
+        Role chosen = RoleWindow.pickRole(this, roles, currentRole);
+        if (chosen != null) {
+            recordUndoSnapshot();
+            Role targetRole = (chosen == RoleWindow.NO_ROLE) ? null : chosen;
+            textManager.setPhraseRole(band, phraseStartX, targetRole);
+            markDirty();
+            repaint();
+            requestFocusInWindow();
+        }
+    }
+
+    public void setRoles(ArrayList<Role> roles) {
+        this.roles = (roles != null) ? roles : new ArrayList<>();
+    }
+
+    public ArrayList<Role> getRoles() {
+        return roles;
     }
 
     private void showPlanMarkerContextMenu(Component parent, int screenX, int screenY, int worldX) {
@@ -410,17 +577,16 @@ public class TimelinePanel extends JPanel {
         return textManager.getActiveBand();
     }
 
-    private int snapWorldXToTenth(int worldX) {
+    public int snapWorldXToTenth(int worldX) {
         double step = pixelsPerSecond * 0.1;
         if (step <= 0) return worldX;
         return (int) Math.round(Math.round(worldX / step) * step);
     }
 
-    private int snapWorldXDownToTenth(int worldX) {
+    public int snapWorldXDownToTenth(int worldX) {
         double step = pixelsPerSecond * 0.1;
         if (step <= 0) return worldX;
-        double snapped = Math.floor(worldX / step) * step;
-        return (int) Math.round(snapped);
+        return (int) Math.round(Math.floor(worldX / step) * step);
     }
 
     private int clampSeparatorMove(int band, int currentX, int desiredX) {
@@ -438,19 +604,15 @@ public class TimelinePanel extends JPanel {
                     nextSeparatorX = separator.x;
                 }
             }
-            if (nextSeparatorX != Integer.MAX_VALUE) {
-                desiredX = Math.min(desiredX, Math.max(currentX, nextSeparatorX - minGap));
-            }
+            return Math.min(desiredX, nextSeparatorX - minGap);
         } else if (desiredX < currentX) {
-            int previousSeparatorX = Integer.MIN_VALUE;
+            int prevSeparatorX = Integer.MIN_VALUE;
             for (SeparatorMark separator : separators) {
-                if (separator.x < currentX && separator.x > previousSeparatorX) {
-                    previousSeparatorX = separator.x;
+                if (separator.x < currentX && separator.x > prevSeparatorX) {
+                    prevSeparatorX = separator.x;
                 }
             }
-            if (previousSeparatorX != Integer.MIN_VALUE) {
-                desiredX = Math.max(desiredX, Math.min(currentX, previousSeparatorX + minGap));
-            }
+            return Math.max(desiredX, prevSeparatorX + minGap);
         }
 
         return desiredX;
@@ -465,21 +627,75 @@ public class TimelinePanel extends JPanel {
 
     /** Add a separator at the current cursor position (snapped) on the given band. */
     public boolean addSeparatorAtCursor(int band) {
-        if (band < 0) {
-            return false;
-        }
+        return addSeparatorAtCursor(band, SeparatorMark.SignType.DEFAULT);
+    }
 
-        if (!textManager.isEditing() || textManager.getActiveBand() != band) {
-            if (!textManager.focusOpenPhraseInBand(band)) {
-                return false;
-            }
+    public boolean addSeparatorAtCursor(int band, SeparatorMark.SignType signType) {
+        if (band < 0) {
+            band = selectedBand >= 0 ? selectedBand : 0;
         }
 
         recordUndoSnapshot();
         int separatorX = snapWorldXToTenth(cursorX - offsetX);
-        textManager.addSeparator(band, separatorX);
+        textManager.addSeparator(band, separatorX, signType);
+        markDirty();
         repaint();
         return true;
+    }
+
+    /** Supprime la phrase complète (texte, début, internes, fin) commençant au séparateur START. */
+    public boolean deletePhraseAtStartSeparator(int band, int startX) {
+        recordUndoSnapshot();
+        boolean removed = textManager.deleteFullPhraseAtStart(band, startX);
+        if (removed) {
+            markDirty();
+            repaint();
+        }
+        return removed;
+    }
+
+    /** Déplace une phrase vers une autre bande avec vérification d'espace et message d'erreur si occupé. */
+    public boolean movePhraseToBandWithFeedback(int sourceBand, int startX, int targetBand) {
+        if (sourceBand == targetBand) return true;
+        if (targetBand < 0 || targetBand >= bandCount) {
+            try {
+                JOptionPane.showMessageDialog(this,
+                        "La bande cible (Bande " + (targetBand + 1) + ") n'existe pas.",
+                        "Erreur de déplacement",
+                        JOptionPane.ERROR_MESSAGE);
+            } catch (HeadlessException ignored) {}
+            return false;
+        }
+
+        int[] bounds = textManager.getPhraseBoundsAtStart(sourceBand, startX);
+        if (bounds == null) {
+            try {
+                JOptionPane.showMessageDialog(this,
+                        "Impossible de trouver la phrase sélectionnée.",
+                        "Erreur",
+                        JOptionPane.ERROR_MESSAGE);
+            } catch (HeadlessException ignored) {}
+            return false;
+        }
+
+        if (!textManager.isSpaceFreeOnBand(targetBand, bounds[0], bounds[1])) {
+            try {
+                JOptionPane.showMessageDialog(this,
+                        "Impossible de déplacer la phrase : l'espace est déjà occupé sur la Bande " + (targetBand + 1) + ".",
+                        "Espace occupé",
+                        JOptionPane.WARNING_MESSAGE);
+            } catch (HeadlessException ignored) {}
+            return false;
+        }
+
+        recordUndoSnapshot();
+        boolean moved = textManager.movePhraseToBand(sourceBand, startX, targetBand);
+        if (moved) {
+            selectedBand = targetBand;
+            markDirty();
+            repaint();
+        }
+        return moved;
     }
 
     public boolean deleteContextSelectedSeparator() {
@@ -528,6 +744,27 @@ public class TimelinePanel extends JPanel {
         if (textManager.isEditing()) {
             resetCaretBlink();
         }
+        markDirty();
+        repaint();
+    }
+
+    public void endPhraseAtCursor(int band) {
+        if (textManager.isEditing()) {
+            endPhrase();
+            return;
+        }
+        if (band < 0) {
+            band = selectedBand >= 0 ? selectedBand : 0;
+        }
+        if (textManager.hasOpenPhraseInBand(band)) {
+            textManager.focusOpenPhraseInBand(band);
+            endPhrase();
+            return;
+        }
+        recordUndoSnapshot();
+        int worldCursorX = snapWorldXToTenth(cursorX - offsetX);
+        textManager.addSeparator(band, worldCursorX, SeparatorMark.Type.END, -1, SeparatorMark.SignType.DEFAULT);
+        markDirty();
         repaint();
     }
 
@@ -549,6 +786,9 @@ public class TimelinePanel extends JPanel {
         this.customization.globalBandImagePath = c.globalBandImagePath;
         this.customization.perBandImagePaths = c.perBandImagePaths;
         this.customization.timelineFontFamily = c.timelineFontFamily;
+        this.customization.showWaveform = c.showWaveform;
+        this.customization.waveformColor = c.waveformColor;
+        this.customization.defaultProjectFormat = c.defaultProjectFormat;
 
         this.bandCount = Math.max(1, customization.bandCount);
         this.bandHeight = Math.max(20, customization.bandHeight);
@@ -556,6 +796,7 @@ public class TimelinePanel extends JPanel {
         renderer.setBandCount(this.bandCount);
         renderer.setCursorX(this.cursorX);
         renderer.setCustomization(this.customization);
+        offsetX = cursorX - (int) Math.round(currentTime * pixelsPerSecond);
         setPreferredSize(new Dimension(getPreferredSize().width, this.bandCount * this.bandHeight));
         revalidate();
         repaint();
@@ -563,7 +804,7 @@ public class TimelinePanel extends JPanel {
 
     public void setTime(double time) {
         currentTime = time;
-        offsetX = (int) (-currentTime * pixelsPerSecond);
+        offsetX = cursorX - (int) Math.round(currentTime * pixelsPerSecond);
         repaint();
     }
 
@@ -592,7 +833,8 @@ public class TimelinePanel extends JPanel {
                 caretVisible && textManager.isEditing(),
                 separatorsVisible,
                 graduationsVisible,
-                textManager.getPlanMarkers());
+                textManager.getPlanMarkers(),
+                waveformData);
 
         if (insertionPulseVisible && insertionPulseBand >= 0 && insertionPulseWorldX != Integer.MIN_VALUE) {
             Graphics2D g2 = (Graphics2D) g.create();
@@ -609,6 +851,7 @@ public class TimelinePanel extends JPanel {
 
     /** Type a character into the currently edited phrase (handles special keys). */
     public void typeChar(char c) {
+        if (!textManager.isEditing()) return;
         recordUndoSnapshot();
         textManager.typeChar(c);
         resetCaretBlink();
@@ -645,6 +888,7 @@ public class TimelinePanel extends JPanel {
 
     /** Delete a single character before the cursor in the current edit. */
     public void deleteChar() {
+        if (!textManager.isEditing()) return;
         recordUndoSnapshot();
         textManager.deleteChar();
         resetCaretBlink();
@@ -653,6 +897,7 @@ public class TimelinePanel extends JPanel {
 
     /** Delete the previous word before the cursor in the current edit. */
     public void deleteWord() {
+        if (!textManager.isEditing()) return;
         recordUndoSnapshot();
         textManager.deleteWord();
         resetCaretBlink();
@@ -668,6 +913,7 @@ public class TimelinePanel extends JPanel {
 
     /** Paste provided text into the editing buffer at cursor. */
     public void pasteText(String text) {
+        if (!textManager.isEditing() || text == null || text.isEmpty()) return;
         recordUndoSnapshot();
         textManager.insertText(text);
         resetCaretBlink();
@@ -689,7 +935,7 @@ public class TimelinePanel extends JPanel {
     public void clearAll() {
         recordUndoSnapshot();
         textManager.clearAll();
-        offsetX = 0;
+        offsetX = cursorX - (int) Math.round(currentTime * pixelsPerSecond);
         selectedBand = -1;
         repaint();
     }
@@ -719,6 +965,16 @@ public class TimelinePanel extends JPanel {
     /** Toggle visibility of time graduations and repaint. */
     public void setGraduationsVisible(boolean visible) {
         this.graduationsVisible = visible;
+        repaint();
+    }
+
+    public boolean isWaveformVisible() {
+        return customization.showWaveform;
+    }
+
+    /** Toggle visibility of audio waveform and repaint. */
+    public void setWaveformVisible(boolean visible) {
+        this.customization.showWaveform = visible;
         repaint();
     }
 
@@ -783,6 +1039,9 @@ public class TimelinePanel extends JPanel {
 
     public double getPixelsPerSecond() { return pixelsPerSecond; }
 
+    /** Returns the X coordinate of the playhead cursor in screen/panel space. */
+    public int getCursorX() { return cursorX; }
+
     public double getZoomLevel() {
         return ZOOM_LEVELS[zoomLevelIndex];
     }
@@ -805,53 +1064,174 @@ public class TimelinePanel extends JPanel {
         return true;
     }
 
+    private void scaleSnapshots(java.util.Collection<TimelineSnapshot> stack, double ratio) {
+        if (stack == null || ratio <= 0 || Math.abs(ratio - 1.0) < 1e-9) return;
+        for (TimelineSnapshot s : stack) {
+            if (s == null) continue;
+            s.zoomLevelIndex = zoomLevelIndex;
+            for (TextItem t : s.texts) {
+                t.x = (int) Math.round(t.x * ratio);
+            }
+            for (SeparatorState sep : s.separators) {
+                sep.x = (int) Math.round(sep.x * ratio);
+            }
+            if (s.planMarkers != null) {
+                for (int i = 0; i < s.planMarkers.size(); i++) {
+                    s.planMarkers.set(i, (int) Math.round(s.planMarkers.get(i) * ratio));
+                }
+            }
+        }
+    }
+
     private void applyZoomLevel() {
-        recordUndoSnapshot();
         double oldPixelsPerSecond = pixelsPerSecond;
         pixelsPerSecond = BASE_PIXELS_PER_SECOND * ZOOM_LEVELS[zoomLevelIndex];
         if (oldPixelsPerSecond > 0) {
             double ratio = pixelsPerSecond / oldPixelsPerSecond;
-            textManager.scaleTimelineX(cursorX, ratio);
+            textManager.scaleTimelineX(0, ratio);
+            scaleSnapshots(undoStack, ratio);
+            scaleSnapshots(redoStack, ratio);
         }
         // Keep the timeline centered on the current time when zoom changes.
         setTime(currentTime);
     }
 
     /**
-     * Renders the timeline at a given time position into a BufferedImage.
-     * Used for video export.
+    /**
+     * Session de rendu optimisée pour l'export vidéo.
+     * Met en cache les textes, séparateurs et marqueurs dimensionnés une fois pour toutes,
+     * et utilise un TimelineRenderer dédié indépendant de l'affichage UI.
      */
-    public BufferedImage renderFrame(int width, int height, double time) {
-        int frameOffsetX = (int)(-time * pixelsPerSecond);
-        BufferedImage img = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+    public static class ExportSession {
+        private final int width;
+        private final int height;
+        private final int cx;
+        private final double pps;
+        private final ArrayList<TextItem> renderTexts;
+        private final Map<Integer, ArrayList<SeparatorMark>> renderSeparators;
+        private final ArrayList<Integer> renderMarkers;
+        private final TimelineRenderer dedicatedRenderer;
+        private final Color backgroundColor;
+        private final boolean separatorsVisible;
+        private final boolean graduationsVisible;
+        private final app.services.AudioWaveformData waveformData;
+
+        public ExportSession(int width, int height, double visibleSecondsAhead, TimelinePanel panel) {
+            this.width = Math.max(2, width);
+            this.height = Math.max(2, height);
+
+            this.cx = Math.max(60, (int) Math.round(this.width * 0.08));
+            double visibleWidth = Math.max(100.0, this.width - this.cx);
+
+            if (visibleSecondsAhead > 0.5) {
+                this.pps = visibleWidth / visibleSecondsAhead;
+            } else {
+                double baseH = Math.max(100.0, panel.getHeight() > 0 ? (double) panel.getHeight() : 200.0);
+                double scale = (double) this.height / baseH;
+                this.pps = panel.pixelsPerSecond * (scale > 0 ? scale : 1.0);
+            }
+
+            double currentPps = (panel.pixelsPerSecond > 0) ? panel.pixelsPerSecond : BASE_PIXELS_PER_SECOND;
+            double coordScale = this.pps / currentPps;
+
+            this.renderTexts = new ArrayList<>();
+            for (TextItem t : panel.textManager.getTexts()) {
+                TextItem scaledItem = new TextItem(t.text, (int) Math.round(t.x * coordScale), t.band);
+                scaledItem.role = t.role;
+                this.renderTexts.add(scaledItem);
+            }
+
+            this.renderSeparators = new HashMap<>();
+            for (Map.Entry<Integer, ArrayList<SeparatorMark>> entry : panel.textManager.getBandSeparators().entrySet()) {
+                ArrayList<SeparatorMark> scaledList = new ArrayList<>();
+                for (SeparatorMark m : entry.getValue()) {
+                    scaledList.add(new SeparatorMark((int) Math.round(m.x * coordScale), m.type, m.splitIndex));
+                }
+                this.renderSeparators.put(entry.getKey(), scaledList);
+            }
+
+            this.renderMarkers = new ArrayList<>();
+            for (Integer mx : panel.textManager.getPlanMarkers()) {
+                this.renderMarkers.add((int) Math.round(mx * coordScale));
+            }
+
+            this.dedicatedRenderer = new TimelineRenderer(panel.bandCount, this.cx);
+            this.dedicatedRenderer.setCustomization(panel.customization);
+
+            this.backgroundColor = panel.getBackground() != null ? panel.getBackground() : new Color(40, 40, 40);
+            this.separatorsVisible = panel.separatorsVisible;
+            this.graduationsVisible = panel.graduationsVisible;
+            this.waveformData = panel.waveformData;
+        }
+
+        public int getWidth() { return width; }
+        public int getHeight() { return height; }
+        public double getPixelsPerSecond() { return pps; }
+
+        /**
+         * Rendu ultra-rapide directement dans le contexte Graphics2D fourni sans allocation d'objets.
+         */
+        public void renderFrameDirect(Graphics2D g2, double time) {
+            int frameOffsetX = cx - (int) Math.round(time * pps);
+            g2.setColor(backgroundColor);
+            g2.fillRect(0, 0, width, height);
+
+            dedicatedRenderer.render(g2,
+                    renderSeparators,
+                    renderTexts,
+                    frameOffsetX,
+                    -1,
+                    false,
+                    -1,
+                    0,
+                    "",
+                    null,
+                    0,
+                    false,
+                    width,
+                    height,
+                    pps,
+                    false,
+                    separatorsVisible,
+                    graduationsVisible,
+                    renderMarkers,
+                    waveformData);
+        }
+    }
+
+    /**
+     * Crée une session d'export pré-calculée pour le rendu rapide de milliers de frames consécutives.
+     */
+    public ExportSession createExportSession(int width, int height, double visibleSecondsAhead) {
+        return new ExportSession(width, height, visibleSecondsAhead, this);
+    }
+
+    /**
+     * Renders the timeline at a given time position into a BufferedImage.
+     * Scales tracks, text, and timecode proportionally to target resolution for high readability and sharp text.
+     */
+    public BufferedImage renderFrame(int width, int height, double time, double visibleSecondsAhead) {
+        ExportSession session = createExportSession(width, height, visibleSecondsAhead);
+        BufferedImage img = new BufferedImage(session.getWidth(), session.getHeight(), BufferedImage.TYPE_INT_RGB);
         Graphics2D g2 = img.createGraphics();
-        g2.setColor(getBackground());
-        g2.fillRect(0, 0, width, height);
-        renderer.render(g2,
-                textManager.getBandSeparators(),
-                textManager.getTexts(),
-                frameOffsetX,
-                -1,
-                false,
-                -1,
-                0,
-                "",
-                null,
-                0,
-                false,
-                width,
-                height,
-                pixelsPerSecond,
-                false,
-                separatorsVisible,
-                graduationsVisible,
-                textManager.getPlanMarkers());
-        g2.dispose();
+        try {
+            session.renderFrameDirect(g2, time);
+        } finally {
+            g2.dispose();
+        }
         return img;
     }
 
+    public BufferedImage renderFrame(int width, int height, double time) {
+        return renderFrame(width, height, time, 5.0);
+    }
+
+    public int getZoomLevelIndex() {
+        return zoomLevelIndex;
+    }
+
     public void saveProject(File file, File videoFile, java.util.ArrayList<Role> roles) {
-        ProjectManager.save(file, videoFile, textManager, roles, bandCount);
+        ProjectManager.save(file, videoFile, textManager, roles, bandCount, pixelsPerSecond, zoomLevelIndex);
         // Saving to a project file clears the dirty flag.
         clearDirty();
     }
@@ -865,11 +1245,32 @@ public class TimelinePanel extends JPanel {
     }
 
     public File loadProject(File file, java.util.ArrayList<Role> roles) {
-        recordUndoSnapshot();
         ProjectManager.LoadedProject loaded = ProjectManager.load(file, textManager, roles);
         setBandCount(loaded.bandCount);
+        if (loaded.zoomLevelIndex >= 0 && loaded.zoomLevelIndex < ZOOM_LEVELS.length) {
+            this.zoomLevelIndex = loaded.zoomLevelIndex;
+            this.pixelsPerSecond = (loaded.pixelsPerSecond > 0) ? loaded.pixelsPerSecond : (BASE_PIXELS_PER_SECOND * ZOOM_LEVELS[this.zoomLevelIndex]);
+        } else if (loaded.pixelsPerSecond > 0) {
+            this.pixelsPerSecond = loaded.pixelsPerSecond;
+            int bestIdx = 0;
+            double minDiff = Double.MAX_VALUE;
+            for (int i = 0; i < ZOOM_LEVELS.length; i++) {
+                double diff = Math.abs((BASE_PIXELS_PER_SECOND * ZOOM_LEVELS[i]) - loaded.pixelsPerSecond);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    bestIdx = i;
+                }
+            }
+            this.zoomLevelIndex = bestIdx;
+        } else {
+            this.zoomLevelIndex = 0;
+            this.pixelsPerSecond = BASE_PIXELS_PER_SECOND;
+        }
+        setTime(currentTime);
         repaint();
-        // Loading a project is considered a clean state.
+        // Loading a project is considered a clean state with clean undo history.
+        undoStack.clear();
+        redoStack.clear();
         clearDirty();
         return loaded.videoFile;
     }
@@ -898,38 +1299,98 @@ public class TimelinePanel extends JPanel {
         return true;
     }
 
-    public List<ActionHistoryEntry> getActionHistory(int maxEntries) {
-        int safeMax = Math.max(1, maxEntries);
+    public List<ActionHistoryEntry> getAllActionHistory() {
         int currentWorldX = cursorX - offsetX;
         double pps = Math.max(1.0, pixelsPerSecond);
-
-        ArrayList<ActionHistoryEntry> past = new ArrayList<>();
-        ArrayList<ActionHistoryEntry> future = new ArrayList<>();
+        ArrayList<ActionHistoryEntry> entries = new ArrayList<>();
 
         for (TextItem item : textManager.getTexts()) {
             if (item == null) continue;
 
             int startX = item.x;
             Integer endX = findEndBoundaryX(item.band, startX);
-            boolean activeNow = startX <= currentWorldX && (endX == null || currentWorldX <= endX);
 
             String roleName = (item.role != null && item.role.name != null && !item.role.name.isBlank())
                     ? item.role.name
-                    : "Sans role";
-            String text = item.text == null ? "" : item.text;
-            double startSec = Math.max(0.0, (startX - cursorX) / pps);
-            Double endSec = endX == null ? null : Math.max(0.0, (endX - cursorX) / pps);
+                    : "Sans rôle";
+            String fullText = item.text == null ? "" : item.text;
 
-            ActionHistoryEntry entry = new ActionHistoryEntry(roleName, text, startSec, endSec, activeNow);
-            if (startX <= currentWorldX || activeNow) {
+            ArrayList<SeparatorMark> sepList = textManager.getBandSeparators().get(item.band);
+            ArrayList<SeparatorMark> innerMarks = new ArrayList<>();
+            if (sepList != null) {
+                for (SeparatorMark mark : sepList) {
+                    if (mark != null && mark.type == SeparatorMark.Type.INNER && mark.x > startX && (endX == null || mark.x < endX)) {
+                        innerMarks.add(mark);
+                    }
+                }
+            }
+
+            if (innerMarks.isEmpty()) {
+                boolean activeNow = startX <= currentWorldX && (endX == null || currentWorldX <= endX);
+                double startSec = Math.max(0.0, startX / pps);
+                Double endSec = endX == null ? null : Math.max(0.0, endX / pps);
+                entries.add(new ActionHistoryEntry(roleName, fullText, startSec, endSec, activeNow));
+            } else {
+                int len = fullText.length();
+                int prevX = startX;
+                int prevIdx = 0;
+
+                for (SeparatorMark mark : innerMarks) {
+                    int segStartX = prevX;
+                    int segEndX = mark.x;
+                    int idx = mark.splitIndex >= 0 ? mark.splitIndex : len;
+                    if (idx < prevIdx) idx = prevIdx;
+                    if (idx > len) idx = len;
+
+                    String segText = fullText.substring(prevIdx, idx).trim();
+                    boolean activeNow = segStartX <= currentWorldX && currentWorldX <= segEndX;
+                    double startSec = Math.max(0.0, segStartX / pps);
+                    Double endSec = Math.max(0.0, segEndX / pps);
+
+                    if (!segText.isEmpty()) {
+                        entries.add(new ActionHistoryEntry(roleName, segText, startSec, endSec, activeNow));
+                    }
+
+                    prevX = mark.x;
+                    prevIdx = idx;
+                }
+
+                int segStartX = prevX;
+                Integer segEndX = endX;
+                String segText = (prevIdx <= len) ? fullText.substring(prevIdx).trim() : "";
+                boolean activeNow = segStartX <= currentWorldX && (segEndX == null || currentWorldX <= segEndX);
+                double startSec = Math.max(0.0, segStartX / pps);
+                Double endSec = segEndX == null ? null : Math.max(0.0, segEndX / pps);
+
+                if (!segText.isEmpty()) {
+                    entries.add(new ActionHistoryEntry(roleName, segText, startSec, endSec, activeNow));
+                }
+            }
+        }
+
+        entries.sort(Comparator.comparingDouble(a -> a.startTimeSeconds));
+        return entries;
+    }
+
+    public List<ActionHistoryEntry> getActionHistory(int maxEntries) {
+        int safeMax = Math.max(1, maxEntries);
+        int currentWorldX = cursorX - offsetX;
+
+        List<ActionHistoryEntry> all = getAllActionHistory();
+        if (all.size() <= safeMax) {
+            return all;
+        }
+
+        ArrayList<ActionHistoryEntry> past = new ArrayList<>();
+        ArrayList<ActionHistoryEntry> future = new ArrayList<>();
+
+        for (ActionHistoryEntry entry : all) {
+            if (entry.active || (entry.endTimeSeconds != null ? entry.endTimeSeconds <= (currentWorldX / pixelsPerSecond) : entry.startTimeSeconds <= (currentWorldX / pixelsPerSecond))) {
                 past.add(entry);
             } else {
                 future.add(entry);
             }
         }
-
-        past.sort(Comparator.comparingDouble(a -> a.startTimeSeconds));
-        future.sort(Comparator.comparingDouble(a -> a.startTimeSeconds));
 
         int takePast = Math.min(safeMax, past.size());
         int startIndex = Math.max(0, past.size() - takePast);
@@ -961,11 +1422,16 @@ public class TimelinePanel extends JPanel {
         pushSnapshot(undoStack, captureSnapshot());
         redoStack.clear();
         // Mark document as modified by user actions
+        markDirty();
+    }
+
+    public void markDirty() {
         dirty = true;
         if (dirtyCallback != null) {
             try { dirtyCallback.run(); } catch (Throwable ignored) {}
         }
     }
+
     public void clearDirty() {
         boolean was = dirty;
         dirty = false;
@@ -1005,6 +1471,8 @@ public class TimelinePanel extends JPanel {
                 state.band = entry.getKey();
                 state.x = sep.x;
                 state.type = sep.type;
+                state.signType = sep.signType;
+                state.rawDetxType = sep.rawDetxType;
                 state.splitIndex = sep.splitIndex;
                 snapshot.separators.add(state);
             }
@@ -1025,7 +1493,10 @@ public class TimelinePanel extends JPanel {
                 textManager.addTextItem(copy);
             }
             for (SeparatorState s : snapshot.separators) {
-                textManager.addSeparator(s.band, s.x, s.type, s.splitIndex);
+                SeparatorMark sm = textManager.addSeparator(s.band, s.x, s.type, s.splitIndex, s.signType);
+                if (s.rawDetxType != null) {
+                    sm.rawDetxType = s.rawDetxType;
+                }
             }
             if (snapshot.planMarkers != null) {
                 for (Integer markerX : snapshot.planMarkers) {
