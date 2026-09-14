@@ -313,6 +313,7 @@ public class FileUtils {
 
         // 3. Repli AWT FileDialog
         if (!GraphicsEnvironment.isHeadless()) {
+            boolean shown = false;
             try {
                 FileDialog fd;
                 if (parent instanceof Frame) {
@@ -332,6 +333,7 @@ public class FileUtils {
                     });
                 }
                 fd.setVisible(true);
+                shown = true;
                 String file = fd.getFile();
                 String dir = fd.getDirectory();
                 if (file != null && dir != null) {
@@ -339,7 +341,9 @@ public class FileUtils {
                 }
                 // Si la boîte s'est fermée sans fichier sélectionné : l'utilisateur a annulé
                 return null;
-            } catch (Throwable ignored) {}
+            } catch (Throwable ignored) {
+                if (shown) return null;
+            }
         }
 
         // 4. Repli ultime JFileChooser (en cas d'environnement headless ou erreur d'affichage)
@@ -392,6 +396,7 @@ public class FileUtils {
 
         // 3. Repli AWT FileDialog
         if (!GraphicsEnvironment.isHeadless()) {
+            boolean shown = false;
             try {
                 FileDialog fd;
                 if (parent instanceof Frame) {
@@ -405,6 +410,7 @@ public class FileUtils {
                     fd.setFile("*." + defaultExtension.toLowerCase(Locale.ROOT));
                 }
                 fd.setVisible(true);
+                shown = true;
                 String file = fd.getFile();
                 String dir = fd.getDirectory();
                 if (file != null && dir != null) {
@@ -412,7 +418,9 @@ public class FileUtils {
                 }
                 // Si la boîte s'est fermée sans fichier sélectionné : l'utilisateur a annulé
                 return null;
-            } catch (Throwable ignored) {}
+            } catch (Throwable ignored) {
+                if (shown) return null;
+            }
         }
 
         // 4. Repli ultime JFileChooser
@@ -447,11 +455,23 @@ public class FileUtils {
         File[] candidates = new File[] {
             new File("NativeDialog.exe"),
             new File("bin/NativeDialog.exe"),
-            new File("OmeRyth/NativeDialog.exe")
+            new File("OmeRyth/NativeDialog.exe"),
+            new File(System.getProperty("user.dir", "."), "NativeDialog.exe"),
+            new File(System.getProperty("user.dir", "."), "bin/NativeDialog.exe")
         };
         for (File c : candidates) {
             if (c.exists() && c.isFile()) return c;
         }
+        try {
+            File codeSource = new File(FileUtils.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            File parentDir = codeSource.isDirectory() ? codeSource : codeSource.getParentFile();
+            if (parentDir != null) {
+                File c1 = new File(parentDir, "NativeDialog.exe");
+                if (c1.exists() && c1.isFile()) return c1;
+                File c2 = new File(parentDir, "bin/NativeDialog.exe");
+                if (c2.exists() && c2.isFile()) return c2;
+            }
+        } catch (Throwable ignored) {}
         return null;
     }
 
@@ -470,15 +490,21 @@ public class FileUtils {
                 }
             }
             int exitCode = p.waitFor();
-            if (exitCode == 0) {
-                if (result != null && !result.isEmpty()) {
-                    return DialogOutcome.success(new File(result));
-                } else {
-                    // L'exécutable natif a fonctionné normalement et l'utilisateur a annulé
-                    return DialogOutcome.cancelled();
-                }
+
+            // Si le dialogue a renvoyé un chemin valide, c'est un succès.
+            if (exitCode == 0 && result != null && !result.isEmpty() && !result.equals("::CANCELLED::")) {
+                return DialogOutcome.success(new File(result));
             }
-        } catch (Exception ignored) {}
+
+            // Dans TOUS les autres cas (annulation via Annuler, fermeture de fenêtre, ou tout exit code
+            // non-0), on considère que l'utilisateur a annulé ET qu'on n'a PAS besoin de repli.
+            // Le dialogue natif a été affiché : il n'y a aucune raison d'en ouvrir un second.
+            return DialogOutcome.cancelled();
+
+        } catch (Exception ignored) {
+            // Seulement si le processus n'a pas pu démarrer (exe manquant, permissions...)
+            // on signale un échec pour activer le repli.
+        }
         return DialogOutcome.failed();
     }
 
@@ -543,12 +569,11 @@ public class FileUtils {
             if (result != null && result.contains("<Objs ")) {
                 result = null;
             }
-            if (exitCode == 0) {
-                if ("::CANCELLED::".equals(result) || (result == null || result.isEmpty())) {
-                    return DialogOutcome.cancelled();
-                }
+            if (result != null && !result.isEmpty() && !"::CANCELLED::".equals(result)) {
                 return DialogOutcome.success(new File(result));
             }
+            // Le script PowerShell s'est exécuté et l'utilisateur a annulé ou fermé : arrêt immédiat
+            return DialogOutcome.cancelled();
         } catch (Exception ignored) {}
         return DialogOutcome.failed();
     }

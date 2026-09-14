@@ -1,7 +1,9 @@
 @echo off
 chcp 65001 >nul
+cd /d "%~dp0"
+
 echo =======================================================
-echo    Lancement et Compilation d'OmeRyth
+echo    Compilation et Lancement d'OmeRyth
 echo =======================================================
 echo.
 
@@ -10,7 +12,7 @@ if not exist bin mkdir bin
 dir /s /b src\*.java > .src_files.txt
 javac -cp "libs/*;src" -d bin -encoding UTF-8 @.src_files.txt
 if %errorlevel% neq 0 (
-    echo [ERREUR] Erreur de compilation Java.
+    echo [ERREUR] Erreur lors de la compilation Java.
     del .src_files.txt 2>nul
     pause
     exit /b 1
@@ -20,7 +22,7 @@ del .src_files.txt 2>nul
 if not exist bin\images mkdir bin\images
 xcopy /s /y src\images\* bin\images\ >nul 2>&1
 
-echo [2/3] Creation du JAR executable...
+echo [2/3] Creation du JAR executable (OmeRyth.jar)...
 jar cfm OmeRyth.jar manifest.txt -C bin .
 
 echo [3/3] Creation / Mise a jour d'OmeRyth.exe...
@@ -55,7 +57,7 @@ if exist "C:\Program Files (x86)\Launch4j\launch4jc.exe" (
 echo.
 echo Lancement d'OmeRyth...
 if exist "OmeRyth.exe" (
-    start "" "OmeRyth.exe"
+    start "" "OmeRyth.exe" %*
 ) else (
-    java -cp "bin;libs/*" app.Launcher
+    start "" java -cp "bin;libs/*" app.Launcher %*
 )

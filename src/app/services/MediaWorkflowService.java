@@ -309,23 +309,23 @@ public class MediaWorkflowService {
                         filter.append("color=s=").append(cW).append("x").append(cH)
                               .append(":c=black:r=").append(fps)
                               .append(":d=").append(String.format(Locale.US, "%.3f", dureeSec)).append("[bg];");
-                        filter.append("[1:v]scale=w=").append(vW).append(":h=").append(vH)
-                              .append(":force_original_aspect_ratio=decrease:flags=fast_bilinear,pad=").append(vW).append(":").append(vH)
+                        filter.append("[1:v]fps=fps=").append(fps).append(":round=near,scale=w=").append(vW).append(":h=").append(vH)
+                              .append(":force_original_aspect_ratio=decrease:flags=bicubic,pad=").append(vW).append(":").append(vH)
                               .append(":(ow-iw)/2:(oh-ih)/2:color=black");
                         if (config.antiCopyright && config.antiCopyrightOpacity > 0) {
                             double alphaFloat = Math.max(0.0, Math.min(1.0, config.antiCopyrightOpacity / 100.0));
                             filter.append(String.format(Locale.US, ",drawbox=x=0:y=0:w=iw:h=ih:color=white@%.2f:t=fill", alphaFloat));
                         }
                         filter.append("[vscaled];");
-                        filter.append("[bg][vscaled]overlay=").append(vX).append(":").append(vY).append("[bg_vid];");
+                        filter.append("[bg][vscaled]overlay=").append(vX).append(":").append(vY).append(":eof_action=pass[bg_vid];");
                         filter.append("[bg_vid][0:v]overlay=").append(bX).append(":").append(bY).append(":shortest=1[vout]");
 
                         if (separatedAudio != null) {
-                            filter.append(";[2:a]aresample=async=1000[aout]");
+                            filter.append(";[2:a]aresample=async=1:first_pts=0[aout]");
                         } else if (config.removeVocals) {
-                            filter.append(";[1:a]stereotools=mlev=0.015625:slev=1.3,highpass=f=80,aresample=async=1000[aout]");
+                            filter.append(";[1:a]stereotools=mlev=0.015625:slev=1.3,highpass=f=80,aresample=async=1:first_pts=0[aout]");
                         } else if (config.includeAudio) {
-                            filter.append(";[1:a]aresample=async=1000[aout]");
+                            filter.append(";[1:a]aresample=async=1:first_pts=0[aout]");
                         }
 
                         command.add("-filter_complex");
@@ -341,6 +341,20 @@ public class MediaWorkflowService {
                             command.add("-b:a");
                             command.add("192k");
                         }
+
+                        // Optimisations YouTube & Streaming : CFR 100% fluide, GOP 2s et FastStart
+                        command.add("-r");
+                        command.add(String.valueOf(fps));
+                        command.add("-fps_mode");
+                        command.add("cfr");
+                        command.add("-g");
+                        command.add(String.valueOf(fps * 2));
+                        command.add("-keyint_min");
+                        command.add(String.valueOf(fps));
+                        command.add("-sc_threshold");
+                        command.add("0");
+                        command.add("-movflags");
+                        command.add("+faststart");
 
                         command.add("-c:v");
                         command.add(encoderSettings.codec);
@@ -365,6 +379,19 @@ public class MediaWorkflowService {
                             command.add("192k");
                             command.add("-shortest");
                         }
+
+                        command.add("-r");
+                        command.add(String.valueOf(fps));
+                        command.add("-fps_mode");
+                        command.add("cfr");
+                        command.add("-g");
+                        command.add(String.valueOf(fps * 2));
+                        command.add("-keyint_min");
+                        command.add(String.valueOf(fps));
+                        command.add("-sc_threshold");
+                        command.add("0");
+                        command.add("-movflags");
+                        command.add("+faststart");
 
                         command.add("-c:v");
                         command.add(encoderSettings.codec);

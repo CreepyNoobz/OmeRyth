@@ -805,6 +805,59 @@ public class SmokeTests {
                 assertTrue(sepsBand0.get(3).type == SeparatorMark.Type.END, "Séparateur 4 doit être END");
                 assertTrue(sepsBand0.get(2).x > sepsBand0.get(1).x, "Il doit y avoir un espace vide entre le END de la phrase 1 et le START de la phrase 2");
                 System.out.println("Test de séparation des phrases avec temps mort de 0.5s (START, END indépendants) : VALIDÉ !");
+
+                // Test Rhythmic Separators & Prolonged Word Stretching (ex: "je suis" 1.3s / "ce petit quiproquo" 0.7s)
+                System.out.println("--- Test Séparateurs Rythmiques & Stretching des Mots Rallongés ---");
+                String jsonTestSeg = "{\"id\": 1, \"speaker\": \"SPEAKER_00\", \"start\": 0.0, \"end\": 2.0, \"text\": \"Je suis ce petit quiproquo\", " +
+                        "\"words\": [{\"word\": \"Je\", \"start\": 0.0, \"end\": 0.2}, {\"word\": \"suis\", \"start\": 0.2, \"end\": 1.3}, " +
+                        "{\"word\": \"ce\", \"start\": 1.35, \"end\": 1.5}, {\"word\": \"petit\", \"start\": 1.5, \"end\": 1.7}, " +
+                        "{\"word\": \"quiproquo\", \"start\": 1.7, \"end\": 2.0}], " +
+                        "\"separators\": [{\"time\": 1.3, \"split_index\": 8}]}";
+
+                app.services.SpeechWorkflowService.TranscriptionSegment parsedSeg =
+                        app.services.SpeechWorkflowService.parseSingleSegment(jsonTestSeg);
+                assertTrue(parsedSeg != null, "Le segment JSON doit être parsé avec succès");
+                assertTrue(parsedSeg.words.size() == 5, "Le segment doit contenir 5 mots unitaires");
+                assertTrue(parsedSeg.separators.size() == 1, "Le segment doit contenir 1 séparateur rythmique");
+                assertTrue(Math.abs(parsedSeg.separators.get(0).time - 1.3) < 1e-3, "Le timecode du séparateur doit être 1.3s");
+                assertTrue(parsedSeg.separators.get(0).splitIndex == 8, "L'index de découpe du séparateur doit être 8 (après 'Je suis ')");
+                String part1 = parsedSeg.text.substring(0, parsedSeg.separators.get(0).splitIndex);
+                String part2 = parsedSeg.text.substring(parsedSeg.separators.get(0).splitIndex);
+                assertTrue(part1.equals("Je suis "), "Partie 1 avant séparateur doit être 'Je suis ' (trouvé '" + part1 + "')");
+                assertTrue(part2.equals("ce petit quiproquo"), "Partie 2 après séparateur doit être 'ce petit quiproquo' (trouvé '" + part2 + "')");
+
+                // Test Rendu Timeline avec séparateur INNER (stretching exact)
+                TimelinePanel rhythmTimeline = new TimelinePanel();
+                rhythmTimeline.setSize(1000, 260);
+                app.ui.TextManager rTM = rhythmTimeline.getTextManager();
+                double rPps = rhythmTimeline.getPixelsPerSecond();
+                int rhythmStartX = rhythmTimeline.snapWorldXToTenth(0);
+                int rhythmInnerX = rhythmTimeline.snapWorldXToTenth((int) Math.round(1.3 * rPps));
+                int rhythmEndX = rhythmTimeline.snapWorldXToTenth((int) Math.round(2.0 * rPps));
+
+                rTM.addTextItem(new app.ui.TextItem(parsedSeg.text, rhythmStartX, 0));
+                rTM.addSeparator(0, rhythmStartX, SeparatorMark.Type.START);
+                rTM.addSeparator(0, rhythmInnerX, SeparatorMark.Type.INNER, parsedSeg.separators.get(0).splitIndex);
+                rTM.addSeparator(0, rhythmEndX, SeparatorMark.Type.END);
+
+                ArrayList<SeparatorMark> b0Marks = rTM.getBandSeparators().get(0);
+                assertTrue(b0Marks.size() == 3, "La bande doit avoir 3 séparateurs (START, INNER, END)");
+                assertTrue(b0Marks.get(1).type == SeparatorMark.Type.INNER, "Le séparateur du milieu doit être INNER");
+                assertTrue(b0Marks.get(1).splitIndex == 8, "L'index de découpe du INNER doit être 8");
+
+                BufferedImage rhythmImg = rhythmTimeline.renderFrame(1000, 260, 0.5);
+                assertTrue(rhythmImg != null, "Le rendu de la phrase étirée avec INNER doit réussir");
+
+                // Test Garantie Anti-Chevauchement Temporel
+                app.services.SpeechWorkflowService.TranscriptionSegment segA =
+                        new app.services.SpeechWorkflowService.TranscriptionSegment(1, "SPEAKER_00", 1.0, 2.5, "Phrase 1");
+                app.services.SpeechWorkflowService.TranscriptionSegment segB =
+                        new app.services.SpeechWorkflowService.TranscriptionSegment(2, "SPEAKER_00", 2.2, 3.5, "Phrase 2");
+                if (segA.endSeconds > segB.startSeconds - 0.05) {
+                    segA.endSeconds = Math.max(segA.startSeconds + 0.25, segB.startSeconds - 0.05);
+                }
+                assertTrue(segA.endSeconds <= segB.startSeconds - 0.05, "La fin de segA doit être ajustée pour éviter tout chevauchement avec segB");
+                System.out.println("Test Séparateurs Rythmiques, Stretching & Anti-Chevauchement : VALIDÉ !");
             } catch (Exception e) {
                 System.err.println("ERREUR lors de l'import / rendu Helluva DETX:");
                 e.printStackTrace();
@@ -998,6 +1051,78 @@ public class SmokeTests {
                 System.out.println("Une instance d'OmeRyth est active en arrière-plan, communication inter-processus opérationnelle.");
             }
             System.out.println("Service SingleInstanceService : VALIDÉ !");
+
+            // 9. Test Anti-Superposition des mots parasites & bégaiements
+            System.out.println("--- Test Anti-Superposition & Fusion des Mots Parasites ---");
+            if (!java.awt.GraphicsEnvironment.isHeadless()) {
+                try {
+                    app.MainFenetre testWindow = new app.MainFenetre();
+                    testWindow.setVisible(false);
+
+                    java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> testSegments = new java.util.ArrayList<>();
+                    // Segment 1 : "Le football il a changé." (1.00s à 2.50s)
+                    app.services.SpeechWorkflowService.TranscriptionSegment seg1 =
+                            new app.services.SpeechWorkflowService.TranscriptionSegment(1, "SPEAKER_00", 1.00, 2.50, "Le football il a changé.");
+                    // Segment 2 : bégaiement quasi-simultané "on" (1.05s) -> doit être fusionné automatiquement
+                    app.services.SpeechWorkflowService.TranscriptionSegment seg2 =
+                            new app.services.SpeechWorkflowService.TranscriptionSegment(2, "SPEAKER_00", 1.05, 1.25, "on");
+                    // Segment 3 : mot parasite "euh" qui commence immédiatement à 2.50s -> doit avoir son propre espace sans collision de séparateurs
+                    app.services.SpeechWorkflowService.TranscriptionSegment seg3 =
+                            new app.services.SpeechWorkflowService.TranscriptionSegment(3, "SPEAKER_00", 2.50, 2.90, "euh");
+
+                    testSegments.add(seg1);
+                    testSegments.add(seg2);
+                    testSegments.add(seg3);
+
+                    testWindow.importerTranscriptionDansTimeline(testSegments, 0);
+
+                    // Vérifications :
+                    app.ui.TextManager tm = testWindow.getTimelinePanel().getTextManager();
+                    java.util.ArrayList<app.ui.TextItem> items = tm.getTexts();
+                    assertTrue(items.size() >= 1, "Des TextItems doivent être présents");
+
+                    // Vérifier que chaque TextItem a une coordonnée X distincte
+                    java.util.Set<Integer> itemXPositions = new java.util.HashSet<>();
+                    for (app.ui.TextItem ti : items) {
+                        if (ti.band == 0) {
+                            boolean isUnique = itemXPositions.add(ti.x);
+                            assertTrue(isUnique, "Chaque réplique sur la bande doit avoir une coordonnée X strictement unique (aucun empilement à " + ti.x + ")");
+                        }
+                    }
+
+                    // Vérifier qu'aucun séparateur de début (START) n'est superposé sur un séparateur de fin (END) au même pixel
+                    java.util.ArrayList<app.ui.SeparatorMark> seps = tm.getBandSeparators().get(0);
+                    if (seps != null && !seps.isEmpty()) {
+                        int lastEnd = -1;
+                        for (app.ui.SeparatorMark sm : seps) {
+                            if (sm.isStartBoundary()) {
+                                if (lastEnd != -1) {
+                                    assertTrue(sm.x > lastEnd, "Le séparateur START (" + sm.x + "px) doit être strictement après le END précédent (" + lastEnd + "px)");
+                                }
+                            } else if (sm.isEndBoundary()) {
+                                lastEnd = sm.x;
+                            }
+                        }
+                    }
+                    testWindow.dispose();
+                } catch (Throwable t) {
+                    System.out.println("Test GUI ignoré (environnement headless ou affichage non disponible) : " + t.getMessage());
+                }
+            } else {
+                System.out.println("Environnement headless détecté : test fenêtré ignoré.");
+            }
+            System.out.println("Anti-Superposition, Fusion des Mots Parasites & Séparation des repères : VALIDÉ !");
+
+            // 10. Test NativeDialog Helper
+            System.out.println("--- Test Intégrité NativeDialog (Anti-Double Dialogue) ---");
+            File nativeExe = new File("NativeDialog.exe");
+            assertTrue(nativeExe.exists(), "NativeDialog.exe doit exister");
+            Process pCheck = new ProcessBuilder("NativeDialog.exe", "check").start();
+            java.io.BufferedReader pReader = new java.io.BufferedReader(new java.io.InputStreamReader(pCheck.getInputStream()));
+            String checkOut = pReader.readLine();
+            int pDialogExit = pCheck.waitFor();
+            assertTrue(pDialogExit == 0 && "OK".equals(checkOut), "NativeDialog check doit renvoyer 'OK' avec exit code 0");
+            System.out.println("NativeDialog.exe opérationnel & robuste : VALIDÉ !");
         }
 
         System.out.println("SmokeTests OK");

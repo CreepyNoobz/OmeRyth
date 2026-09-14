@@ -69,6 +69,37 @@ public class SpeechWorkflowService {
     }
 
     /**
+     * Timing précis d'un mot unitaire dans la réplique.
+     */
+    public static class WordTiming {
+        public String word;
+        public double start;
+        public double end;
+
+        public WordTiming(String word, double start, double end) {
+            this.word = word;
+            this.start = start;
+            this.end = end;
+        }
+    }
+
+    /**
+     * Séparateur rythmique interne (INNER) pour caler les mots rallongés et variations de débit.
+     */
+    public static class RhythmicSeparator {
+        public double time;
+        public int splitIndex;
+
+        public RhythmicSeparator(double time, int splitIndex) {
+            this.time = time;
+            this.splitIndex = splitIndex;
+        }
+
+        public double getTime() { return time; }
+        public int getSplitIndex() { return splitIndex; }
+    }
+
+    /**
      * Segment de transcription unitaire avec timecodes précis.
      */
     public static class TranscriptionSegment {
@@ -77,6 +108,9 @@ public class SpeechWorkflowService {
         public double startSeconds;
         public double endSeconds;
         public String text;
+        public List<WordTiming> words = new ArrayList<>();
+        public List<RhythmicSeparator> separators = new ArrayList<>();
+        public String customRoleName = null;
 
         public TranscriptionSegment(int id, String speaker, double startSeconds, double endSeconds, String text) {
             this.id = id;
@@ -92,6 +126,8 @@ public class SpeechWorkflowService {
         public double getEndSeconds() { return endSeconds; }
         public String getText() { return text; }
         public double getDuration() { return Math.max(0, endSeconds - startSeconds); }
+        public List<WordTiming> getWords() { return words; }
+        public List<RhythmicSeparator> getSeparators() { return separators; }
 
         public int getSpeakerIndex() {
             if (speaker == null || speaker.isBlank()) return 0;
@@ -105,6 +141,9 @@ public class SpeechWorkflowService {
         }
 
         public String getSpeakerDisplayName() {
+            if (customRoleName != null && !customRoleName.isBlank()) {
+                return customRoleName;
+            }
             return "Locuteur " + (getSpeakerIndex() + 1);
         }
     }
@@ -384,8 +423,8 @@ public class SpeechWorkflowService {
                 registerProcess(currentProcess);
 
                 List<String> outputLogs = new ArrayList<>();
-
-                List<TranscriptionSegment> streamedSegments = new ArrayList<>();
+                List<TranscriptionSegment> liveSegments = new ArrayList<>();
+                List<TranscriptionSegment> finalStreamedSegments = new ArrayList<>();
 
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(currentProcess.getInputStream(), StandardCharsets.UTF_8))) {
                     String line;
@@ -403,11 +442,24 @@ public class SpeechWorkflowService {
                                     callback.onProgress((step * 100) / total, msg);
                                 } catch (NumberFormatException ignored) {}
                             }
+                        } else if (line.startsWith("LIVE_SEGMENT:")) {
+                            String jsonStr = line.substring(13).trim();
+                            TranscriptionSegment seg = parseSingleSegment(jsonStr);
+                            if (seg != null) {
+                                liveSegments.add(seg);
+                                callback.onSegmentFound(seg);
+                            }
+                        } else if (line.startsWith("FINAL_SEGMENT:")) {
+                            String jsonStr = line.substring(14).trim();
+                            TranscriptionSegment seg = parseSingleSegment(jsonStr);
+                            if (seg != null) {
+                                finalStreamedSegments.add(seg);
+                            }
                         } else if (line.startsWith("SEGMENT:")) {
                             String jsonStr = line.substring(8).trim();
                             TranscriptionSegment seg = parseSingleSegment(jsonStr);
                             if (seg != null) {
-                                streamedSegments.add(seg);
+                                finalStreamedSegments.add(seg);
                                 callback.onSegmentFound(seg);
                             }
                         } else if (line.startsWith("INFO:")) {
@@ -425,22 +477,30 @@ public class SpeechWorkflowService {
 
                 if (isCancelled) return;
 
-                if (exitCode != 0 && streamedSegments.isEmpty()) {
+                if (exitCode != 0 && liveSegments.isEmpty() && finalStreamedSegments.isEmpty()) {
                     String errDetail = String.join("\n", outputLogs);
                     callback.onError("Échec du processus noScribe (code " + exitCode + ") :\n" + errDetail);
                     return;
                 }
 
-                // 4. Récupération des segments finaux avec garantie anti-perte
-                List<TranscriptionSegment> finalSegments = new ArrayList<>(streamedSegments);
+                // 4. Récupération des segments finaux avec garantie anti-doublon
+                List<TranscriptionSegment> finalSegments = new ArrayList<>();
                 if (resultJson.exists()) {
                     try {
                         String jsonContent = Files.readString(resultJson.toPath(), StandardCharsets.UTF_8);
-                        List<TranscriptionSegment> parsed = parseResultJson(jsonContent, streamedSegments);
+                        List<TranscriptionSegment> parsed = parseResultJson(jsonContent, finalStreamedSegments);
                         if (parsed != null && !parsed.isEmpty()) {
                             finalSegments = parsed;
                         }
                     } catch (Exception ignored) {}
+                }
+
+                if (finalSegments.isEmpty()) {
+                    if (!finalStreamedSegments.isEmpty()) {
+                        finalSegments = new ArrayList<>(finalStreamedSegments);
+                    } else if (!liveSegments.isEmpty()) {
+                        finalSegments = new ArrayList<>(liveSegments);
+                    }
                 }
 
                 callback.onProgress(100, "Transcription terminée !");
@@ -462,7 +522,7 @@ public class SpeechWorkflowService {
         }).start();
     }
 
-    private TranscriptionSegment parseSingleSegment(String jsonStr) {
+    public static TranscriptionSegment parseSingleSegment(String jsonStr) {
         try {
             Matcher idM = Pattern.compile("\"id\"\\s*:\\s*(\\d+)").matcher(jsonStr);
             Matcher spkM = Pattern.compile("\"speaker\"\\s*:\\s*\"([^\"]+)\"").matcher(jsonStr);
@@ -476,7 +536,57 @@ public class SpeechWorkflowService {
             double end = endM.find() ? Double.parseDouble(endM.group(1)) : 0.0;
             String text = textM.find() ? unescape(textM.group(1)) : "";
 
-            return new TranscriptionSegment(id, spk, start, end, text);
+            TranscriptionSegment seg = new TranscriptionSegment(id, spk, start, end, text);
+
+            // Extraction des mots unitaires (word timestamps)
+            int wordsIdx = jsonStr.indexOf("\"words\"");
+            if (wordsIdx != -1) {
+                int arrStart = jsonStr.indexOf('[', wordsIdx);
+                if (arrStart != -1) {
+                    int arrEnd = jsonStr.indexOf(']', arrStart);
+                    if (arrEnd != -1) {
+                        String wordsArrayStr = jsonStr.substring(arrStart, arrEnd + 1);
+                        Matcher objM = Pattern.compile("\\{([^}]+)\\}").matcher(wordsArrayStr);
+                        while (objM.find()) {
+                            String objBody = objM.group(1);
+                            Matcher wM = Pattern.compile("\"word\"\\s*:\\s*\"((?:\\\\\"|[^\"])*)\"").matcher(objBody);
+                            Matcher startM2 = Pattern.compile("\"start\"\\s*:\\s*([0-9.]+)").matcher(objBody);
+                            Matcher endM2 = Pattern.compile("\"end\"\\s*:\\s*([0-9.]+)").matcher(objBody);
+                            if (wM.find() && startM2.find() && endM2.find()) {
+                                String wStr = unescape(wM.group(1));
+                                double wStart = Double.parseDouble(startM2.group(1));
+                                double wEnd = Double.parseDouble(endM2.group(1));
+                                seg.words.add(new WordTiming(wStr, wStart, wEnd));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Extraction des séparateurs rythmiques internes (INNER)
+            int sepsIdx = jsonStr.indexOf("\"separators\"");
+            if (sepsIdx != -1) {
+                int arrStart = jsonStr.indexOf('[', sepsIdx);
+                if (arrStart != -1) {
+                    int arrEnd = jsonStr.indexOf(']', arrStart);
+                    if (arrEnd != -1) {
+                        String sepsArrayStr = jsonStr.substring(arrStart, arrEnd + 1);
+                        Matcher objM = Pattern.compile("\\{([^}]+)\\}").matcher(sepsArrayStr);
+                        while (objM.find()) {
+                            String objBody = objM.group(1);
+                            Matcher tM = Pattern.compile("\"time\"\\s*:\\s*([0-9.]+)").matcher(objBody);
+                            Matcher sM = Pattern.compile("\"split_index\"\\s*:\\s*(\\d+)").matcher(objBody);
+                            if (tM.find() && sM.find()) {
+                                double sTime = Double.parseDouble(tM.group(1));
+                                int sIdx = Integer.parseInt(sM.group(1));
+                                seg.separators.add(new RhythmicSeparator(sTime, sIdx));
+                            }
+                        }
+                    }
+                }
+            }
+
+            return seg;
         } catch (Exception e) {
             return null;
         }

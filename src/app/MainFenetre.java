@@ -965,6 +965,15 @@ public class MainFenetre extends JFrame {
             timelinePanel.setBandCount(maxNeededBand + 1);
         }
 
+        // Nettoyer les bandes de destination pour éviter tout chevauchement ou doublon lors d'un réimport
+        for (int b = baseTargetBand; b <= maxNeededBand; b++) {
+            final int targetB = b;
+            textManager.getTexts().removeIf(t -> t.band == targetB);
+            if (textManager.getBandSeparators().containsKey(targetB)) {
+                textManager.getBandSeparators().get(targetB).clear();
+            }
+        }
+
         // Regrouper les segments par bande
         Map<Integer, java.util.List<SpeechWorkflowService.TranscriptionSegment>> segmentsByBand = new HashMap<>();
         for (SpeechWorkflowService.TranscriptionSegment seg : segments) {
@@ -973,10 +982,6 @@ public class MainFenetre extends JFrame {
             segmentsByBand.computeIfAbsent(band, k -> new ArrayList<>()).add(seg);
         }
 
-        // Seuil de pause (en secondes) pour couper la réplique avec des séparateurs Début/Fin indépendants
-        // Dès qu'une personne s'arrête de parler (temps mort >= 0.22s, et a fortiori les pauses de 0.5s),
-        // on coupe la réplique avec un séparateur END, laissant un espace vide, et on remet un START dès qu'elle reparle.
-        final double MAX_PAUSE_GAP_SEC = 0.22;
         int minStep = Math.max(10, (int) Math.round(pps * 0.1));
 
         for (Map.Entry<Integer, java.util.List<SpeechWorkflowService.TranscriptionSegment>> entry : segmentsByBand.entrySet()) {
@@ -984,136 +989,163 @@ public class MainFenetre extends JFrame {
             java.util.List<SpeechWorkflowService.TranscriptionSegment> bandSegments = entry.getValue();
             bandSegments.sort(Comparator.comparingDouble(SpeechWorkflowService.TranscriptionSegment::getStartSeconds));
 
-            // Découper en phrases rythmo naturelles et indépendantes
-            java.util.List<java.util.List<SpeechWorkflowService.TranscriptionSegment>> phraseGroups = new ArrayList<>();
-            java.util.List<SpeechWorkflowService.TranscriptionSegment> currentGroup = new ArrayList<>();
+            // Dédoublonnage défensif et garantie absolue de non-chevauchement temporel sur la même bande
+            java.util.List<SpeechWorkflowService.TranscriptionSegment> cleanBandSegments = new ArrayList<>();
+            for (SpeechWorkflowService.TranscriptionSegment s : bandSegments) {
+                // Ignorer les segments vides
+                String sTxt = (s.text != null) ? s.text.trim() : "";
+                if (sTxt.isEmpty()) continue;
 
-            for (SpeechWorkflowService.TranscriptionSegment seg : bandSegments) {
-                if (currentGroup.isEmpty()) {
-                    currentGroup.add(seg);
+                if (cleanBandSegments.isEmpty()) {
+                    cleanBandSegments.add(s);
                 } else {
-                    SpeechWorkflowService.TranscriptionSegment prev = currentGroup.get(currentGroup.size() - 1);
-                    double gap = seg.getStartSeconds() - prev.getEndSeconds();
-                    String prevTxt = prev.getText() != null ? prev.getText().trim() : "";
-                    boolean prevHasPunct = prevTxt.endsWith(".") || prevTxt.endsWith("!") ||
-                                           prevTxt.endsWith("?") || prevTxt.endsWith("…") ||
-                                           prevTxt.endsWith(":");
-                    double groupDur = prev.getEndSeconds() - currentGroup.get(0).getStartSeconds();
+                    SpeechWorkflowService.TranscriptionSegment last = cleanBandSegments.get(cleanBandSegments.size() - 1);
 
-                    // Séparer en répliques distinctes si :
-                    // 1) Il y a un temps mort (gap >= 0.22s, notamment toute pause de 0.5s)
-                    // 2) La réplique précédente se termine par une ponctuation forte et gap >= 0.15s
-                    // 3) La réplique en cours dépasse 5.0 secondes
-                    if (gap >= MAX_PAUSE_GAP_SEC || (prevHasPunct && gap >= 0.15) || groupDur >= 5.0) {
-                        phraseGroups.add(currentGroup);
-                        currentGroup = new ArrayList<>();
+                    // Doublon exact (même timecode + même texte)
+                    boolean isExactDuplicate = Math.abs(s.getStartSeconds() - last.getStartSeconds()) < 0.15 &&
+                                              s.getText().equalsIgnoreCase(last.getText());
+                    if (isExactDuplicate) continue;
+
+                    // Si deux segments commencent quasiment au même moment (< 0.20s) sur la même bande
+                    // (ex: bégaiement ou mot parasite comme "euh") :
+                    // On fusionne le texte dans le segment existant pour garantir une seule phrase sans superposition !
+                    if (Math.abs(s.getStartSeconds() - last.getStartSeconds()) < 0.20) {
+                        last.text = (last.text + " " + s.text).trim();
+                        last.endSeconds = Math.max(last.endSeconds, s.endSeconds);
+                        if (s.words != null) {
+                            if (last.words == null) last.words = new ArrayList<>();
+                            last.words.addAll(s.words);
+                        }
+                        if (s.separators != null) {
+                            if (last.separators == null) last.separators = new ArrayList<>();
+                            last.separators.addAll(s.separators);
+                        }
+                        continue;
                     }
-                    currentGroup.add(seg);
+
+                    // Chevauchement temporel : recaler proprement la fin du précédent et le début du suivant
+                    if (last.endSeconds > s.startSeconds - 0.08) {
+                        last.endSeconds = Math.max(last.startSeconds + 0.25, s.startSeconds - 0.08);
+                        if (s.startSeconds < last.endSeconds + 0.08) {
+                            s.startSeconds = last.endSeconds + 0.08;
+                            s.endSeconds = Math.max(s.startSeconds + 0.25, s.endSeconds);
+                        }
+                    }
+                    cleanBandSegments.add(s);
                 }
             }
-            if (!currentGroup.isEmpty()) {
-                phraseGroups.add(currentGroup);
-            }
 
-            // Insérer chaque groupe de phrases
-            for (java.util.List<SpeechWorkflowService.TranscriptionSegment> group : phraseGroups) {
-                if (group.isEmpty()) continue;
+            int minGapPixels = Math.max(15, (int) Math.round(pps * 0.08));
+            int lastCommittedEndX = -1;
 
-                Role spkRole = speakerRolesMap.get(group.get(0).getSpeakerIndex());
+            // Insérer chaque réplique avec son séparateur de reprise (START), ses séparateurs INNER et sa fin (END)
+            for (SpeechWorkflowService.TranscriptionSegment seg : cleanBandSegments) {
+                String txt = (seg.text != null) ? seg.text.trim() : "";
+                if (txt.isEmpty()) continue;
 
-                if (group.size() == 1) {
-                    // Phrase unitaire classique : Début propre [START] et Fin propre [END]
-                    SpeechWorkflowService.TranscriptionSegment seg = group.get(0);
-                    String txt = (seg.text != null) ? seg.text.trim() : "";
-                    if (txt.isEmpty()) continue;
+                Role spkRole = speakerRolesMap.get(seg.getSpeakerIndex());
 
-                    double segStartSec = Math.round(seg.startSeconds * 100.0) / 100.0;
-                    double segEndSec = Math.round(seg.endSeconds * 100.0) / 100.0;
-                    if (segEndSec <= segStartSec) {
-                        segEndSec = segStartSec + 0.3;
-                    }
-
-                    int segStartX = timelinePanel.snapWorldXToTenth((int) Math.round(segStartSec * pps));
-                    int segEndX = timelinePanel.snapWorldXToTenth((int) Math.round(segEndSec * pps));
-                    if (segEndX - segStartX < minStep) {
-                        segEndX = segStartX + minStep;
-                    }
-
-                    TextItem item = new TextItem(txt, segStartX, band);
-                    item.role = spkRole;
-                    textManager.addTextItem(item);
-
-                    // Séparateur Début (vert ▶) et Fin (rouge ◀)
-                    textManager.addSeparator(band, segStartX, SeparatorMark.Type.START);
-                    textManager.addSeparator(band, segEndX, SeparatorMark.Type.END);
-                } else {
-                    // Micro-enchaînement (gap < 0.38s) : relié par des séparateurs internes
-                    double groupStartSec = Math.round(group.get(0).startSeconds * 100.0) / 100.0;
-                    int groupStartX = timelinePanel.snapWorldXToTenth((int) Math.round(groupStartSec * pps));
-
-                    StringBuilder fullText = new StringBuilder();
-
-                    class SepInfo {
-                        int x;
-                        int splitIndex;
-                        SepInfo(int x, int splitIndex) { this.x = x; this.splitIndex = splitIndex; }
-                    }
-                    java.util.List<SepInfo> inners = new ArrayList<>();
-
-                    int curSplit = 0;
-                    int lastEndX = groupStartX;
-
-                    for (int i = 0; i < group.size(); i++) {
-                        SpeechWorkflowService.TranscriptionSegment seg = group.get(i);
-                        String txt = (seg.text != null) ? seg.text.trim() : "";
-                        if (txt.isEmpty()) continue;
-
-                        double segStartSec = Math.round(seg.startSeconds * 100.0) / 100.0;
-                        double segEndSec = Math.round(seg.endSeconds * 100.0) / 100.0;
-                        if (segEndSec <= segStartSec) {
-                            segEndSec = segStartSec + 0.3;
-                        }
-
-                        int segStartX = timelinePanel.snapWorldXToTenth((int) Math.round(segStartSec * pps));
-                        int segEndX = timelinePanel.snapWorldXToTenth((int) Math.round(segEndSec * pps));
-                        if (segEndX - segStartX < minStep) {
-                            segEndX = segStartX + minStep;
-                        }
-
-                        if (i == 0) {
-                            fullText.append(txt);
-                            curSplit = fullText.length();
-                            lastEndX = segEndX;
-                        } else {
-                            fullText.append(" ");
-                            curSplit = fullText.length();
-                            int sepX = Math.max(lastEndX, segStartX);
-                            inners.add(new SepInfo(sepX, curSplit));
-                            fullText.append(txt);
-                            curSplit = fullText.length();
-                            lastEndX = Math.max(sepX + minStep, segEndX);
-                        }
-                    }
-
-                    if (fullText.length() == 0) continue;
-
-                    int curX = groupStartX;
-                    for (SepInfo sep : inners) {
-                        sep.x = Math.max(curX + minStep, sep.x);
-                        curX = sep.x;
-                    }
-                    int finalEndX = Math.max(curX + minStep, lastEndX);
-
-                    TextItem item = new TextItem(fullText.toString(), groupStartX, band);
-                    item.role = spkRole;
-                    textManager.addTextItem(item);
-
-                    textManager.addSeparator(band, groupStartX, SeparatorMark.Type.START);
-                    for (SepInfo sep : inners) {
-                        textManager.addSeparator(band, sep.x, SeparatorMark.Type.INNER, sep.splitIndex);
-                    }
-                    textManager.addSeparator(band, finalEndX, SeparatorMark.Type.END);
+                double segStartSec = Math.round(seg.startSeconds * 100.0) / 100.0;
+                double segEndSec = Math.round(seg.endSeconds * 100.0) / 100.0;
+                if (segEndSec <= segStartSec) {
+                    segEndSec = segStartSec + 0.3;
                 }
+
+                int segStartX = timelinePanel.snapWorldXToTenth((int) Math.round(segStartSec * pps));
+                int segEndX = timelinePanel.snapWorldXToTenth((int) Math.round(segEndSec * pps));
+                if (segEndX - segStartX < minStep) {
+                    segEndX = segStartX + minStep;
+                }
+
+                // GARANTIE ABSOLUE ANTI-SUPERPOSITION :
+                // Le début de la phrase doit être strictement après la fin de la précédente + gap de sécurité
+                int shift = 0;
+                if (lastCommittedEndX != -1 && segStartX < lastCommittedEndX + minGapPixels) {
+                    shift = (lastCommittedEndX + minGapPixels) - segStartX;
+                    segStartX += shift;
+                    segEndX += shift;
+                }
+
+                TextItem item = new TextItem(txt, segStartX, band);
+                item.role = spkRole;
+                textManager.addTextItem(item);
+
+                // Séparateur Reprise/Début (vert ▶)
+                textManager.addSeparator(band, segStartX, SeparatorMark.Type.START);
+
+                // Séparateurs rythmiques internes (INNER) pour caler le rythme et stretcher les mots rallongés
+                int lastSepX = segStartX;
+
+                // 1) Utilisation prioritaire des séparateurs précis calculés par le worker Python (check 0.5s + mots rallongés)
+                if (seg.separators != null && !seg.separators.isEmpty()) {
+                    for (SpeechWorkflowService.RhythmicSeparator sep : seg.separators) {
+                        int sepX = timelinePanel.snapWorldXToTenth((int) Math.round(sep.time * pps)) + shift;
+                        if (sepX >= lastSepX + minStep && sepX <= segEndX - minStep &&
+                            sep.splitIndex > 0 && sep.splitIndex < txt.length()) {
+                            textManager.addSeparator(band, sepX, SeparatorMark.Type.INNER, sep.splitIndex);
+                            lastSepX = sepX;
+                        }
+                    }
+                }
+                // 2) Repli de sécurité via word timings si seg.separators n'était pas présent
+                else if (seg.words != null && seg.words.size() > 1) {
+                    int charOffset = 0;
+                    double lastSepTime = segStartSec;
+
+                    for (int wIdx = 0; wIdx < seg.words.size() - 1; wIdx++) {
+                        SpeechWorkflowService.WordTiming w = seg.words.get(wIdx);
+                        SpeechWorkflowService.WordTiming nextW = seg.words.get(wIdx + 1);
+                        double wDur = w.end - w.start;
+                        double gapToNext = Math.max(0.0, nextW.start - w.end);
+                        double transitionTime = (gapToNext >= 0.05) ? Math.max(w.end, nextW.start - 0.04) : w.end;
+                        double elapsedSinceLast = transitionTime - lastSepTime;
+
+                        // Trouver la position de coupure après ce mot dans txt
+                        String cleanW = w.word.replaceAll("^[^\\p{L}\\p{N}]+|[^\\p{L}\\p{N}]+$", "");
+                        int foundIdx = -1;
+                        int searchPos = -1;
+                        if (!cleanW.isEmpty()) {
+                            searchPos = txt.toLowerCase().indexOf(cleanW.toLowerCase(), charOffset);
+                            if (searchPos == -1) {
+                                searchPos = txt.toLowerCase().indexOf(cleanW.toLowerCase());
+                            }
+                            if (searchPos != -1) {
+                                int endPos = searchPos + cleanW.length();
+                                while (endPos < txt.length() && " ,;:!?.'’…-".indexOf(txt.charAt(endPos)) != -1) {
+                                    endPos++;
+                                }
+                                foundIdx = endPos;
+                                charOffset = Math.max(charOffset, endPos);
+                            }
+                        }
+
+                        // Si mot rallongé, isoler le mot en plaçant un séparateur avant lui pour préserver le texte précédent
+                        if ((wDur >= 0.35 || gapToNext >= 0.15) && wIdx > 0 && searchPos > 0) {
+                            int preSepX = timelinePanel.snapWorldXToTenth((int) Math.round(w.start * pps)) + shift;
+                            if (preSepX >= lastSepX + minStep && preSepX <= segEndX - minStep && searchPos < foundIdx) {
+                                textManager.addSeparator(band, preSepX, SeparatorMark.Type.INNER, searchPos);
+                                lastSepX = preSepX;
+                                lastSepTime = w.start;
+                                elapsedSinceLast = transitionTime - lastSepTime;
+                            }
+                        }
+
+                        // Check toutes les 0.5s ou mot rallongé (>= 0.35s) ou micro-pause
+                        boolean isRallonge = (wDur >= 0.35) || (elapsedSinceLast >= 0.50) || (gapToNext >= 0.08);
+                        if (isRallonge && foundIdx > 0 && foundIdx < txt.length()) {
+                            int sepX = timelinePanel.snapWorldXToTenth((int) Math.round(transitionTime * pps)) + shift;
+                            if (sepX >= lastSepX + minStep && sepX <= segEndX - minStep) {
+                                textManager.addSeparator(band, sepX, SeparatorMark.Type.INNER, foundIdx);
+                                lastSepX = sepX;
+                                lastSepTime = transitionTime;
+                            }
+                        }
+                    }
+                }
+
+                // Séparateur Fin (rouge ◀)
+                textManager.addSeparator(band, segEndX, SeparatorMark.Type.END);
+                lastCommittedEndX = segEndX;
             }
         }
 
@@ -1132,7 +1164,9 @@ public class MainFenetre extends JFrame {
                     "La synchronisation est calée sur la vidéo.";
         }
 
-        JOptionPane.showMessageDialog(this, message, "Transcription Importée", JOptionPane.INFORMATION_MESSAGE);
+        if (isVisible()) {
+            JOptionPane.showMessageDialog(this, message, "Transcription Importée", JOptionPane.INFORMATION_MESSAGE);
+        }
     }
 
     /** Quit the application after autosave and resource cleanup. */
@@ -1264,6 +1298,10 @@ public class MainFenetre extends JFrame {
         if (timelinePanel != null) {
             timelinePanel.requestFocusInWindow();
         }
+    }
+
+    public TimelinePanel getTimelinePanel() {
+        return this.timelinePanel;
     }
 
     /** Ajoute un séparateur à la bande sélectionnée. */
