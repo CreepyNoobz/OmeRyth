@@ -973,9 +973,10 @@ public class MainFenetre extends JFrame {
             segmentsByBand.computeIfAbsent(band, k -> new ArrayList<>()).add(seg);
         }
 
-        // Seuil de pause (en secondes) pour séparer les répliques avec séparateurs Début/Fin indépendants
-        // Tout temps mort >= 0.38s (comme les pauses de 0.5s) crée désormais une phrase distincte
-        final double MAX_PAUSE_GAP_SEC = 0.38;
+        // Seuil de pause (en secondes) pour couper la réplique avec des séparateurs Début/Fin indépendants
+        // Dès qu'une personne s'arrête de parler (temps mort >= 0.22s, et a fortiori les pauses de 0.5s),
+        // on coupe la réplique avec un séparateur END, laissant un espace vide, et on remet un START dès qu'elle reparle.
+        final double MAX_PAUSE_GAP_SEC = 0.22;
         int minStep = Math.max(10, (int) Math.round(pps * 0.1));
 
         for (Map.Entry<Integer, java.util.List<SpeechWorkflowService.TranscriptionSegment>> entry : segmentsByBand.entrySet()) {
@@ -999,11 +1000,11 @@ public class MainFenetre extends JFrame {
                                            prevTxt.endsWith(":");
                     double groupDur = prev.getEndSeconds() - currentGroup.get(0).getStartSeconds();
 
-                    // Séparer en phrases distinctes si :
-                    // 1) Il y a un temps mort (gap >= 0.38s, typiquement 0.5s de silence)
-                    // 2) La réplique précédente se termine par une ponctuation forte et gap >= 0.20s
-                    // 3) La réplique en cours dépasse 6.0 secondes
-                    if (gap >= MAX_PAUSE_GAP_SEC || (prevHasPunct && gap >= 0.20) || groupDur >= 6.0) {
+                    // Séparer en répliques distinctes si :
+                    // 1) Il y a un temps mort (gap >= 0.22s, notamment toute pause de 0.5s)
+                    // 2) La réplique précédente se termine par une ponctuation forte et gap >= 0.15s
+                    // 3) La réplique en cours dépasse 5.0 secondes
+                    if (gap >= MAX_PAUSE_GAP_SEC || (prevHasPunct && gap >= 0.15) || groupDur >= 5.0) {
                         phraseGroups.add(currentGroup);
                         currentGroup = new ArrayList<>();
                     }

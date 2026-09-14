@@ -257,6 +257,29 @@ public class FileUtils {
     private static String safe(String s) {
         return s == null ? "" : s;
     }
+    private static class DialogOutcome {
+        final boolean isSuccess;
+        final boolean isCancelled;
+        final File file;
+
+        private DialogOutcome(boolean isSuccess, boolean isCancelled, File file) {
+            this.isSuccess = isSuccess;
+            this.isCancelled = isCancelled;
+            this.file = file;
+        }
+
+        public static DialogOutcome success(File f) {
+            return new DialogOutcome(true, false, f);
+        }
+
+        public static DialogOutcome cancelled() {
+            return new DialogOutcome(false, true, null);
+        }
+
+        public static DialogOutcome failed() {
+            return new DialogOutcome(false, false, null);
+        }
+    }
 
     public static File chooseOpenFile(Window parent, String title, String... extensions) {
         String filter = buildOpenFilter(extensions);
@@ -264,15 +287,28 @@ public class FileUtils {
         // 1. Essai via le helper natif ultra-rapide (Microsoft.Win32.OpenFileDialog moderne)
         File nativeExe = getNativeDialogExe();
         if (nativeExe != null) {
-            File selected = runNativeDialog(nativeExe.getAbsolutePath(), "open", title, filter);
-            if (selected != null) return selected;
+            DialogOutcome outcome = runNativeDialog(nativeExe.getAbsolutePath(), "open", title, filter);
+            if (outcome.isSuccess) {
+                return outcome.file;
+            }
+            if (outcome.isCancelled) {
+                // L'utilisateur a explicitement cliqué sur Annuler : arrêt immédiat
+                return null;
+            }
+            // En cas d'échec d'exécution du binaire, on poursuit vers le repli
         }
 
         // 2. Repli PowerShell (même dialogue moderne Microsoft.Win32.OpenFileDialog)
         try {
             String psScript = buildPowerShellOpenDialogScript(title, filter);
-            File selected = runPowerShellDialog(psScript);
-            if (selected != null) return selected;
+            DialogOutcome outcome = runPowerShellDialog(psScript);
+            if (outcome.isSuccess) {
+                return outcome.file;
+            }
+            if (outcome.isCancelled) {
+                // L'utilisateur a explicitement cliqué sur Annuler : arrêt immédiat
+                return null;
+            }
         } catch (Throwable ignored) {}
 
         // 3. Repli AWT FileDialog
@@ -301,18 +337,26 @@ public class FileUtils {
                 if (file != null && dir != null) {
                     return new File(dir, file);
                 }
+                // Si la boîte s'est fermée sans fichier sélectionné : l'utilisateur a annulé
+                return null;
             } catch (Throwable ignored) {}
         }
 
-        // 4. Repli ultime JFileChooser
-        JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle(title);
-        if (extensions != null && extensions.length > 0) {
-            chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
-                    "Fichiers supportes", extensions));
-        }
-        int res = chooser.showOpenDialog(parent);
-        return res == JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null;
+        // 4. Repli ultime JFileChooser (en cas d'environnement headless ou erreur d'affichage)
+        try {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setDialogTitle(title);
+            if (extensions != null && extensions.length > 0) {
+                chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                        "Fichiers supportes", extensions));
+            }
+            int res = chooser.showOpenDialog(parent);
+            if (res == JFileChooser.APPROVE_OPTION) {
+                return chooser.getSelectedFile();
+            }
+        } catch (Throwable ignored) {}
+
+        return null;
     }
 
     public static File chooseSaveFile(Window parent, String title, String defaultExtension) {
@@ -322,18 +366,27 @@ public class FileUtils {
         // 1. Essai via le helper natif ultra-rapide (Microsoft.Win32.SaveFileDialog moderne)
         File nativeExe = getNativeDialogExe();
         if (nativeExe != null) {
-            File selected = runNativeDialog(nativeExe.getAbsolutePath(), "save", title, filter, defExt);
-            if (selected != null) {
-                return ensureExtension(selected, defaultExtension);
+            DialogOutcome outcome = runNativeDialog(nativeExe.getAbsolutePath(), "save", title, filter, defExt);
+            if (outcome.isSuccess) {
+                return ensureExtension(outcome.file, defaultExtension);
             }
+            if (outcome.isCancelled) {
+                // L'utilisateur a explicitement cliqué sur Annuler : arrêt immédiat
+                return null;
+            }
+            // En cas d'échec du binaire, on poursuit vers le repli
         }
 
         // 2. Repli PowerShell (même dialogue moderne Microsoft.Win32.SaveFileDialog)
         try {
             String psScript = buildPowerShellSaveDialogScript(title, filter);
-            File selected = runPowerShellDialog(psScript);
-            if (selected != null) {
-                return ensureExtension(selected, defaultExtension);
+            DialogOutcome outcome = runPowerShellDialog(psScript);
+            if (outcome.isSuccess) {
+                return ensureExtension(outcome.file, defaultExtension);
+            }
+            if (outcome.isCancelled) {
+                // L'utilisateur a explicitement cliqué sur Annuler : arrêt immédiat
+                return null;
             }
         } catch (Throwable ignored) {}
 
@@ -357,20 +410,25 @@ public class FileUtils {
                 if (file != null && dir != null) {
                     return ensureExtension(new File(dir, file), defaultExtension);
                 }
+                // Si la boîte s'est fermée sans fichier sélectionné : l'utilisateur a annulé
+                return null;
             } catch (Throwable ignored) {}
         }
 
         // 4. Repli ultime JFileChooser
-        JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle(title);
-        if (defaultExtension != null && !defaultExtension.isEmpty()) {
-            chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
-                    defaultExtension.toUpperCase(Locale.ROOT) + " (*." + defaultExtension + ")", defaultExtension));
-        }
-        int res = chooser.showSaveDialog(parent);
-        if (res == JFileChooser.APPROVE_OPTION) {
-            return ensureExtension(chooser.getSelectedFile(), defaultExtension);
-        }
+        try {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setDialogTitle(title);
+            if (defaultExtension != null && !defaultExtension.isEmpty()) {
+                chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                        defaultExtension.toUpperCase(Locale.ROOT) + " (*." + defaultExtension + ")", defaultExtension));
+            }
+            int res = chooser.showSaveDialog(parent);
+            if (res == JFileChooser.APPROVE_OPTION) {
+                return ensureExtension(chooser.getSelectedFile(), defaultExtension);
+            }
+        } catch (Throwable ignored) {}
+
         return null;
     }
 
@@ -397,7 +455,7 @@ public class FileUtils {
         return null;
     }
 
-    private static File runNativeDialog(String... command) {
+    private static DialogOutcome runNativeDialog(String... command) {
         try {
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(false);
@@ -412,11 +470,16 @@ public class FileUtils {
                 }
             }
             int exitCode = p.waitFor();
-            if (exitCode == 0 && result != null && !result.isEmpty()) {
-                return new File(result);
+            if (exitCode == 0) {
+                if (result != null && !result.isEmpty()) {
+                    return DialogOutcome.success(new File(result));
+                } else {
+                    // L'exécutable natif a fonctionné normalement et l'utilisateur a annulé
+                    return DialogOutcome.cancelled();
+                }
             }
         } catch (Exception ignored) {}
-        return null;
+        return DialogOutcome.failed();
     }
 
     private static String buildOpenFilter(String[] extensions) {
@@ -448,7 +511,7 @@ public class FileUtils {
                "$dlg.Title = '" + title.replace("'", "''") + "'\n" +
                "$dlg.Filter = '" + filter.replace("'", "''") + "'\n" +
                "$res = $dlg.ShowDialog()\n" +
-               "if ($res -eq $true) { Write-Output $dlg.FileName }";
+               "if ($res -eq $true) { Write-Output $dlg.FileName } else { Write-Output '::CANCELLED::' }";
     }
 
     private static String buildPowerShellSaveDialogScript(String title, String filter) {
@@ -458,10 +521,10 @@ public class FileUtils {
                "$dlg.Title = '" + title.replace("'", "''") + "'\n" +
                "$dlg.Filter = '" + filter.replace("'", "''") + "'\n" +
                "$res = $dlg.ShowDialog()\n" +
-               "if ($res -eq $true) { Write-Output $dlg.FileName }";
+               "if ($res -eq $true) { Write-Output $dlg.FileName } else { Write-Output '::CANCELLED::' }";
     }
 
-    private static File runPowerShellDialog(String script) {
+    private static DialogOutcome runPowerShellDialog(String script) {
         try {
             String b64 = java.util.Base64.getEncoder().encodeToString(script.getBytes("UTF-16LE"));
             ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Sta", "-EncodedCommand", b64);
@@ -476,14 +539,17 @@ public class FileUtils {
                     result = line.trim();
                 }
             }
-            p.waitFor();
+            int exitCode = p.waitFor();
             if (result != null && result.contains("<Objs ")) {
                 result = null;
             }
-            if (result != null && !result.isEmpty()) {
-                return new File(result);
+            if (exitCode == 0) {
+                if ("::CANCELLED::".equals(result) || (result == null || result.isEmpty())) {
+                    return DialogOutcome.cancelled();
+                }
+                return DialogOutcome.success(new File(result));
             }
         } catch (Exception ignored) {}
-        return null;
+        return DialogOutcome.failed();
     }
 }

@@ -205,15 +205,91 @@ def clean_text(raw: str, lang: str = "fr") -> str:
 
 
 # ─────────────────────────────────────────────────────────
-# Phrase Segmentation & Acoustic Phrase Diarization
+# Phrase Segmentation & Acoustic Pause Detection (0.5s Check)
 # ─────────────────────────────────────────────────────────
 
-def segment_words_into_clean_phrases(words: list, pause_threshold: float = 0.38, lang: str = "fr") -> list:
+def load_audio(audio_path: str):
+    """Charge le signal audio 16kHz mono sous forme de tableau numpy float32."""
+    import numpy as np
+    try:
+        import soundfile as sf
+        data, sr = sf.read(audio_path, dtype="float32")
+        if data.ndim > 1:
+            data = np.mean(data, axis=1)
+        return data, sr
+    except Exception:
+        pass
+    try:
+        import wave
+        with wave.open(audio_path, "rb") as wf:
+            sr = wf.getframerate()
+            n_ch = wf.getnchannels()
+            sw = wf.getsampwidth()
+            raw = wf.readframes(wf.getnframes())
+            if sw == 2:
+                data = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            elif sw == 4:
+                data = np.frombuffer(raw, dtype=np.int32).astype(np.float32) / 2147483648.0
+            else:
+                data = np.frombuffer(raw, dtype=np.uint8).astype(np.float32) / 128.0 - 1.0
+            if n_ch > 1:
+                data = data.reshape(-1, n_ch).mean(axis=1)
+            return data, sr
+    except Exception:
+        return np.zeros(16000, dtype=np.float32), 16000
+
+
+def detect_silence_intervals(audio, sr: int = 16000, min_silence_sec: float = 0.48, frame_ms: int = 25) -> list:
     """
-    Découpe les mots en répliques naturelles et complètes.
-    - Coupe dès qu'il y a un temps mort >= 0.38s (détection nette des silences de 0.5s).
-    - Coupe après ponctuation forte (?, !, ., …, :) dès qu'il y a un intervalle >= 0.15s.
-    - Conserve une haute précision temporelle à 2 décimales.
+    Vérifie le signal audio pour détecter toutes les fenêtres d'au moins 0.48s (~0.5s)
+    où la personne s'arrête de parler (énergie RMS en dessous du seuil de voix).
+    Retourne les intervalles de silence [(start_sec, end_sec), ...] avec haute précision.
+    """
+    if audio is None or len(audio) == 0:
+        return []
+    import numpy as np
+    frame_len = int(sr * (frame_ms / 1000.0))
+    hop_len = frame_len // 2
+    num_frames = max(1, 1 + (len(audio) - frame_len) // hop_len)
+
+    rms = np.zeros(num_frames, dtype=np.float32)
+    for i in range(num_frames):
+        start = i * hop_len
+        end = start + frame_len
+        chunk = audio[start:end]
+        rms[i] = np.sqrt(np.mean(chunk ** 2)) if len(chunk) > 0 else 0.0
+
+    p10 = float(np.percentile(rms, 10))
+    p90 = float(np.percentile(rms, 90))
+    silence_thresh = max(0.003, p10 + 0.08 * (p90 - p10))
+
+    min_silence_frames = max(1, int(min_silence_sec / (hop_len / sr)))
+    is_silent = (rms < silence_thresh)
+
+    silence_ranges = []
+    in_silence = False
+    start_f = 0
+    for idx, s in enumerate(is_silent):
+        if s and not in_silence:
+            in_silence = True
+            start_f = idx
+        elif not s and in_silence:
+            in_silence = False
+            if (idx - start_f) >= min_silence_frames:
+                silence_ranges.append((round(start_f * hop_len / sr, 2), round(idx * hop_len / sr, 2)))
+    if in_silence and (len(is_silent) - start_f) >= min_silence_frames:
+        silence_ranges.append((round(start_f * hop_len / sr, 2), round(len(is_silent) * hop_len / sr, 2)))
+
+    return silence_ranges
+
+
+def segment_words_into_clean_phrases(words: list, silence_intervals: list = None, pause_threshold: float = 0.48, lang: str = "fr") -> list:
+    """
+    Découpe les mots en répliques naturelles et complètes en vérifiant toutes les 0.5s si la personne parle toujours :
+    - Si la personne s'arrête de parler pendant >= 0.48s (~0.5s), on coupe via un séparateur END.
+    - Dès qu'elle reparle, une nouvelle réplique redémarre avec un séparateur START pour espacer le tout.
+    - Détecte également les silences acoustiques directs dans le signal audio.
+    - Coupe proprement après ponctuation forte (?, !, ., …, :) dès qu'il y a un intervalle >= 0.18s.
     """
     if not words:
         return []
@@ -238,14 +314,25 @@ def segment_words_into_clean_phrases(words: list, pause_threshold: float = 0.38,
         prev_end = float(current_words[-1].get("end", 0.0))
         gap = w_start - prev_end
         phrase_duration = prev_end - phrase_start
-        prev_word_text = current_words[-1].get("word", "")
+        prev_word_text = current_words[-1].get("word", "").strip()
 
         is_punct = any(prev_word_text.endswith(p) for p in ["?", "!", ".", "…", "...", "—", ":"])
 
+        # Check acoustique : vérifier si un temps mort de silence de >= 0.48s est présent entre les mots
+        has_acoustic_silence = False
+        if silence_intervals:
+            for s_start, s_end in silence_intervals:
+                if s_end > (prev_end - 0.05) and s_start < (w_start + 0.05):
+                    overlap = min(w_start, s_end) - max(prev_end, s_start)
+                    if overlap >= 0.38 or (s_end - s_start) >= 0.48:
+                        has_acoustic_silence = True
+                        break
+
         should_split = (gap >= pause_threshold) or \
-                       (is_punct and gap >= 0.15) or \
-                       (phrase_duration >= 4.5 and any(prev_word_text.endswith(p) for p in [",", ";"]) and gap >= 0.18) or \
-                       (phrase_duration >= 6.0 and gap >= 0.20)
+                       has_acoustic_silence or \
+                       (is_punct and gap >= 0.18) or \
+                       (phrase_duration >= 4.5 and any(prev_word_text.endswith(p) for p in [",", ";"]) and gap >= 0.20) or \
+                       (phrase_duration >= 5.5 and gap >= 0.22)
 
         if should_split:
             phrase_end = prev_end
@@ -524,11 +611,11 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
         return phrases
 
 
-def merge_consecutive_same_speaker_phrases(phrases: list, max_gap: float = 0.25, max_duration: float = 5.0, max_words: int = 12) -> list:
+def merge_consecutive_same_speaker_phrases(phrases: list, max_gap: float = 0.18, max_duration: float = 3.5, max_words: int = 6) -> list:
     """
-    Fusionne uniquement les micro-morceaux immédiatement consécutifs (< 0.25s)
-    appartenant au même locuteur, sans jamais avaler les temps morts de 0.5s
-    ni les répliques terminées par une ponctuation forte.
+    Fusionne uniquement les micro-fragments immédiatement contigus (< 0.18s)
+    appartenant au même locuteur, sans jamais avaler les pauses ni les silences de 0.5s,
+    ni les répliques terminées par une ponctuation.
     """
     if not phrases:
         return []
@@ -601,6 +688,12 @@ def main():
     if not os.path.exists(args.audio):
         print_error(f"Fichier audio introuvable : {args.audio}")
         sys.exit(1)
+
+    # ── Analyse acoustique des pauses de 0.5s dans le signal audio ──
+    audio_data, audio_sr = load_audio(args.audio)
+    silence_intervals = detect_silence_intervals(audio_data, sr=audio_sr, min_silence_sec=0.48)
+    if silence_intervals:
+        print_info(f"Analyse vocale : {len(silence_intervals)} temps morts/silences (>= 0.5s) détectés pour découpage.")
 
     # ── Détection automatique de l'accélération GPU NVIDIA CUDA ──
     req_device = args.device.lower().strip()
@@ -724,21 +817,14 @@ def main():
                     tot_str = format_timecode(tot_dur)[:8]
                     print_progress(calc_pct, 100, f"Transcription en cours ({cur_str} / {tot_str})...")
 
-            print_segment({
-                "id": raw_count,
-                "speaker": "SPEAKER_00",
-                "start": round(float(segment.start), 2),
-                "end": round(float(segment.end), 2),
-                "text": clean_text(seg_text, det_lang),
-            })
-
+            seg_words = []
             if segment.words and len(segment.words) > 0:
                 for w in segment.words:
                     w_str = w.word.strip() if w.word else ""
                     if w_str:
                         w_start = float(w.start) if w.start is not None else float(segment.start)
                         w_end = float(w.end) if w.end is not None else float(segment.end)
-                        collected_words.append({
+                        seg_words.append({
                             "word": w_str,
                             "start": w_start,
                             "end": w_end,
@@ -749,11 +835,30 @@ def main():
                     seg_dur = max(0.1, float(segment.end) - float(segment.start))
                     step = seg_dur / len(tokens)
                     for i, token in enumerate(tokens):
-                        collected_words.append({
+                        seg_words.append({
                             "word": token,
                             "start": float(segment.start) + i * step,
                             "end": float(segment.start) + (i + 1) * step,
                         })
+
+            collected_words.extend(seg_words)
+
+            # Découpage direct en phrases nettes selon le check de silence de 0.5s
+            live_phrases = segment_words_into_clean_phrases(
+                seg_words,
+                silence_intervals=silence_intervals,
+                pause_threshold=0.48,
+                lang=det_lang
+            )
+            for lp in live_phrases:
+                raw_count += 1
+                print_segment({
+                    "id": raw_count,
+                    "speaker": "SPEAKER_00",
+                    "start": lp["start"],
+                    "end": lp["end"],
+                    "text": lp["text"],
+                })
 
         return collected_words, det_lang, raw_count
 
@@ -808,7 +913,12 @@ def main():
     # ── 1. Découpage en répliques naturelles et complètes (sans hachage) ──
     print_progress(70, 100, "Découpage en phrases naturelles pour la bande rythmo...")
 
-    phrases = segment_words_into_clean_phrases(all_words, pause_threshold=0.22, lang=detected_lang)
+    phrases = segment_words_into_clean_phrases(
+        all_words,
+        silence_intervals=silence_intervals,
+        pause_threshold=0.48,
+        lang=detected_lang
+    )
 
     # ── 2. Diarisation vocale haute précision sur phrases complètes (Pitch F0 + MFCCs) ──
     num_spk = args.num_speakers
@@ -817,8 +927,8 @@ def main():
         print_progress(80, 100, f"Diarisation des répliques ({spk_label}, analyse pitch F0 & timbre)...")
         phrases = diarize_clean_phrases(args.audio, phrases, num_spk)
 
-        # ── 3. Fusion des répliques consécutives du même locuteur pour un flux fluide ──
-        phrases = merge_consecutive_same_speaker_phrases(phrases, max_gap=0.35, max_duration=5.5, max_words=14)
+        # ── 3. Fusion des répliques strictement contiguës (< 0.18s) sans jamais avaler les pauses de 0.5s ──
+        phrases = merge_consecutive_same_speaker_phrases(phrases, max_gap=0.18, max_duration=3.5, max_words=6)
     else:
         for p in phrases:
             p["speaker"] = "SPEAKER_00"
