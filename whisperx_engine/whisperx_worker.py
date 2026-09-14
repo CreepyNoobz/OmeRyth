@@ -29,6 +29,27 @@ ffmpeg_dir = os.path.abspath("ffmpeg")
 if os.path.exists(ffmpeg_dir):
     os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ["PATH"]
 
+# Add NVIDIA CUDA runtime libraries to PATH if installed in python site-packages
+try:
+    import site
+    site_packages = site.getsitepackages() if hasattr(site, "getsitepackages") else []
+    for sp in site_packages:
+        nvidia_path = os.path.join(sp, "nvidia")
+        if os.path.isdir(nvidia_path):
+            for sub in os.listdir(nvidia_path):
+                sub_dir = os.path.join(nvidia_path, sub)
+                for candidate in ("bin", "lib", ""):
+                    target_dir = os.path.join(sub_dir, candidate) if candidate else sub_dir
+                    if os.path.isdir(target_dir) and target_dir not in os.environ["PATH"]:
+                        os.environ["PATH"] = target_dir + os.pathsep + os.environ["PATH"]
+                        if hasattr(os, "add_dll_directory"):
+                            try:
+                                os.add_dll_directory(target_dir)
+                            except Exception:
+                                pass
+except Exception:
+    pass
+
 # Avoid Windows symlink privilege issues with HuggingFace hub and joblib loky issues
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
@@ -78,8 +99,6 @@ _REPEATED_PHRASE_RE = re.compile(r"\b(\w{3,}(?:\s+\w+){0,4})\b(?:\s+\1\b)+", re.
 _MULTI_SPACE_RE = re.compile(r"  +")
 
 FRENCH_PHONETIC_CORRECTIONS = [
-    # Verlan & Argot ("la tête de oim", etc.)
-    (re.compile(r"\b(j['’]?ai\s+jur[eé]\s+)?la\s+tête\s+d['’]homme\b", re.IGNORECASE), r"j'ai juré la tête de oim" if r"\1" else "la tête de oim"),
     (re.compile(r"\bla\s+tête\s+d['’]homme\b", re.IGNORECASE), "la tête de oim"),
     (re.compile(r"\bla\s+tête\s+de\s+homme\b", re.IGNORECASE), "la tête de oim"),
     (re.compile(r"\bla\s+tête\s+d['’]oim\b", re.IGNORECASE), "la tête de oim"),
@@ -293,6 +312,62 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
     de chaque réplique entière et regroupe les répliques par personnage.
     Si num_speakers <= 0, détecte automatiquement tous les personnages différents (Auto-détection).
     """
+def extract_mfcc_stats(y, target_sr=16000, n_mfcc=13, n_fft=512, hop_len=160, n_mels=40):
+    import numpy as np
+    try:
+        from scipy.fft import dct
+    except Exception:
+        dct = None
+
+    if len(y) < n_fft:
+        y = np.pad(y, (0, n_fft - len(y)))
+    num_frames = max(1, 1 + (len(y) - n_fft) // hop_len)
+    frames = np.lib.stride_tricks.as_strided(
+        y,
+        shape=(num_frames, n_fft),
+        strides=(y.strides[0] * hop_len, y.strides[0])
+    )
+    window = np.hanning(n_fft)
+    spec = np.abs(np.fft.rfft(frames * window, n=n_fft)) ** 2
+
+    # Mel filterbank
+    low_mel = 0.0
+    high_mel = 2595.0 * np.log10(1.0 + (target_sr / 2.0) / 700.0)
+    mel_pts = np.linspace(low_mel, high_mel, n_mels + 2)
+    hz_pts = 700.0 * (10.0 ** (mel_pts / 2595.0) - 1.0)
+    bin_pts = np.floor((n_fft + 1) * hz_pts / target_sr).astype(int)
+
+    fbank = np.zeros((n_mels, int(n_fft // 2 + 1)))
+    for m in range(1, n_mels + 1):
+        for k in range(bin_pts[m - 1], bin_pts[m]):
+            fbank[m - 1, k] = (k - bin_pts[m - 1]) / max(1, bin_pts[m] - bin_pts[m - 1])
+        for k in range(bin_pts[m], bin_pts[m + 1]):
+            fbank[m - 1, k] = (bin_pts[m + 1] - k) / max(1, bin_pts[m + 1] - bin_pts[m])
+
+    mel_energies = np.dot(spec, fbank.T)
+    mel_energies = np.maximum(mel_energies, 1e-10)
+    log_mel = np.log(mel_energies)
+
+    if dct is not None:
+        mfcc = dct(log_mel, type=2, axis=-1, norm="ortho")[:, :n_mfcc].T
+    else:
+        k = np.arange(n_mfcc)[:, None]
+        n = np.arange(n_mels)
+        dct_mat = np.cos(np.pi / n_mels * (n + 0.5) * k)
+        mfcc = np.dot(log_mel, dct_mat.T).T
+
+    mfcc_mean = np.mean(mfcc, axis=1)
+    mfcc_std = np.std(mfcc, axis=1) if mfcc.shape[1] > 1 else np.zeros(n_mfcc)
+    return mfcc_mean, mfcc_std
+
+
+def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0) -> list:
+    """
+    Attribue un locuteur distinct (SPEAKER_00, SPEAKER_01...) à chaque phrase
+    complète par analyse acoustique du signal audio (pitch fondamental F0,
+    timbre spectral MFCC, brillance).
+    Si num_speakers <= 0, détecte automatiquement tous les personnages différents (Auto-détection).
+    """
     if not phrases:
         return []
 
@@ -303,28 +378,36 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
 
     try:
         import numpy as np
-        import soundfile as sf
-        import torch
-        import torchaudio.transforms as T
+        try:
+            import soundfile as sf
+            audio_data, sr = sf.read(audio_path, dtype="float32")
+            if audio_data.ndim > 1:
+                audio_data = np.mean(audio_data, axis=1)
+        except Exception:
+            import wave
+            with wave.open(audio_path, "rb") as wf:
+                sr = wf.getframerate()
+                n_channels = wf.getnchannels()
+                sampwidth = wf.getsampwidth()
+                raw_bytes = wf.readframes(wf.getnframes())
+                if sampwidth == 2:
+                    audio_data = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+                elif sampwidth == 4:
+                    audio_data = np.frombuffer(raw_bytes, dtype=np.int32).astype(np.float32) / 2147483648.0
+                else:
+                    audio_data = np.frombuffer(raw_bytes, dtype=np.uint8).astype(np.float32) / 128.0 - 1.0
+                if n_channels > 1:
+                    audio_data = audio_data.reshape(-1, n_channels).mean(axis=1)
+
         import scipy.signal as signal
         from sklearn.preprocessing import StandardScaler
         from sklearn.cluster import KMeans
-
-        audio_data, sr = sf.read(audio_path, dtype="float32")
-        if audio_data.ndim > 1:
-            audio_data = np.mean(audio_data, axis=1)
 
         target_sr = 16000
         frame_len = int(target_sr * 0.030)  # 30ms
         hop_len = int(target_sr * 0.020)    # 20ms (rapide et précis)
         min_lag = int(target_sr / 450)
         max_lag = int(target_sr / 65)
-
-        mfcc_transform = T.MFCC(
-            sample_rate=target_sr,
-            n_mfcc=13,
-            melkwargs={"n_fft": 512, "win_length": 400, "hop_length": 160, "n_mels": 40}
-        )
 
         sos_pitch = signal.butter(4, [65, 450], btype="bandpass", fs=target_sr, output="sos")
 
@@ -362,11 +445,7 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
             log_pitch = np.log2(med_pitch / 55.0) if med_pitch > 50 else 0.0
 
             # MFCCs globaux de la phrase (timbre vocal)
-            tensor = torch.tensor(y, dtype=torch.float32).unsqueeze(0)
-            with torch.no_grad():
-                mfcc = mfcc_transform(tensor).squeeze(0).numpy()
-                mfcc_mean = np.mean(mfcc, axis=1)
-                mfcc_std = np.std(mfcc, axis=1) if mfcc.shape[1] > 1 else np.zeros(13)
+            mfcc_mean, mfcc_std = extract_mfcc_stats(y, target_sr=target_sr, n_mfcc=13, n_fft=512, hop_len=160, n_mels=40)
 
             # Brillance et centroïde spectral
             spec = np.abs(np.fft.rfft(y))
@@ -438,7 +517,7 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
         return phrases
 
     except Exception as e:
-        print_error(f"Diarisation des phrases : {e}")
+        print_info(f"Diarisation vocale : mode locuteur par défaut ({e})")
         for p in phrases:
             if "speaker" not in p:
                 p["speaker"] = "SPEAKER_00"
@@ -552,52 +631,8 @@ def main():
         device = "cpu"
         compute_type = "int8" if req_compute == "auto" else req_compute
 
-    # ── Chargement du modèle (cache local prioritaire) ──
-    print_progress(10, 100, f"Chargement du modèle {model_name.upper()} sur {device.upper()} ({compute_type})...")
-
-    local_cache = os.path.abspath("whisper/cache")
-    download_root = local_cache if os.path.isdir(local_cache) else None
-
-    try:
-        model = WhisperModel(
-            model_name,
-            device=device,
-            compute_type=compute_type,
-            cpu_threads=cpu_threads,
-            download_root=download_root,
-        )
-    except Exception as e:
-        if device == "cuda":
-            print_error(f"Échec initialisation CUDA ({e}), bascule automatique sur CPU...")
-            device = "cpu"
-            compute_type = "int8"
-            model = WhisperModel(
-                model_name,
-                device="cpu",
-                compute_type="int8",
-                cpu_threads=cpu_threads,
-                download_root=download_root,
-            )
-        else:
-            print_error(f"Échec du chargement du modèle {model_name} : {e}")
-            sys.exit(1)
-
-    # ── Inférence par lots (BatchedInferencePipeline) pour vitesse maximale sur GPU ──
-    use_batched = False
-    pipeline = model
+    # ── Inférence & transcription haute résilience avec repli automatique CPU ──
     batch_size = max(1, min(args.batch_size, 32))
-    if device == "cuda":
-        try:
-            from faster_whisper import BatchedInferencePipeline
-            pipeline = BatchedInferencePipeline(model=model)
-            use_batched = True
-            print_progress(15, 100, f"Accélération Tensor Cores active (Batch size {batch_size}, {compute_type})...")
-        except Exception:
-            pipeline = model
-            use_batched = False
-
-    # ── Transcription haute vitesse avec VAD optimisé ──
-    print_progress(20, 100, f"Transcription en cours ({model_name.upper()} sur {device.upper()})...")
 
     # Prompt initial riche en français pour orienter le modèle sur le vocabulaire et les accents
     initial_prompt_text = None
@@ -611,7 +646,6 @@ def main():
         )
 
     # Décodage haute précision multi-faisceaux (Beam size 5 avec repli de température)
-    # Garantit la reconnaissance optimale même sur paroles lentes, cadences atypiques ou émotions
     beam_size = 5
 
     transcribe_kwargs = dict(
@@ -634,70 +668,123 @@ def main():
         log_prob_threshold=-1.5,
         temperature=[0.0, 0.2, 0.4],
     )
-    if use_batched:
-        transcribe_kwargs["batch_size"] = batch_size
 
-    try:
-        segments_iter, info = pipeline.transcribe(args.audio, **transcribe_kwargs)
-        detected_lang = info.language if info.language else (lang_param or "fr")
-        total_audio_duration = info.duration if hasattr(info, "duration") and info.duration else 0.0
+    def perform_transcription(dev, comp_type):
+        local_cache = os.path.abspath("whisper/cache")
+        download_root = local_cache if os.path.isdir(local_cache) else None
 
-    except Exception as e:
-        print_error(f"Échec de la transcription : {e}")
-        sys.exit(1)
+        print_progress(10, 100, f"Chargement du modèle {model_name.upper()} sur {dev.upper()} ({comp_type})...")
 
-    # ── Collecte garantie de tous les mots (avec fallback de sécurité anti-perte) ──
+        mdl = WhisperModel(
+            model_name,
+            device=dev,
+            compute_type=comp_type,
+            cpu_threads=cpu_threads,
+            download_root=download_root,
+        )
+
+        pipe = mdl
+        use_batch = False
+        if dev == "cuda":
+            try:
+                from faster_whisper import BatchedInferencePipeline
+                pipe = BatchedInferencePipeline(model=mdl)
+                use_batch = True
+                print_progress(15, 100, f"Accélération Tensor Cores active (Batch size {batch_size}, {comp_type})...")
+            except Exception:
+                pipe = mdl
+                use_batch = False
+
+        kwargs = dict(transcribe_kwargs)
+        if use_batch:
+            kwargs["batch_size"] = batch_size
+
+        print_progress(20, 100, f"Transcription en cours ({model_name.upper()} sur {dev.upper()})...")
+
+        seg_iter, inf = pipe.transcribe(args.audio, **kwargs)
+        det_lang = inf.language if inf.language else (lang_param or "fr")
+        tot_dur = inf.duration if hasattr(inf, "duration") and inf.duration else 0.0
+
+        collected_words = []
+        raw_count = 0
+        last_pct = 20
+
+        for segment in seg_iter:
+            raw_count += 1
+            seg_text = segment.text.strip() if segment.text else ""
+            if not seg_text:
+                continue
+
+            if tot_dur > 0:
+                cur_sec = min(segment.end, tot_dur)
+                calc_pct = int(20 + (cur_sec / tot_dur) * 70)
+                if calc_pct > last_pct:
+                    last_pct = calc_pct
+                    cur_str = format_timecode(cur_sec)[:8]
+                    tot_str = format_timecode(tot_dur)[:8]
+                    print_progress(calc_pct, 100, f"Transcription en cours ({cur_str} / {tot_str})...")
+
+            print_segment({
+                "id": raw_count,
+                "speaker": "SPEAKER_00",
+                "start": round(float(segment.start), 2),
+                "end": round(float(segment.end), 2),
+                "text": clean_text(seg_text, det_lang),
+            })
+
+            if segment.words and len(segment.words) > 0:
+                for w in segment.words:
+                    w_str = w.word.strip() if w.word else ""
+                    if w_str:
+                        w_start = float(w.start) if w.start is not None else float(segment.start)
+                        w_end = float(w.end) if w.end is not None else float(segment.end)
+                        collected_words.append({
+                            "word": w_str,
+                            "start": w_start,
+                            "end": w_end,
+                        })
+            else:
+                tokens = seg_text.split()
+                if tokens:
+                    seg_dur = max(0.1, float(segment.end) - float(segment.start))
+                    step = seg_dur / len(tokens)
+                    for i, token in enumerate(tokens):
+                        collected_words.append({
+                            "word": token,
+                            "start": float(segment.start) + i * step,
+                            "end": float(segment.start) + (i + 1) * step,
+                        })
+
+        return collected_words, det_lang, raw_count
+
     all_words = []
+    detected_lang = lang_param or "fr"
     raw_segment_count = 0
-    last_reported_pct = 20
+    used_device = "cpu"
+    used_compute_type = compute_type
 
-    for segment in segments_iter:
-        raw_segment_count += 1
-        seg_text = segment.text.strip() if segment.text else ""
-        if not seg_text:
-            continue
-
-        # Progression en temps réel basée sur le timecode pour les fichiers longs (1h, 4h)
-        if total_audio_duration > 0:
-            current_progress_sec = min(segment.end, total_audio_duration)
-            calc_pct = int(20 + (current_progress_sec / total_audio_duration) * 70)
-            if calc_pct > last_reported_pct:
-                last_reported_pct = calc_pct
-                cur_str = format_timecode(current_progress_sec)[:8]
-                tot_str = format_timecode(total_audio_duration)[:8]
-                print_progress(calc_pct, 100, f"Transcription en cours ({cur_str} / {tot_str})...")
-
-        # Émission du segment en direct vers l'interface
-        print_segment({
-            "id": raw_segment_count,
-            "speaker": "SPEAKER_00",
-            "start": round(float(segment.start), 2),
-            "end": round(float(segment.end), 2),
-            "text": clean_text(seg_text, detected_lang),
-        })
-
-        if segment.words and len(segment.words) > 0:
-            for w in segment.words:
-                w_str = w.word.strip() if w.word else ""
-                if w_str:
-                    all_words.append({
-                        "word": w_str,
-                        "start": float(w.start),
-                        "end": float(w.end),
-                    })
-        else:
-            # Fallback de sécurité : si le word-alignment échoue sur un segment,
-            # on découpe le texte du segment et on interpole les timestamps
-            tokens = seg_text.split()
-            if tokens:
-                seg_dur = max(0.1, float(segment.end) - float(segment.start))
-                step = seg_dur / len(tokens)
-                for i, token in enumerate(tokens):
-                    all_words.append({
-                        "word": token,
-                        "start": float(segment.start) + i * step,
-                        "end": float(segment.start) + (i + 1) * step,
-                    })
+    if device == "cuda":
+        try:
+            all_words, detected_lang, raw_segment_count = perform_transcription("cuda", compute_type)
+            used_device = "cuda"
+            used_compute_type = compute_type
+        except Exception as e:
+            print_info(f"Notification CUDA ({e}) : bascule automatique transparente sur CPU Multi-cœurs...")
+            try:
+                all_words, detected_lang, raw_segment_count = perform_transcription("cpu", "int8")
+                used_device = "cpu"
+                used_compute_type = "int8"
+            except Exception as e2:
+                print_error(f"Échec de la transcription sur CPU : {e2}")
+                sys.exit(1)
+    else:
+        try:
+            all_words, detected_lang, raw_segment_count = perform_transcription("cpu", compute_type)
+            used_device = "cpu"
+            used_compute_type = compute_type
+        except Exception as e:
+            print_error(f"Échec de la transcription : {e}")
+            sys.exit(1)
 
     if not all_words:
         print_progress(100, 100, "Aucune parole détectée dans le fichier.")
@@ -773,8 +860,8 @@ def main():
             "audio_file": os.path.abspath(args.audio),
             "model": model_name,
             "language": detected_lang,
-            "device": "cpu",
-            "compute_type": "int8",
+            "device": used_device,
+            "compute_type": used_compute_type,
             "threads": cpu_threads,
             "total_segments": len(final_segments),
             "total_words": len(all_words),
@@ -794,4 +881,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print_error(f"Erreur interne STT : {e}")
+        sys.exit(1)

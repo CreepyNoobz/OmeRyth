@@ -13,6 +13,9 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
 
     private MainFenetre mainFenetre;
     private TimelinePanel timelinePanel;
+    private final JCheckBoxMenuItem affichage_signes;
+    private final JCheckBoxMenuItem affichage_graduations;
+    private final JCheckBoxMenuItem affichage_waveform;
 
     public SimplifiedMenuBarPanel(MainFenetre mainFenetre, TimelinePanel timelinePanel) {
         this.mainFenetre = mainFenetre;
@@ -97,21 +100,35 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
         // ===== MENU AFFICHAGE =====
         JMenu menuAffichage = new JMenu("Affichage");
         
-        JCheckBoxMenuItem affichage_signes = new JCheckBoxMenuItem("Afficher les séparateurs", true);
-        JCheckBoxMenuItem affichage_graduations = new JCheckBoxMenuItem("Afficher les graduations", true);
-        JCheckBoxMenuItem affichage_waveform = new JCheckBoxMenuItem("Afficher la waveform (onde audio)", timelinePanel.isWaveformVisible());
+        affichage_signes = new JCheckBoxMenuItem("Afficher les séparateurs", timelinePanel != null ? timelinePanel.isSeparatorsVisible() : true);
+        affichage_graduations = new JCheckBoxMenuItem("Afficher les graduations", timelinePanel != null ? timelinePanel.isGraduationsVisible() : true);
+        affichage_waveform = new JCheckBoxMenuItem("Afficher la waveform (onde audio)", mainFenetre != null ? mainFenetre.isWaveformVisible() : (timelinePanel != null ? timelinePanel.isWaveformVisible() : true));
         affichage_waveform.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_W, InputEvent.CTRL_DOWN_MASK));
 
-        affichage_signes.addActionListener(e ->
-            timelinePanel.setSeparatorsVisible(affichage_signes.isSelected()));
-        affichage_graduations.addActionListener(e ->
-            timelinePanel.setGraduationsVisible(affichage_graduations.isSelected()));
-        affichage_waveform.addActionListener(e ->
-            mainFenetre.setWaveformVisible(affichage_waveform.isSelected()));
+        affichage_signes.addActionListener(e -> {
+            if (timelinePanel != null) timelinePanel.setSeparatorsVisible(affichage_signes.isSelected());
+        });
+        affichage_graduations.addActionListener(e -> {
+            if (timelinePanel != null) timelinePanel.setGraduationsVisible(affichage_graduations.isSelected());
+        });
+        affichage_waveform.addActionListener(e -> {
+            if (mainFenetre != null) mainFenetre.setWaveformVisible(affichage_waveform.isSelected());
+        });
 
         menuAffichage.add(affichage_signes);
         menuAffichage.add(affichage_graduations);
         menuAffichage.add(affichage_waveform);
+
+        menuAffichage.addMenuListener(new javax.swing.event.MenuListener() {
+            @Override
+            public void menuSelected(javax.swing.event.MenuEvent e) {
+                syncAffichageState();
+            }
+            @Override
+            public void menuDeselected(javax.swing.event.MenuEvent e) {}
+            @Override
+            public void menuCanceled(javax.swing.event.MenuEvent e) {}
+        });
 
         add(menuAffichage);
 
@@ -156,5 +173,45 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
         menuAide.add(info);
 
         add(menuAide);
+    }
+
+    public void setWaveformChecked(boolean visible) {
+        if (affichage_waveform != null && affichage_waveform.isSelected() != visible) {
+            affichage_waveform.setSelected(visible);
+        }
+    }
+
+    public void setSeparatorsChecked(boolean visible) {
+        if (affichage_signes != null && affichage_signes.isSelected() != visible) {
+            affichage_signes.setSelected(visible);
+        }
+    }
+
+    public void setGraduationsChecked(boolean visible) {
+        if (affichage_graduations != null && affichage_graduations.isSelected() != visible) {
+            affichage_graduations.setSelected(visible);
+        }
+    }
+
+    public void syncAffichageState() {
+        if (affichage_waveform != null) {
+            boolean visible = (mainFenetre != null) ? mainFenetre.isWaveformVisible()
+                    : (timelinePanel != null && timelinePanel.isWaveformVisible());
+            if (affichage_waveform.isSelected() != visible) {
+                affichage_waveform.setSelected(visible);
+            }
+        }
+        if (affichage_signes != null && timelinePanel != null) {
+            boolean visible = timelinePanel.isSeparatorsVisible();
+            if (affichage_signes.isSelected() != visible) {
+                affichage_signes.setSelected(visible);
+            }
+        }
+        if (affichage_graduations != null && timelinePanel != null) {
+            boolean visible = timelinePanel.isGraduationsVisible();
+            if (affichage_graduations.isSelected() != visible) {
+                affichage_graduations.setSelected(visible);
+            }
+        }
     }
 }

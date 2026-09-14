@@ -56,30 +56,53 @@ Synchronisez facilement le texte, les signes de synchronisation labiale et la vi
 
 > ⚠️ **Fichiers exclus du dépôt Git (> 100 Mo ou générés localement)**
 >
-> Pour respecter les limites de GitHub (fichiers plafonnés à 100 Mo) et garder un dépôt Git léger, les composants suivants ne sont pas versionnés dans le dépôt :
+> Pour respecter les quotas de GitHub (fichiers plafonnés à 100 Mo) et garder un dépôt Git propre et léger, les composants volumineux et binaires générés ne sont pas versionnés dans le dépôt :
 >
-> | Dossier / Fichier | Taille approx. | Raison & Emplacement |
-> |-------------------|----------------|----------------------|
-> | `OmeRyth_Portable.zip` | ~208 Mo | Archive portable complète générée via `creer_zip_portable.bat` |
-> | `whisper/` | ~2.7 Go | Cache et poids neuronaux IA (téléchargés automatiquement par Demucs / WhisperX à la première extraction) |
-> | `ffmpeg/` | ~120 Mo | Binaires FFmpeg pour l'encodage vidéo |
-> | `vlc/` | ~80 Mo | Bibliothèques libvlc et codecs |
-> | `jre/` | ~150 Mo | Runtime Java 17 portable |
-> | `temp/` & `scratch/` | Variable | Fichiers de travail et de rendu temporaires |
+> | Dossier / Fichier | Taille approx. | Description & Installation |
+> |-------------------|----------------|----------------------------|
+> | `python/` | ~800 Mo | Environnement Python portable avec PyTorch, Demucs et WhisperX |
+> | `whisper/` | ~2.7 Go | Modèles de réseaux de neurones (téléchargés automatiquement à la première utilisation) |
+> | `ffmpeg/ffmpeg.exe` | ~120 Mo | Moteur FFmpeg 64-bit pour l'encodage vidéo et le mixage audio |
+> | `vlc/` | ~80 Mo | Bibliothèques natives libvlc et codecs vidéo |
+> | `jre/` | ~150 Mo | Runtime Java portable (ou Java 17+ installé sur le système) |
+> | `temp/` & `scratch/` | Variable | Fichiers de cache et de rendu temporaires |
+> | `*.zip` | Variable | Archives et packages de distribution générés localement |
 
-Une fois les dépendances nécessaires installées ou récupérées :
-```
-OmeRyth/
-├── src/                      ← Code source Java (dans le repo Git)
-├── whisperx_engine/          ← Workers Python IA Demucs / WhisperX (dans le repo Git)
-├── logo.ico                  ← Icône Windows officielle du logo (dans le repo Git)
-├── NativeDialog.exe          ← Helper natif dialogue Windows (dans le repo Git)
-├── associer_fichiers_rythmo.bat ← Script d'association d'icône Windows (dans le repo Git)
-├── creer_zip_portable.bat    ← Script de création de l'archive portable (dans le repo Git)
-├── libs/                     ← Bibliothèques JAR (vlcj, etc.)
-├── ffmpeg/                   ← Binaires ffmpeg.exe, ffprobe.exe
-├── vlc/                      ← Dossier plugins et bibliothèques VLC
-└── jre/                      ← Runtime Java
+---
+
+## 🛠️ Installation & Prérequis pour l'Exécution
+
+Pour exécuter ou compiler OmeRyth depuis les sources Git :
+
+### 1. Java 17 ou supérieur (JDK / JRE)
+- Assurez-vous que Java 17+ (64 bits) est installé sur votre machine (`java -version`).
+
+### 2. VLC Media Player (64-bit)
+- OmeRyth utilise `libvlc` via VLCJ pour la lecture vidéo et le scrubbing audio fluide.
+- Installez [VLC 64-bit](https://www.videolan.org/vlc/) sur votre système, ou déposez le dossier `vlc` (contenant `libvlc.dll`, `libvlccore.dll` et `plugins/`) à la racine du projet.
+
+### 3. FFmpeg (`ffmpeg/ffmpeg.exe` et `ffmpeg/ffprobe.exe`)
+- Requis pour l'export vidéo streaming, la détection audio et l'extraction de pistes.
+- Téléchargez FFmpeg 64-bit et placez `ffmpeg.exe` et `ffprobe.exe` dans le sous-dossier `ffmpeg/` (ou ajoutez FFmpeg à votre variable d'environnement `PATH`).
+
+### 4. Environnement Python & IA (Transcription WhisperX & Séparation Demucs)
+Pour bénéficier de la transcription automatique et de l'isolation vocale par IA :
+- Installez **Python 3.10 ou 3.11** (64-bit).
+- Installez les paquets requis via pip :
+  ```bash
+  pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+  pip install soundfile demucs whisperx
+  ```
+- *Alternative automatique* : OmeRyth intègre un gestionnaire autonome accessible via **Outils > Configuration des dépendances IA** capable de télécharger et configurer les composants manquants.
+
+### 5. Compilation & Lancement
+```bash
+# Compilation de tous les fichiers sources Java
+Get-ChildItem -Recurse -Filter *.java -Path src | Select-Object -ExpandProperty FullName | Out-File -Encoding ascii .src_files.txt
+javac -cp "libs/*;src" -d bin -encoding UTF-8 @.src_files.txt
+
+# Lancement de l'application
+java -cp "bin;libs/*" app.Launcher
 ```
 
 ---

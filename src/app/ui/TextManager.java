@@ -204,12 +204,25 @@ public class TextManager {
             int band = entry.getKey();
             int bandTop = band * bandHeight;
             int bandBottom = bandTop + bandHeight;
-            if (mouseY < bandTop || mouseY > bandBottom) continue;
 
             for (SeparatorMark sep : entry.getValue()) {
                 int sx = sep.x + offsetX;
-                if (Math.abs(mouseX - sx) <= tolerancePx) {
-                    return new int[]{band, sep.x};
+                if (sep.isStartBoundary() || sep.isEndBoundary()) {
+                    int imgHeight = Math.max(14, (int) Math.round(bandHeight * 0.40f));
+                    int imgWidth = Math.max(16, (int) Math.round(imgHeight * 1.5));
+                    int tolX = Math.max(tolerancePx, imgWidth / 2 + 2);
+                    int yMin = bandTop;
+                    int yMax = bandBottom + imgHeight + 4;
+
+                    if (mouseX >= sx - tolX && mouseX <= sx + tolX && mouseY >= yMin && mouseY <= yMax) {
+                        return new int[]{band, sep.x};
+                    }
+                } else {
+                    if (mouseY >= bandTop && mouseY <= bandBottom) {
+                        if (Math.abs(mouseX - sx) <= tolerancePx) {
+                            return new int[]{band, sep.x};
+                        }
+                    }
                 }
             }
         }

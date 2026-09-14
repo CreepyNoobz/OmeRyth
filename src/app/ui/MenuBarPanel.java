@@ -14,6 +14,9 @@ public class MenuBarPanel extends JMenuBar {
 
     private MainFenetre mainFenetre;
     private TimelinePanel timelinePanel;
+    private JCheckBoxMenuItem affichage_signes;
+    private JCheckBoxMenuItem affichage_graduations;
+    private JCheckBoxMenuItem affichage_waveform;
 
     public MenuBarPanel(MainFenetre mainFenetre, TimelinePanel timelinePanel) {
         this.mainFenetre = mainFenetre;
@@ -24,6 +27,7 @@ public class MenuBarPanel extends JMenuBar {
             JMenuItem nouveau = new JMenuItem("Nouveau");
             JMenuItem ouvrir = new JMenuItem("Ouvrir");
             JMenuItem sauvegarder = new JMenuItem("Sauvegarder");
+            sauvegarder.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_DOWN_MASK));
             JMenuItem quitter = new JMenuItem("Quitter");
 
         // Sous-menu Exporter
@@ -34,9 +38,29 @@ public class MenuBarPanel extends JMenuBar {
 
         // Création du menu de gestion
         JMenu menuGestion = new JMenu("Gestion");
-            JCheckBoxMenuItem affichage_signes = new JCheckBoxMenuItem("Affichage des signes", true);
-            JCheckBoxMenuItem affichage_graduations = new JCheckBoxMenuItem("Affichage des graduations", true);
-            JCheckBoxMenuItem affichage_waveform = new JCheckBoxMenuItem("Affichage de la waveform", timelinePanel.isWaveformVisible());
+            affichage_signes = new JCheckBoxMenuItem("Affichage des signes", timelinePanel != null ? timelinePanel.isSeparatorsVisible() : true);
+            affichage_graduations = new JCheckBoxMenuItem("Affichage des graduations", timelinePanel != null ? timelinePanel.isGraduationsVisible() : true);
+            affichage_waveform = new JCheckBoxMenuItem("Affichage de la waveform", mainFenetre != null ? mainFenetre.isWaveformVisible() : (timelinePanel != null ? timelinePanel.isWaveformVisible() : true));
+            affichage_waveform.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_W, InputEvent.CTRL_DOWN_MASK));
+
+        menuGestion.addMenuListener(new javax.swing.event.MenuListener() {
+            @Override
+            public void menuSelected(javax.swing.event.MenuEvent e) {
+                if (affichage_waveform != null && mainFenetre != null) {
+                    affichage_waveform.setSelected(mainFenetre.isWaveformVisible());
+                }
+                if (affichage_signes != null && timelinePanel != null) {
+                    affichage_signes.setSelected(timelinePanel.isSeparatorsVisible());
+                }
+                if (affichage_graduations != null && timelinePanel != null) {
+                    affichage_graduations.setSelected(timelinePanel.isGraduationsVisible());
+                }
+            }
+            @Override
+            public void menuDeselected(javax.swing.event.MenuEvent e) {}
+            @Override
+            public void menuCanceled(javax.swing.event.MenuEvent e) {}
+        });
         JMenu menuEdition = new JMenu("Edition");
             JMenuItem annuler = new JMenuItem("Annuler");
             JMenuItem retablir = new JMenuItem("Retablir");

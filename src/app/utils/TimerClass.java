@@ -49,11 +49,14 @@ public class TimerClass extends JPanel {
 
         add(timerLabel, BorderLayout.CENTER);
 
-        // 60 FPS (16ms) pour une fluidité d'affichage optimale sans surcharger le thread Swing
-        timer = new Timer(16, e -> update());
+        // Horloge haute fréquence et coalescente (8ms) : évite le saut quantique de 15.6ms de Windows
+        // et assure un rafraîchissement 60-120 FPS calé au nanoseconde près sur nanoTime
+        timer = new Timer(8, e -> update());
+        timer.setCoalesce(true);
     }
 
     private Runnable onStopCallback;
+    private String lastFormattedTime = "";
 
     public void setOnStopCallback(Runnable onStopCallback) {
         this.onStopCallback = onStopCallback;
@@ -78,7 +81,14 @@ public class TimerClass extends JPanel {
             if (onStopCallback != null) onStopCallback.run();
         }
 
-        timerLabel.setText(format());
+        // Met à jour le label uniquement quand les dixièmes de seconde changent
+        // (évite 60-100 appels de revalidate() par seconde sur le thread Swing)
+        String formatted = format();
+        if (!formatted.equals(lastFormattedTime)) {
+            lastFormattedTime = formatted;
+            timerLabel.setText(formatted);
+        }
+
         timeline.setTime(time);
     }
 

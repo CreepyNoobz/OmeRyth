@@ -180,7 +180,13 @@ public class MediaWorkflowService {
         double dureeSec = dureeMs / 1000.0;
 
         // Boîte de dialogue de configuration des paramètres d'export (taille, FPS, audio)
-        app.ui.ExportVideoDialog dialog = new app.ui.ExportVideoDialog(owner, timelinePanel.getWidth(), timelinePanel.getHeight());
+        BufferedImage videoSnapshot = null;
+        try {
+            if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+                videoSnapshot = mediaPlayerComponent.mediaPlayer().snapshots().get();
+            }
+        } catch (Exception ignored) {}
+        app.ui.ExportVideoDialog dialog = new app.ui.ExportVideoDialog(owner, timelinePanel, videoSnapshot);
         dialog.setVisible(true);
         app.ui.ExportVideoDialog.ExportConfig config = dialog.getExportConfig();
         if (!config.approved) return;
@@ -305,7 +311,12 @@ public class MediaWorkflowService {
                               .append(":d=").append(String.format(Locale.US, "%.3f", dureeSec)).append("[bg];");
                         filter.append("[1:v]scale=w=").append(vW).append(":h=").append(vH)
                               .append(":force_original_aspect_ratio=decrease:flags=fast_bilinear,pad=").append(vW).append(":").append(vH)
-                              .append(":(ow-iw)/2:(oh-ih)/2:color=black[vscaled];");
+                              .append(":(ow-iw)/2:(oh-ih)/2:color=black");
+                        if (config.antiCopyright && config.antiCopyrightOpacity > 0) {
+                            double alphaFloat = Math.max(0.0, Math.min(1.0, config.antiCopyrightOpacity / 100.0));
+                            filter.append(String.format(Locale.US, ",drawbox=x=0:y=0:w=iw:h=ih:color=white@%.2f:t=fill", alphaFloat));
+                        }
+                        filter.append("[vscaled];");
                         filter.append("[bg][vscaled]overlay=").append(vX).append(":").append(vY).append("[bg_vid];");
                         filter.append("[bg_vid][0:v]overlay=").append(bX).append(":").append(bY).append(":shortest=1[vout]");
 

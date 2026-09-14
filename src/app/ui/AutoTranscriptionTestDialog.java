@@ -290,6 +290,19 @@ public class AutoTranscriptionTestDialog extends JDialog {
     }
 
     private void setupListeners() {
+        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                cancelAnalysis();
+            }
+
+            @Override
+            public void windowClosed(WindowEvent e) {
+                cancelAnalysis();
+            }
+        });
+
         btnClose.addActionListener(e -> {
             cancelAnalysis();
             dispose();
@@ -367,7 +380,9 @@ public class AutoTranscriptionTestDialog extends JDialog {
             @Override
             public void onProgress(int percentage, String message) {
                 SwingUtilities.invokeLater(() -> {
-                    progressBar.setValue(percentage);
+                    if (percentage >= 0) {
+                        progressBar.setValue(percentage);
+                    }
                     progressBar.setString(message);
                     labelStatus.setText(message);
                 });
@@ -447,8 +462,10 @@ public class AutoTranscriptionTestDialog extends JDialog {
     }
 
     private void cancelAnalysis() {
-        if (isRunning) {
+        try {
             service.cancel();
+        } catch (Throwable ignored) {}
+        if (isRunning) {
             isRunning = false;
             timer.stop();
             btnStart.setEnabled(true);

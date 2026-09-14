@@ -3,6 +3,7 @@ package app.ui;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.image.BufferedImage;
 
 /**
  * Canevas visuel interactif pour la composition du montage d'export vidéo.
@@ -36,6 +37,18 @@ public class MontagePreviewCanvas extends JPanel {
     private final Rectangle bandRect  = new Rectangle(0, 982, 1920, 98);
 
     private ElementType selectedElement = ElementType.BAND;
+
+    private int bandCount = 1;
+    private TimelinePanel timelinePanel;
+    private BufferedImage videoSnapshot;
+    private BufferedImage cachedRealBandImage;
+    private int cachedBandW = -1;
+    private int cachedBandH = -1;
+    private double cachedVisibleSeconds = 8.0;
+    private double visibleSeconds = 8.0;
+    private double previewTime = 0.0;
+    private boolean antiCopyright = false;
+    private int antiCopyrightOpacity = 20;
 
     private boolean isDragging = false;
     private boolean isResizing = false;
@@ -81,6 +94,73 @@ public class MontagePreviewCanvas extends JPanel {
         this.onLayoutChanged = callback;
     }
 
+    public void setTimelinePanel(TimelinePanel panel) {
+        this.timelinePanel = panel;
+        if (panel != null) {
+            this.bandCount = Math.max(1, panel.getBandCount());
+            this.previewTime = panel.getCurrentTime();
+        }
+        invalidateBandCache();
+        repaint();
+    }
+
+    public void setBandCount(int count) {
+        this.bandCount = Math.max(1, count);
+        invalidateBandCache();
+        repaint();
+    }
+
+    public int getBandCount() {
+        return bandCount;
+    }
+
+    public void setVideoSnapshot(BufferedImage snapshot) {
+        this.videoSnapshot = snapshot;
+        repaint();
+    }
+
+    public void setVisibleSeconds(double sec) {
+        this.visibleSeconds = Math.max(1.0, sec);
+        invalidateBandCache();
+        repaint();
+    }
+
+    public void setPreviewTime(double time) {
+        this.previewTime = Math.max(0.0, time);
+        invalidateBandCache();
+        repaint();
+    }
+
+    public void setAntiCopyright(boolean antiCopyright) {
+        this.antiCopyright = antiCopyright;
+        repaint();
+    }
+
+    public void setAntiCopyright(boolean antiCopyright, int opacityPercent) {
+        this.antiCopyright = antiCopyright;
+        this.antiCopyrightOpacity = Math.max(0, Math.min(100, opacityPercent));
+        repaint();
+    }
+
+    public void setAntiCopyrightOpacity(int opacityPercent) {
+        this.antiCopyrightOpacity = Math.max(0, Math.min(100, opacityPercent));
+        repaint();
+    }
+
+    public int getAntiCopyrightOpacity() {
+        return antiCopyrightOpacity;
+    }
+
+    public boolean isAntiCopyright() {
+        return antiCopyright;
+    }
+
+    public void invalidateBandCache() {
+        this.cachedRealBandImage = null;
+        this.cachedBandW = -1;
+        this.cachedBandH = -1;
+    }
+
     public void setExportResolution(int width, int height) {
         if (width <= 0 || height <= 0) return;
         this.exportWidth = width;
@@ -89,6 +169,7 @@ public class MontagePreviewCanvas extends JPanel {
         // Si les éléments dépassent totalement les nouvelles dimensions, on les repositionne de façon saine
         clampElementToBounds(videoRect);
         clampElementToBounds(bandRect);
+        invalidateBandCache();
 
         repaint();
         if (onLayoutChanged != null) onLayoutChanged.run();
@@ -118,6 +199,7 @@ public class MontagePreviewCanvas extends JPanel {
 
     public void setBandRect(int x, int y, int w, int h) {
         bandRect.setBounds(x, y, Math.max(MIN_ELEMENT_SIZE, w), Math.max(MIN_ELEMENT_SIZE, h));
+        invalidateBandCache();
         repaint();
         if (onLayoutChanged != null) onLayoutChanged.run();
     }
@@ -159,23 +241,30 @@ public class MontagePreviewCanvas extends JPanel {
 
     public void applyLayoutTemplate(String templateName) {
         if ("OMERYTH_ORIGINAL".equals(templateName) || "CLASSIC_16_9".equals(templateName)) {
-            // Disposition OmeRyth d'origine : Vidéo en haut (~91%), Bandeau fin en bas (~9%) exactement comme dans le logiciel
-            int bandH = Math.max(60, Math.min(140, (int) Math.round(exportHeight * 0.09)));
+            // Disposition OmeRyth d'origine :
+            // Règle d'adaptation selon le nombre de bandes :
+            // 1 bande : hauteur de base
+            // 2 bandes : hauteur divisée par 2 pour chaque bande (hauteur totale identique)
+            // au-delà de 2 bandes : on augmente la taille globale
+            int baseSingleH = Math.max(60, Math.min(140, (int) Math.round(exportHeight * 0.09)));
+            int bandH = ExportVideoDialog.computeExportBandHeight(bandCount, baseSingleH);
             if (bandH % 2 != 0) bandH++;
-            int vidH = exportHeight - bandH;
+            int vidH = Math.max(100, exportHeight - bandH);
             videoRect.setBounds(0, 0, exportWidth, vidH);
             bandRect.setBounds(0, vidH, exportWidth, bandH);
         } else if ("OVERLAY_BOTTOM".equals(templateName)) {
             // Vidéo plein écran, Bandeau incrusté en bas
-            int bandH = Math.max(60, Math.min(140, (int) Math.round(exportHeight * 0.09)));
+            int baseSingleH = Math.max(60, Math.min(140, (int) Math.round(exportHeight * 0.09)));
+            int bandH = ExportVideoDialog.computeExportBandHeight(bandCount, baseSingleH);
             if (bandH % 2 != 0) bandH++;
             videoRect.setBounds(0, 0, exportWidth, exportHeight);
             bandRect.setBounds(0, exportHeight - bandH, exportWidth, bandH);
         } else if ("LARGE_BAND_25".equals(templateName)) {
-            // Grand bandeau (75% vidéo, 25% bandeau)
-            int bandH = (int) Math.round(exportHeight * 0.25);
+            // Grand bandeau studio (25% base pour 1 bande, adapté si plus de bandes)
+            int baseSingleH = (int) Math.round(exportHeight * 0.25);
+            int bandH = ExportVideoDialog.computeExportBandHeight(bandCount, baseSingleH);
             if (bandH % 2 != 0) bandH++;
-            int vidH = exportHeight - bandH;
+            int vidH = Math.max(100, exportHeight - bandH);
             videoRect.setBounds(0, 0, exportWidth, vidH);
             bandRect.setBounds(0, vidH, exportWidth, bandH);
         } else if ("TIKTOK_CENTER_9_16".equals(templateName)) {
@@ -183,12 +272,12 @@ public class MontagePreviewCanvas extends JPanel {
             int vidW = exportWidth;
             int vidH = (int) Math.round(vidW * (9.0 / 16.0));
             if (vidH % 2 != 0) vidH++;
-            int vidY = (exportHeight - vidH) / 2 - 80;
-            if (vidY < 100) vidY = 100;
-            videoRect.setBounds(0, vidY, vidW, vidH);
-
-            int bandH = Math.min(180, Math.max(70, (int) Math.round(exportHeight * 0.08)));
+            int baseBandH = Math.min(180, Math.max(70, (int) Math.round(exportHeight * 0.08)));
+            int bandH = ExportVideoDialog.computeExportBandHeight(bandCount, baseBandH);
             if (bandH % 2 != 0) bandH++;
+            int vidY = (exportHeight - vidH - bandH) / 2;
+            if (vidY < 40) vidY = 40;
+            videoRect.setBounds(0, vidY, vidW, vidH);
             bandRect.setBounds(0, vidY + vidH + 15, exportWidth, bandH);
         } else if ("STACKED_TOP_BOTTOM".equals(templateName)) {
             // 50% / 50%
@@ -198,6 +287,7 @@ public class MontagePreviewCanvas extends JPanel {
             bandRect.setBounds(0, half, exportWidth, exportHeight - half);
         }
 
+        invalidateBandCache();
         repaint();
         if (onLayoutChanged != null) onLayoutChanged.run();
     }
@@ -547,15 +637,31 @@ public class MontagePreviewCanvas extends JPanel {
     }
 
     private void drawVideoElement(Graphics2D g2, Rectangle r, boolean isSelected) {
-        // Fond de la vidéo
-        g2.setColor(new Color(23, 37, 84, 235)); // Bleu nuit moderne
-        g2.fillRect(r.x, r.y, r.width, r.height);
+        boolean drawnSnapshot = false;
+        if (videoSnapshot != null && r.width > 20 && r.height > 10) {
+            g2.drawImage(videoSnapshot, r.x, r.y, r.width, r.height, null);
+            drawnSnapshot = true;
+        }
 
-        // Motif de caméra / cadrage
-        g2.setColor(new Color(30, 58, 138, 160));
-        g2.setStroke(new BasicStroke(1.0f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{4, 4}, 0));
-        g2.drawLine(r.x + r.width / 2, r.y + 4, r.x + r.width / 2, r.y + r.height - 4);
-        g2.drawLine(r.x + 4, r.y + r.height / 2, r.x + r.width - 4, r.y + r.height / 2);
+        if (!drawnSnapshot) {
+            // Fond de la vidéo
+            g2.setColor(new Color(23, 37, 84, 235)); // Bleu nuit moderne
+            g2.fillRect(r.x, r.y, r.width, r.height);
+
+            // Motif de caméra / cadrage
+            g2.setColor(new Color(30, 58, 138, 160));
+            g2.setStroke(new BasicStroke(1.0f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{4, 4}, 0));
+            g2.drawLine(r.x + r.width / 2, r.y + 4, r.x + r.width / 2, r.y + r.height - 4);
+            g2.drawLine(r.x + 4, r.y + r.height / 2, r.x + r.width - 4, r.y + r.height / 2);
+        }
+
+        // Filtre Anti-Copyright : voile blanc à opacité réglable de 0 à 100%
+        if (antiCopyright && antiCopyrightOpacity > 0 && r.width > 0 && r.height > 0) {
+            int alpha = (int) Math.round((antiCopyrightOpacity / 100.0) * 255.0);
+            alpha = Math.max(0, Math.min(255, alpha));
+            g2.setColor(new Color(255, 255, 255, alpha));
+            g2.fillRect(r.x, r.y, r.width, r.height);
+        }
 
         // Bordure
         Color borderColor = isSelected ? new Color(56, 189, 248) : new Color(30, 58, 138);
@@ -564,30 +670,51 @@ public class MontagePreviewCanvas extends JPanel {
         g2.drawRect(r.x, r.y, r.width, r.height);
 
         // Titre et dimensions
-        String title = "🎬 Vidéo source (" + videoRect.width + " × " + videoRect.height + ")";
+        String title = "🎬 Vidéo source (" + videoRect.width + " × " + videoRect.height + (antiCopyright && antiCopyrightOpacity > 0 ? " — Anti-Copyright " + antiCopyrightOpacity + "%" : "") + ")";
         drawElementHeader(g2, r, title, new Color(56, 189, 248), isSelected);
     }
 
     private void drawBandElement(Graphics2D g2, Rectangle r, boolean isSelected) {
-        // Fond studio bande rythmo
-        g2.setColor(new Color(28, 25, 23, 245)); // Gris foncé studio chaud
-        g2.fillRect(r.x, r.y, r.width, r.height);
+        boolean drawnRealBand = false;
+        if (timelinePanel != null && r.width > 20 && r.height > 10) {
+            int bw = Math.max(60, bandRect.width);
+            int bh = Math.max(20, bandRect.height);
+            if (cachedRealBandImage == null || cachedBandW != bw || cachedBandH != bh || Math.abs(cachedVisibleSeconds - visibleSeconds) > 0.05) {
+                cachedBandW = bw;
+                cachedBandH = bh;
+                cachedVisibleSeconds = visibleSeconds;
+                try {
+                    cachedRealBandImage = timelinePanel.renderFrame(bw, bh, previewTime, visibleSeconds);
+                } catch (Exception ex) {
+                    cachedRealBandImage = null;
+                }
+            }
+            if (cachedRealBandImage != null) {
+                g2.drawImage(cachedRealBandImage, r.x, r.y, r.width, r.height, null);
+                drawnRealBand = true;
+            }
+        }
 
-        // Ligne témoin rouge centrale (curseur de synchronisation rythmo)
-        int cx = r.x + r.width / 2;
-        g2.setColor(new Color(239, 68, 68, 220));
-        g2.setStroke(new BasicStroke(2.0f));
-        g2.drawLine(cx, r.y + 1, cx, r.y + r.height - 1);
+        if (!drawnRealBand) {
+            // Fond studio bande rythmo
+            g2.setColor(new Color(28, 25, 23, 245)); // Gris foncé studio chaud
+            g2.fillRect(r.x, r.y, r.width, r.height);
 
-        // Syllabes simulées défilant sur la bande
-        if (r.height >= 24 && r.width >= 80) {
-            g2.setFont(new Font("Georgia", Font.BOLD, Math.max(10, Math.min(15, r.height / 3))));
-            g2.setColor(new Color(253, 224, 71)); // Jaune chaud rythmo
-            String sample = "▶ Ta...  mè...  re...  ◀";
-            FontMetrics fm = g2.getFontMetrics();
-            int sx = cx - fm.stringWidth(sample) / 2;
-            int sy = r.y + r.height / 2 + fm.getAscent() / 2 - 2;
-            g2.drawString(sample, sx, sy);
+            // Pistes de bande si multiples
+            if (bandCount > 1) {
+                g2.setColor(new Color(60, 60, 65));
+                g2.setStroke(new BasicStroke(1.0f));
+                for (int b = 1; b < bandCount; b++) {
+                    int by = r.y + (r.height * b) / bandCount;
+                    g2.drawLine(r.x, by, r.x + r.width, by);
+                }
+            }
+
+            // Ligne témoin rouge centrale (curseur de synchronisation rythmo)
+            int cx = r.x + r.width / 2;
+            g2.setColor(new Color(239, 68, 68, 220));
+            g2.setStroke(new BasicStroke(2.0f));
+            g2.drawLine(cx, r.y + 1, cx, r.y + r.height - 1);
         }
 
         // Bordure
@@ -597,7 +724,7 @@ public class MontagePreviewCanvas extends JPanel {
         g2.drawRect(r.x, r.y, r.width, r.height);
 
         // Titre et dimensions
-        String title = "🎵 Bande Rythmo (" + bandRect.width + " × " + bandRect.height + ")";
+        String title = "🎵 Bande Rythmo (" + bandRect.width + " × " + bandRect.height + " — " + bandCount + " bande" + (bandCount > 1 ? "s" : "") + ")";
         drawElementHeader(g2, r, title, new Color(245, 158, 11), isSelected);
     }
 

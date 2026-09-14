@@ -5,6 +5,7 @@ OmeRyth.exe
 OmeRyth.bat
 OmeRyth_Setup.iss
 MonApplication.zip
+creer_zip_portable.bat
 manifest.txt
 MANIFEST.MF
 META-INF/
@@ -17,7 +18,8 @@ ffmpeg/ffmpeg.exe
 *.zip
 OmeRyth_Portable.zip
 
-# ===== Modèles et caches IA lourds (plusieurs Go, téléchargés à la demande) =====
+# ===== Modèles et caches IA lourds / Environnement Python (téléchargés ou gérés séparément) =====
+python/
 whisper/
 temp/
 scratch/
@@ -48,6 +50,10 @@ autosave.rythmo.json.declined
 
 # ===== IDE =====
 .idea/
+*.iml
+*.iws
+*.ipr
+test.xml
 
 vlc/plugins/visualization/libgoom_plugin.dll
 

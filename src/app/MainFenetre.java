@@ -51,6 +51,7 @@ public class MainFenetre extends JFrame {
     private CardLayout mediaCardLayout;
     private JPanel mediaContentPanel;
     private KeyBoardListener keyBoardListener;
+    private SimplifiedMenuBarPanel simplifiedMenuBar;
     private final File autosaveFile = new File("autosave.rythmo.json");
     private static final int ACTION_HISTORY_MAX_LINES = 10;
     private static final int AUTOSAVE_INTERVAL_MS = 15_000;
@@ -177,7 +178,8 @@ public class MainFenetre extends JFrame {
         add(parts.mainPanel, BorderLayout.CENTER);
         
         // Utiliser le menu simplifié au lieu du menu complexe
-        setJMenuBar(new SimplifiedMenuBarPanel(this, timelinePanel));
+        simplifiedMenuBar = new SimplifiedMenuBarPanel(this, timelinePanel);
+        setJMenuBar(simplifiedMenuBar);
 
         // Listener clavier global
         keyBoardListener = new KeyBoardListener(
@@ -784,6 +786,9 @@ public class MainFenetre extends JFrame {
         FileUtils.saveCustomization(customization);
         if (timelinePanel != null) {
             timelinePanel.setWaveformVisible(visible);
+        }
+        if (simplifiedMenuBar != null) {
+            simplifiedMenuBar.setWaveformChecked(visible);
         }
         if (visible && timelinePanel != null && timelinePanel.getWaveformData() == null && fichierSelectionne != null && fichierSelectionne.exists()) {
             audioWaveformService.extractWaveform(fichierSelectionne, data -> {

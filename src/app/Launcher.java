@@ -23,6 +23,11 @@ public class Launcher {
         // Force l'utilisation du dialogue natif Windows moderne (IFileDialog)
         // Doit être exécuté avant tout chargement de classe AWT (donc avant JFrame)
         System.setProperty("sun.awt.windows.useCommonItemDialog", "true");
+
+        // Accélération matérielle Direct3D sous Windows pour un défilement ultra-fluide 60+ FPS sans saccades
+        System.setProperty("sun.java2d.d3d", "true");
+        System.setProperty("sun.java2d.ddforcevram", "true");
+        System.setProperty("sun.java2d.transaccel", "true");
         
         VlcLogFilter.install();
         app.services.FileAssociationService.ensureRythmoAssociationAsync();

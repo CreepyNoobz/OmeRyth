@@ -22,18 +22,50 @@ public class SpeechWorkflowService {
         Runtime.getRuntime().addShutdownHook(new Thread(SpeechWorkflowService::killAllProcesses));
     }
 
-    /** Arrête immédiatement tous les processus actifs. */
+    /** Arrête immédiatement tous les processus actifs et leurs sous-processus descendants. */
     public static void killAllProcesses() {
         synchronized (ACTIVE_PROCESSES) {
             for (Process p : ACTIVE_PROCESSES) {
                 try {
-                    if (p.isAlive()) {
-                        p.destroyForcibly();
-                    }
+                    killProcessTree(p);
                 } catch (Exception ignored) {}
             }
             ACTIVE_PROCESSES.clear();
         }
+    }
+
+    /**
+     * Détruit de manière récursive et immédiate un processus et tous ses sous-processus descendants.
+     */
+    public static void killProcessTree(Process p) {
+        if (p == null) return;
+        try {
+            long pid = -1;
+            try {
+                pid = p.pid();
+            } catch (Throwable ignored) {}
+
+            // 1. Tuer tous les sous-processus descendants via l'API ProcessHandle (Java 9+)
+            try {
+                p.descendants().forEach(h -> {
+                    try { h.destroyForcibly(); } catch (Throwable ignored) {}
+                });
+            } catch (Throwable ignored) {}
+
+            // 2. Sur Windows, taskkill /F /T /PID garantit l'élimination de tout arbre de processus
+            if (pid > 0 && System.getProperty("os.name", "").toLowerCase().contains("win")) {
+                try {
+                    new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(pid))
+                            .start()
+                            .waitFor(2, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (Throwable ignored) {}
+            }
+
+            // 3. Forcer l'arrêt du processus lui-même
+            if (p.isAlive()) {
+                p.destroyForcibly();
+            }
+        } catch (Throwable ignored) {}
     }
 
     /**
@@ -100,21 +132,53 @@ public class SpeechWorkflowService {
         void onError(String errorMessage);
     }
 
-    /** Annule la transcription en cours et libère les ressources. */
+    /** Annule la transcription en cours et libère immédiatement toutes les ressources et processus. */
     public void cancel() {
         isCancelled = true;
-        if (currentProcess != null && currentProcess.isAlive()) {
-            try {
-                currentProcess.destroyForcibly();
-            } catch (Exception ignored) {}
+        if (currentProcess != null) {
+            killProcessTree(currentProcess);
+            unregisterProcess(currentProcess);
+            currentProcess = null;
         }
     }
 
     /**
-     * Détecte l'exécutable Python système ou virtuel.
+     * Détecte l'exécutable Python embarqué, virtuel ou système.
      */
     public String findPython() {
-        String[] candidates = {"python", "python3"};
+        // 1. Chercher d'abord un Python portable embarqué dans l'application
+        File[] localCandidates = {
+            new File("python/python.exe"),
+            new File("whisperx_engine/python/python.exe"),
+            new File("whisperx_engine/venv/Scripts/python.exe"),
+            new File("venv/Scripts/python.exe"),
+            new File("env/Scripts/python.exe")
+        };
+        for (File f : localCandidates) {
+            if (f.exists() && f.isFile()) {
+                return f.getAbsolutePath();
+            }
+        }
+
+        // 2. Chercher dans les chemins d'installation standards Windows (AppData)
+        String localAppData = System.getenv("LOCALAPPDATA");
+        if (localAppData != null) {
+            File pyPrograms = new File(localAppData, "Programs/Python");
+            if (pyPrograms.exists() && pyPrograms.isDirectory()) {
+                File[] pyDirs = pyPrograms.listFiles((dir, name) -> name.startsWith("Python"));
+                if (pyDirs != null) {
+                    // Trier par version la plus récente en premier
+                    Arrays.sort(pyDirs, (a, b) -> b.getName().compareTo(a.getName()));
+                    for (File d : pyDirs) {
+                        File pyExe = new File(d, "python.exe");
+                        if (pyExe.exists()) return pyExe.getAbsolutePath();
+                    }
+                }
+            }
+        }
+
+        // 3. Chercher dans le PATH système
+        String[] candidates = {"python", "python3", "py"};
         for (String cmd : candidates) {
             try {
                 ProcessBuilder pb = new ProcessBuilder(cmd, "--version");
@@ -347,7 +411,7 @@ public class SpeechWorkflowService {
                                 callback.onSegmentFound(seg);
                             }
                         } else if (line.startsWith("INFO:")) {
-                            callback.onProgress(85, line.substring(5).trim());
+                            callback.onProgress(-1, line.substring(5).trim());
                         } else if (line.startsWith("ERROR:")) {
                             callback.onError(line.substring(6));
                             if (tempWav.exists()) tempWav.delete();
@@ -387,8 +451,13 @@ public class SpeechWorkflowService {
                     callback.onError("Erreur : " + e.getMessage());
                 }
             } finally {
-                if (tempWav.exists()) tempWav.delete();
-                if (resultJson.exists()) resultJson.delete();
+                if (currentProcess != null) {
+                    unregisterProcess(currentProcess);
+                    killProcessTree(currentProcess);
+                    currentProcess = null;
+                }
+                if (tempWav != null && tempWav.exists()) tempWav.delete();
+                if (resultJson != null && resultJson.exists()) resultJson.delete();
             }
         }).start();
     }

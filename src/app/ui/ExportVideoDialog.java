@@ -5,12 +5,36 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.awt.event.ItemEvent;
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Properties;
 
 public class ExportVideoDialog extends JDialog {
+
+    /**
+     * Calcule la hauteur totale de la bande en fonction du nombre de bandes :
+     * - 1 bande : hauteur unitaire de base (ex: 100 px).
+     * - 2 bandes : hauteur divisée par 2 par bande (la hauteur totale reste baseSingleBandHeight, ex: 50 px chaque).
+     * - Au-delà (3+ bandes) : chaque bande conserve au minimum la hauteur unitaire divisée par 2,
+     *   donc la hauteur totale s'agrandit proportionnellement (ex: 3 bandes = 150 px, 4 bandes = 200 px).
+     */
+    public static int computeExportBandHeight(int bandCount, int baseSingleBandHeight) {
+        if (bandCount <= 1) {
+            int h = Math.max(20, baseSingleBandHeight);
+            return (h % 2 == 0) ? h : h + 1;
+        }
+        int perBandH = Math.max(16, baseSingleBandHeight / 2);
+        int totalH;
+        if (bandCount == 2) {
+            totalH = perBandH * 2;
+        } else {
+            totalH = bandCount * perBandH;
+        }
+        if (totalH % 2 != 0) totalH++;
+        return totalH;
+    }
 
     public static class ExportPreset {
         public final String name;
@@ -42,6 +66,8 @@ public class ExportVideoDialog extends JDialog {
         public int fps = 60;
         public boolean includeAudio = true;
         public boolean removeVocals = false;
+        public boolean antiCopyright = false;
+        public int antiCopyrightOpacity = 20;
         public boolean isMontageMode = false;
         public Rectangle videoRect = new Rectangle(0, 0, 1920, 780);
         public Rectangle bandRect = new Rectangle(0, 780, 1920, 300);
@@ -50,6 +76,11 @@ public class ExportVideoDialog extends JDialog {
     }
 
     private static final String PRESETS_FILE = "export_presets.properties";
+
+    private final TimelinePanel timelinePanel;
+    private final BufferedImage videoSnapshot;
+    private int bandCount = 1;
+    private SingleBandPreviewPanel singleBandPreview;
 
     // Composants Onglet 1 : Bandeau Seul
     private final DefaultComboBoxModel<ExportPreset> presetModel = new DefaultComboBoxModel<>();
@@ -61,7 +92,6 @@ public class ExportVideoDialog extends JDialog {
     private final JSpinner spinnerVisibleSeconds;
     private final JComboBox<String> comboFps;
     private final JComboBox<String> comboEncoder;
-    private final JCheckBox checkIncludeAudio;
 
     // Composants Onglet 2 : Montage Vidéo + Bandeau
     private MontagePreviewCanvas montageCanvas;
@@ -75,8 +105,9 @@ public class ExportVideoDialog extends JDialog {
     private JSpinner spinnerElemY;
     private JSpinner spinnerElemW;
     private JSpinner spinnerElemH;
-    private JCheckBox checkMontageIncludeAudio;
     private JCheckBox checkMontageRemoveVocals;
+    private JCheckBox checkAntiCopyright;
+    private JSpinner spinnerAntiCopyrightOpacity;
     private JComboBox<String> comboMontageFps;
     private JComboBox<String> comboMontageEncoder;
     private JSpinner spinnerMontageVisibleSeconds;
@@ -85,13 +116,39 @@ public class ExportVideoDialog extends JDialog {
     private final JTabbedPane tabbedPane;
     private final ExportConfig config = new ExportConfig();
     private boolean updatingPreset = false;
-    private final ExportPreset customPresetItem = new ExportPreset("⚙️ Personnalisé (modifié)", 1920, 60, 8.0, 60, true);
+    private final ExportPreset customPresetItem;
 
     public ExportVideoDialog(Frame owner, int currentScreenWidth, int currentScreenHeight) {
+        this(owner, null, null, currentScreenWidth, currentScreenHeight);
+    }
+
+    public ExportVideoDialog(Frame owner, TimelinePanel timelinePanel) {
+        this(owner, timelinePanel, null,
+                timelinePanel != null && timelinePanel.getWidth() > 0 ? timelinePanel.getWidth() : 1920,
+                timelinePanel != null && timelinePanel.getHeight() > 0 ? timelinePanel.getHeight() : 100);
+    }
+
+    public ExportVideoDialog(Frame owner, TimelinePanel timelinePanel, BufferedImage videoSnapshot) {
+        this(owner, timelinePanel, videoSnapshot,
+                timelinePanel != null && timelinePanel.getWidth() > 0 ? timelinePanel.getWidth() : 1920,
+                timelinePanel != null && timelinePanel.getHeight() > 0 ? timelinePanel.getHeight() : 100);
+    }
+
+    public ExportVideoDialog(Frame owner, TimelinePanel timelinePanel, BufferedImage videoSnapshot, int currentScreenWidth, int currentScreenHeight) {
         super(owner, "Export vidéo", true);
+        this.timelinePanel = timelinePanel;
+        this.videoSnapshot = videoSnapshot;
+        this.bandCount = (timelinePanel != null) ? Math.max(1, timelinePanel.getBandCount()) : 1;
+
+        int initW = currentScreenWidth > 0 ? currentScreenWidth : 1920;
+        if (initW % 2 != 0) initW++;
+        int initH = computeExportBandHeight(bandCount, (currentScreenHeight > 0 && currentScreenHeight <= 300) ? currentScreenHeight : 100);
+        if (initH % 2 != 0) initH++;
+        this.customPresetItem = new ExportPreset("⚙️ Personnalisé (modifié)", initW, initH, 8.0, 60, true);
+
         setLayout(new BorderLayout());
-        setMinimumSize(new Dimension(860, 680));
-        setPreferredSize(new Dimension(920, 740));
+        setMinimumSize(new Dimension(900, 720));
+        setPreferredSize(new Dimension(980, 800));
         setResizable(true);
 
         tabbedPane = new JTabbedPane();
@@ -157,7 +214,7 @@ public class ExportVideoDialog extends JDialog {
         JLabel lblWidth = new JLabel("Largeur vidéo (px) :");
         int origW = currentScreenWidth > 0 ? currentScreenWidth : 1920;
         if (origW % 2 != 0) origW++;
-        int origH = currentScreenHeight > 0 ? currentScreenHeight : 60;
+        int origH = computeExportBandHeight(bandCount, (currentScreenHeight > 0 && currentScreenHeight <= 300) ? currentScreenHeight : 100);
         if (origH % 2 != 0) origH++;
 
         formPanel.add(lblWidth, gbc);
@@ -210,13 +267,12 @@ public class ExportVideoDialog extends JDialog {
         infoLabel.setForeground(new Color(130, 185, 235));
         formPanel.add(infoLabel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
-        checkIncludeAudio = new JCheckBox("Inclure la piste audio source dans la vidéo exportée");
-        checkIncludeAudio.setSelected(true);
-        checkIncludeAudio.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        formPanel.add(checkIncludeAudio, gbc);
+        singleBandPreview = new SingleBandPreviewPanel(timelinePanel, bandCount, origW, origH, 8.0);
 
-        tabBandeauPanel.add(formPanel, BorderLayout.CENTER);
+        JPanel centerBandeauPanel = new JPanel(new BorderLayout(8, 8));
+        centerBandeauPanel.add(formPanel, BorderLayout.NORTH);
+        centerBandeauPanel.add(singleBandPreview, BorderLayout.CENTER);
+        tabBandeauPanel.add(centerBandeauPanel, BorderLayout.CENTER);
 
         // ==========================================
         // BARRE D'ACCÈS RAPIDE AUX FORMATS
@@ -348,6 +404,12 @@ public class ExportVideoDialog extends JDialog {
 
         // Canvas interactif au centre
         montageCanvas = new MontagePreviewCanvas();
+        montageCanvas.setTimelinePanel(timelinePanel);
+        montageCanvas.setBandCount(bandCount);
+        montageCanvas.setVideoSnapshot(videoSnapshot);
+        if (timelinePanel != null) {
+            montageCanvas.setPreviewTime(timelinePanel.getCurrentTime());
+        }
         panel.add(montageCanvas, BorderLayout.CENTER);
 
         // Panneau latéral droit : Contrôles & Inspecteur
@@ -501,15 +563,41 @@ public class ExportVideoDialog extends JDialog {
                 new Color(212, 212, 216)
         ));
 
-        checkMontageIncludeAudio = new JCheckBox("🔊 Inclure la piste audio source", true);
-        checkMontageIncludeAudio.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        optionsPanel.add(checkMontageIncludeAudio);
-
         checkMontageRemoveVocals = new JCheckBox("🎤 Retirer les voix (IA Demucs - Conserver musique & ambiance)", false);
         checkMontageRemoveVocals.setFont(new Font("Segoe UI", Font.BOLD, 11));
         checkMontageRemoveVocals.setForeground(new Color(245, 158, 11));
-        checkMontageRemoveVocals.setToolTipText("Supprime les dialogues via le réseau de neurones IA Demucs pour permettre aux comédiens de doubler par-dessus.");
+        checkMontageRemoveVocals.setToolTipText("Supprime les dialogues via le réseau de neurones IA Demucs pour permettre aux comédiens de doubler par-dessus (conserve l'audio de base si décoché).");
         optionsPanel.add(checkMontageRemoveVocals);
+
+        JPanel antiCopyrightPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        checkAntiCopyright = new JCheckBox("🛡️ Filtre Anti-Copyright (Voile blanc) :", false);
+        checkAntiCopyright.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        checkAntiCopyright.setForeground(new Color(56, 189, 248));
+        checkAntiCopyright.setToolTipText("Applique un léger filtre blanc semi-transparent (de 0 à 100% d'opacité) sur la vidéo source pour contourner la détection automatique.");
+
+        spinnerAntiCopyrightOpacity = new JSpinner(new SpinnerNumberModel(20, 0, 100, 5));
+        spinnerAntiCopyrightOpacity.setPreferredSize(new Dimension(55, 22));
+        spinnerAntiCopyrightOpacity.setEnabled(false);
+        spinnerAntiCopyrightOpacity.setToolTipText("Opacité du filtre blanc (0% à 100%)");
+
+        JLabel lblPercent = new JLabel("% d'opacité");
+        lblPercent.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+
+        antiCopyrightPanel.add(checkAntiCopyright);
+        antiCopyrightPanel.add(spinnerAntiCopyrightOpacity);
+        antiCopyrightPanel.add(lblPercent);
+
+        Runnable updateAntiCopyright = () -> {
+            boolean active = checkAntiCopyright.isSelected();
+            spinnerAntiCopyrightOpacity.setEnabled(active);
+            int op = ((Number) spinnerAntiCopyrightOpacity.getValue()).intValue();
+            montageCanvas.setAntiCopyright(active, op);
+        };
+
+        checkAntiCopyright.addActionListener(e -> updateAntiCopyright.run());
+        spinnerAntiCopyrightOpacity.addChangeListener(e -> updateAntiCopyright.run());
+
+        optionsPanel.add(antiCopyrightPanel);
 
         JPanel optRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         optRow.add(new JLabel("FPS :"));
@@ -584,6 +672,11 @@ public class ExportVideoDialog extends JDialog {
         spinnerElemY.addChangeListener(e -> onElementSpinnerChanged());
         spinnerElemW.addChangeListener(e -> onElementSpinnerChanged());
         spinnerElemH.addChangeListener(e -> onElementSpinnerChanged());
+
+        spinnerMontageVisibleSeconds.addChangeListener(e -> {
+            double sec = ((Number) spinnerMontageVisibleSeconds.getValue()).doubleValue();
+            montageCanvas.setVisibleSeconds(sec);
+        });
 
         syncMontageSpinnersFromCanvas();
         return panel;
@@ -663,8 +756,12 @@ public class ExportVideoDialog extends JDialog {
                 case 2 -> 24;
                 default -> 60;
             };
-            config.includeAudio = checkMontageIncludeAudio.isSelected();
+            config.includeAudio = true;
             config.removeVocals = checkMontageRemoveVocals.isSelected();
+            config.antiCopyright = (checkAntiCopyright != null && checkAntiCopyright.isSelected());
+            config.antiCopyrightOpacity = (spinnerAntiCopyrightOpacity != null)
+                    ? ((Number) spinnerAntiCopyrightOpacity.getValue()).intValue()
+                    : 20;
             config.encoder = switch (comboMontageEncoder.getSelectedIndex()) {
                 case 1 -> "nvenc";
                 case 2 -> "cpu";
@@ -680,8 +777,10 @@ public class ExportVideoDialog extends JDialog {
             config.height = h;
             config.visibleSeconds = ((Number) spinnerVisibleSeconds.getValue()).doubleValue();
             config.fps = getSelectedFps();
-            config.includeAudio = checkIncludeAudio.isSelected();
+            config.includeAudio = true;
             config.removeVocals = false;
+            config.antiCopyright = false;
+            config.antiCopyrightOpacity = 0;
             config.encoder = switch (comboEncoder.getSelectedIndex()) {
                 case 1 -> "nvenc";
                 case 2 -> "cpu";
@@ -699,19 +798,22 @@ public class ExportVideoDialog extends JDialog {
 
         int origW = currentScreenWidth > 0 ? currentScreenWidth : 1920;
         if (origW % 2 != 0) origW++;
-        int origH = currentScreenHeight > 0 ? currentScreenHeight : 60;
+        int origH = computeExportBandHeight(bandCount, (currentScreenHeight > 0 && currentScreenHeight <= 300) ? currentScreenHeight : 100);
         if (origH % 2 != 0) origH++;
 
         ExportPreset defaultPreset = new ExportPreset(
-                "🎯 Format d'origine OmeRyth (" + origW + " × " + origH + " — Comme à l'écran)",
+                "🎯 Format adapté OmeRyth (" + origW + " × " + origH + " — " + bandCount + " bande" + (bandCount > 1 ? "s" : "") + ")",
                 origW, origH, 8.0, 60, true
         );
         presetModel.addElement(defaultPreset);
 
-        presetModel.addElement(new ExportPreset("⚡ Bandeau Standard (1920 × 100 — Vision 8s)", 1920, 100, 8.0, 60, true));
+        int stdH = computeExportBandHeight(bandCount, 100);
+        presetModel.addElement(new ExportPreset("⚡ Bandeau Standard (1920 × " + stdH + " — Vision 8s)", 1920, stdH, 8.0, 60, true));
         presetModel.addElement(new ExportPreset("📱 Format Mobile Plein Écran (1080 × 1920 — 9:16)", 1080, 1920, 6.0, 60, true));
-        presetModel.addElement(new ExportPreset("📱 Bandeau Mobile Réseaux (1080 × 180 — Vision 6s)", 1080, 180, 6.0, 60, true));
-        presetModel.addElement(new ExportPreset("🌟 Grand Bandeau Studio (1920 × 200 — Vision 6s)", 1920, 200, 6.0, 60, true));
+        int mobH = computeExportBandHeight(bandCount, 180);
+        presetModel.addElement(new ExportPreset("📱 Bandeau Mobile Réseaux (1080 × " + mobH + " — Vision 6s)", 1080, mobH, 6.0, 60, true));
+        int stuH = computeExportBandHeight(bandCount, 200);
+        presetModel.addElement(new ExportPreset("🌟 Grand Bandeau Studio (1920 × " + stuH + " — Vision 6s)", 1920, stuH, 6.0, 60, true));
         presetModel.addElement(new ExportPreset("🎬 Full HD 1080p Plein écran (1920 × 1080 — Vision 8s)", 1920, 1080, 8.0, 60, true));
         presetModel.addElement(new ExportPreset("📺 HD 720p (1280 × 720 — Vision 6s)", 1280, 720, 6.0, 60, true));
 
@@ -734,6 +836,9 @@ public class ExportVideoDialog extends JDialog {
         spinnerVisibleSeconds.setValue(p.visibleSeconds);
         comboFps.setSelectedIndex(p.fps == 24 ? 2 : (p.fps == 30 ? 1 : 0));
         updatingPreset = false;
+        if (singleBandPreview != null) {
+            singleBandPreview.updateParams(p.width, p.height, p.visibleSeconds);
+        }
     }
 
     public void applyMobileFormatDirect() {
@@ -775,7 +880,7 @@ public class ExportVideoDialog extends JDialog {
     public void applyOriginalFormatDirect(int currentScreenWidth, int currentScreenHeight) {
         int origW = currentScreenWidth > 0 ? currentScreenWidth : 1920;
         if (origW % 2 != 0) origW++;
-        int origH = currentScreenHeight > 0 ? currentScreenHeight : 60;
+        int origH = computeExportBandHeight(bandCount, (currentScreenHeight > 0 && currentScreenHeight <= 300) ? currentScreenHeight : 100);
         if (origH % 2 != 0) origH++;
 
         if (tabbedPane.getSelectedIndex() == 0) {
@@ -797,6 +902,12 @@ public class ExportVideoDialog extends JDialog {
             comboPreset.setSelectedItem(customPresetItem);
             updatingPreset = false;
             updateButtonStates();
+        }
+        if (singleBandPreview != null) {
+            int w = (Integer) spinnerWidth.getValue();
+            int h = (Integer) spinnerHeight.getValue();
+            double sec = ((Number) spinnerVisibleSeconds.getValue()).doubleValue();
+            singleBandPreview.updateParams(w, h, sec);
         }
     }
 
@@ -924,5 +1035,196 @@ public class ExportVideoDialog extends JDialog {
 
     public ExportConfig getExportConfig() {
         return config;
+    }
+
+    /**
+     * Panneau d'aperçu graphique réel de la bande rythmo pour l'onglet "Bandeau Seul".
+     * Affiche fidèlement la vraie bande du projet (textes, rôles, séparateurs, repère de lecture rouge)
+     * au lieu d'une simple simulation textuelle.
+     */
+    public static class SingleBandPreviewPanel extends JPanel {
+        private final TimelinePanel timelinePanel;
+        private int bandCount = 1;
+        private int targetW = 1920;
+        private int targetH = 100;
+        private double visibleSeconds = 8.0;
+        private double previewTime = 0.0;
+        private BufferedImage cachedImage = null;
+        private int cachedW = -1;
+        private int cachedH = -1;
+        private double cachedSec = -1;
+        private double cachedTime = -1;
+
+        private final JSlider timeSlider;
+        private final JLabel timeLabel;
+
+        public SingleBandPreviewPanel(TimelinePanel timelinePanel, int bandCount, int initialW, int initialH, double initialSec) {
+            this.timelinePanel = timelinePanel;
+            this.bandCount = Math.max(1, bandCount);
+            this.targetW = Math.max(100, initialW);
+            this.targetH = Math.max(20, initialH);
+            this.visibleSeconds = Math.max(1.0, initialSec);
+            if (timelinePanel != null) {
+                this.previewTime = timelinePanel.getCurrentTime();
+            }
+
+            setLayout(new BorderLayout(4, 4));
+            setBackground(new Color(24, 24, 27));
+            setBorder(BorderFactory.createTitledBorder(
+                    BorderFactory.createLineBorder(new Color(63, 63, 70)),
+                    "👁️ Aperçu Graphique Réel de la Bande Rythmo",
+                    TitledBorder.LEFT, TitledBorder.TOP,
+                    new Font("Segoe UI", Font.BOLD, 11),
+                    new Color(245, 158, 11) // Gold
+            ));
+            setPreferredSize(new Dimension(800, 180));
+            setMinimumSize(new Dimension(400, 140));
+
+            // Canevas de rendu au centre
+            JPanel canvas = new JPanel() {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    super.paintComponent(g);
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+
+                    int availW = getWidth() - 16;
+                    int availH = getHeight() - 16;
+                    if (availW <= 10 || availH <= 10) {
+                        g2.dispose();
+                        return;
+                    }
+
+                    // Calcul de l'échelle pour afficher la bande avec ses vraies proportions
+                    double scaleX = (double) availW / targetW;
+                    double scaleY = (double) availH / targetH;
+                    double scale = Math.min(scaleX, scaleY);
+                    int drawW = Math.max(20, (int) Math.round(targetW * scale));
+                    int drawH = Math.max(10, (int) Math.round(targetH * scale));
+                    int drawX = (getWidth() - drawW) / 2;
+                    int drawY = (getHeight() - drawH) / 2;
+
+                    // Ombre portée / Fond du conteneur
+                    g2.setColor(new Color(15, 15, 18));
+                    g2.fillRoundRect(drawX - 2, drawY - 2, drawW + 4, drawH + 4, 6, 6);
+
+                    // Rendu ou cache de la bande réelle
+                    boolean drawnReal = false;
+                    if (timelinePanel != null && targetW > 20 && targetH > 10) {
+                        if (cachedImage == null || cachedW != targetW || cachedH != targetH ||
+                                Math.abs(cachedSec - visibleSeconds) > 0.05 || Math.abs(cachedTime - previewTime) > 0.02) {
+                            cachedW = targetW;
+                            cachedH = targetH;
+                            cachedSec = visibleSeconds;
+                            cachedTime = previewTime;
+                            try {
+                                cachedImage = timelinePanel.renderFrame(targetW, targetH, previewTime, visibleSeconds);
+                            } catch (Exception ex) {
+                                cachedImage = null;
+                            }
+                        }
+                        if (cachedImage != null) {
+                            g2.drawImage(cachedImage, drawX, drawY, drawW, drawH, null);
+                            drawnReal = true;
+                        }
+                    }
+
+                    if (!drawnReal) {
+                        // Rendu de secours épuré si timelinePanel non connecté
+                        g2.setColor(new Color(28, 25, 23));
+                        g2.fillRect(drawX, drawY, drawW, drawH);
+                        // Lignes de séparation de pistes
+                        if (bandCount > 1) {
+                            g2.setColor(new Color(60, 60, 65));
+                            for (int b = 1; b < bandCount; b++) {
+                                int by = drawY + (drawH * b) / bandCount;
+                                g2.drawLine(drawX, by, drawX + drawW, by);
+                            }
+                        }
+                        // Curseur rouge
+                        int cx = drawX + drawW / 2;
+                        g2.setColor(new Color(239, 68, 68, 220));
+                        g2.setStroke(new BasicStroke(2.0f));
+                        g2.drawLine(cx, drawY, cx, drawY + drawH);
+                    }
+
+                    // Bordure or / dorée stylisée
+                    g2.setColor(new Color(245, 158, 11, 200));
+                    g2.setStroke(new BasicStroke(1.5f));
+                    g2.drawRoundRect(drawX, drawY, drawW, drawH, 2, 2);
+
+                    // Badge info en haut à gauche
+                    String info = targetW + " × " + targetH + " px (" + bandCount + " bande" + (bandCount > 1 ? "s" : "") + ") — Vision : " + visibleSeconds + "s";
+                    g2.setFont(new Font("Segoe UI", Font.BOLD, 10));
+                    FontMetrics fm = g2.getFontMetrics();
+                    int tw = fm.stringWidth(info);
+                    g2.setColor(new Color(15, 15, 18, 210));
+                    g2.fillRoundRect(drawX + 4, drawY + 4, tw + 8, 16, 4, 4);
+                    g2.setColor(new Color(245, 158, 11));
+                    g2.drawString(info, drawX + 8, drawY + 16);
+
+                    g2.dispose();
+                }
+            };
+            canvas.setBackground(new Color(20, 20, 24));
+            add(canvas, BorderLayout.CENTER);
+
+            // Barre de scrubbing temporel en bas
+            JPanel scrubPanel = new JPanel(new BorderLayout(6, 0));
+            scrubPanel.setOpaque(false);
+            scrubPanel.setBorder(new EmptyBorder(2, 6, 2, 6));
+
+            JLabel lblScrub = new JLabel("Curseur temps :");
+            lblScrub.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+            lblScrub.setForeground(new Color(180, 180, 190));
+            scrubPanel.add(lblScrub, BorderLayout.WEST);
+
+            int maxSec = 120;
+            if (timelinePanel != null) {
+                maxSec = Math.max(30, (int) Math.ceil(timelinePanel.getCurrentTime() + 60.0));
+            }
+            timeSlider = new JSlider(0, maxSec * 10, (int) (previewTime * 10));
+            timeSlider.setOpaque(false);
+            timeSlider.addChangeListener(e -> {
+                double t = timeSlider.getValue() / 10.0;
+                setPreviewTime(t);
+            });
+            scrubPanel.add(timeSlider, BorderLayout.CENTER);
+
+            timeLabel = new JLabel(formatTime(previewTime));
+            timeLabel.setFont(new Font("Consolas", Font.BOLD, 11));
+            timeLabel.setForeground(new Color(245, 158, 11));
+            scrubPanel.add(timeLabel, BorderLayout.EAST);
+
+            add(scrubPanel, BorderLayout.SOUTH);
+        }
+
+        private static String formatTime(double sec) {
+            int mins = (int) (sec / 60);
+            double rem = sec - mins * 60;
+            return String.format("%02d:%05.2f", mins, rem);
+        }
+
+        public void updateParams(int w, int h, double visibleSec) {
+            this.targetW = Math.max(100, w);
+            this.targetH = Math.max(20, h);
+            this.visibleSeconds = Math.max(1.0, visibleSec);
+            this.cachedImage = null;
+            repaint();
+        }
+
+        public void setBandCount(int count) {
+            this.bandCount = Math.max(1, count);
+            this.cachedImage = null;
+            repaint();
+        }
+
+        public void setPreviewTime(double time) {
+            this.previewTime = Math.max(0.0, time);
+            this.timeLabel.setText(formatTime(previewTime));
+            this.cachedImage = null;
+            repaint();
+        }
     }
 }
