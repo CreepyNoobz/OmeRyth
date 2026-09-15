@@ -1035,6 +1035,28 @@ public class MainFenetre extends JFrame {
                 }
             }
 
+            // Fusion défensive des mots orphelins isolés (ex: "On" isolé dans un blanc avant "va pas...")
+            Set<String> orphanTokens = Set.of("on", "et", "le", "la", "un", "une", "de", "je", "tu", "il", "mais", "donc", "car", "or", "que", "qui", "à", "en", "y");
+            for (int i = 0; i < cleanBandSegments.size() - 1; i++) {
+                SpeechWorkflowService.TranscriptionSegment curr = cleanBandSegments.get(i);
+                SpeechWorkflowService.TranscriptionSegment nxt = cleanBandSegments.get(i + 1);
+                String currTxt = curr.getText().trim();
+                String[] words = currTxt.split("\\s+");
+                if (words.length == 1 && (nxt.getStartSeconds() - curr.getEndSeconds()) <= 0.65) {
+                    String cleanWord = words[0].toLowerCase().replaceAll("[^\\p{L}\\p{N}]+", "");
+                    if (orphanTokens.contains(cleanWord)) {
+                        nxt.text = currTxt + " " + nxt.text;
+                        nxt.startSeconds = curr.startSeconds;
+                        if (curr.words != null && !curr.words.isEmpty()) {
+                            if (nxt.words == null) nxt.words = new ArrayList<>();
+                            nxt.words.addAll(0, curr.words);
+                        }
+                        cleanBandSegments.remove(i);
+                        i--;
+                    }
+                }
+            }
+
             int minGapPixels = Math.max(15, (int) Math.round(pps * 0.08));
             int lastCommittedEndX = -1;
 

@@ -287,9 +287,8 @@ public class SpeechWorkflowService {
         String ffmpeg = findFfmpeg();
         if (ffmpeg == null) return false;
 
-        // Normalisation dynamique intelligente (dynaudnorm) : remonte les voix chuchotées/douces
-        // et articulations étalées sur plusieurs temps sans saturer les voix fortes
-        String audioFilter = "aresample=async=1000:first_pts=0,highpass=f=70,lowpass=f=7600,dynaudnorm=f=150:g=15:m=10.0:r=0.9";
+        // Filtrage audio haute performance : aresample async + passe-haut voix + normalisation sans latence
+        String audioFilter = "aresample=async=1000:first_pts=0,highpass=f=80,lowpass=f=7600,volume=1.2";
 
         ProcessBuilder pb = new ProcessBuilder(
                 ffmpeg, "-threads", "0", "-i", videoFile.getAbsolutePath(),
