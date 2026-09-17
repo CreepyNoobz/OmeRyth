@@ -895,8 +895,6 @@ public class TimelinePanel extends JPanel {
             g2.draw(new Line2D.Double(sx, top + 2, sx, bottom - 2));
             g2.dispose();
         }
-
-        Toolkit.getDefaultToolkit().sync();
     }
 
     /** Type a character into the currently edited phrase (handles special keys). */

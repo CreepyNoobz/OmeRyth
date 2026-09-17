@@ -49,9 +49,9 @@ public class TimerClass extends JPanel {
 
         add(timerLabel, BorderLayout.CENTER);
 
-        // Horloge haute fréquence et coalescente (8ms) : évite le saut quantique de 15.6ms de Windows
-        // et assure un rafraîchissement 60-120 FPS calé au nanoseconde près sur nanoTime
-        timer = new Timer(8, e -> update());
+        // Horloge 60 FPS calibrée sur nanoTime (16ms) avec coalescence :
+        // évite les micro-saccades de battement d'affichage et garantit une fluidité parfaite
+        timer = new Timer(16, e -> update());
         timer.setCoalesce(true);
     }
 

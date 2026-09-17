@@ -28,6 +28,9 @@ public class TimelineRenderer {
     private String cachedFontFamily = null;
     private Font cachedTimelineFont = null;
     private FontMetrics cachedFontMetrics = null;
+    private int cachedBadgeBandHeight = -1;
+    private Font cachedBadgeFont = null;
+    private FontMetrics cachedBadgeMetrics = null;
 
     public TimelineRenderer(int bandCount, int cursorX) {
         this.bandCount = bandCount;
@@ -225,7 +228,7 @@ public class TimelineRenderer {
                 int barHeight = (int) (amplitude * (totalHeight / 2.0) * 0.92);
                 if (barHeight < 1) barHeight = 1;
 
-                g2.draw(new Line2D.Double(screenX, centerY - barHeight, screenX, centerY + barHeight));
+                g2.drawLine(screenX, centerY - barHeight, screenX, centerY + barHeight);
             }
         }
     }
@@ -245,12 +248,13 @@ public class TimelineRenderer {
 
             boolean major = (i % majorEvery) == 0;
             int tickLen = major ? Math.max(10, bandHeight / 3) : Math.max(5, bandHeight / 6);
+            int ix = (int) Math.round(x);
 
             for (int band = 0; band < bandCount; band++) {
                 int top = band * bandHeight;
                 int bottom = Math.min(panelHeight, top + bandHeight);
-                g2.draw(new Line2D.Double(x, top, x, Math.min(bottom, top + tickLen)));
-                g2.draw(new Line2D.Double(x, Math.max(top, bottom - tickLen), x, bottom));
+                g2.drawLine(ix, top, ix, Math.min(bottom, top + tickLen));
+                g2.drawLine(ix, Math.max(top, bottom - tickLen), ix, bottom);
             }
         }
     }
@@ -290,13 +294,15 @@ public class TimelineRenderer {
             g2.setColor(Color.WHITE);
         }
 
-        for (TextItem t : texts) {
+        int firstIdx = Math.max(0, findTextIndex(texts, (int) Math.floor(-offsetX - 500)) - 1);
+        for (int ti = firstIdx; ti < texts.size(); ti++) {
+            TextItem t = texts.get(ti);
             if (t.text == null || t.text.isEmpty()) continue;
 
             // Pré-filtrage ultra-rapide côté droit : si le début est déjà loin après l'écran à droite,
-            // l'élément n'a pas encore atteint l'affichage.
+            // l'élément n'a pas encore atteint l'affichage et tous les suivants non plus.
             if (t.x + offsetX > panelWidth + 500) {
-                continue;
+                break;
             }
 
             int bandBaselineY = computeBaselineY(t.band, bandHeight, textTopY, fm, targetTextHeight);
@@ -530,6 +536,36 @@ public class TimelineRenderer {
         return low;
     }
 
+    public static int findTextIndex(ArrayList<TextItem> list, int targetX) {
+        if (list == null || list.isEmpty()) return 0;
+        int low = 0;
+        int high = list.size() - 1;
+        while (low <= high) {
+            int mid = (low + high) >>> 1;
+            int midVal = list.get(mid).x;
+            if (midVal < targetX) {
+                low = mid + 1;
+            } else if (midVal > targetX) {
+                high = mid - 1;
+            } else {
+                return mid;
+            }
+        }
+        return low;
+    }
+
+    private Font getBadgeFont(int bandHeight) {
+        if (cachedBadgeFont != null && cachedBadgeBandHeight == bandHeight) {
+            return cachedBadgeFont;
+        }
+        String family = customization.timelineFontFamily != null && !customization.timelineFontFamily.isBlank()
+                ? customization.timelineFontFamily : "Segoe UI";
+        int size = Math.max(9, (int)(bandHeight * 0.2f));
+        cachedBadgeFont = new Font(family, Font.BOLD, size);
+        cachedBadgeBandHeight = bandHeight;
+        return cachedBadgeFont;
+    }
+
     private void drawScaledText(Graphics2D g2,
                                 FontMetrics fm,
                                 String text,
@@ -650,15 +686,14 @@ public class TimelineRenderer {
                             at.scale(imgWidth / startImg.getWidth(), imgHeight / startImg.getHeight());
                             g2.drawImage(startImg, at, null);
                         } else {
-                            double triW = Math.max(8.0, bandHeight * 0.15);
-                            double triH = Math.max(10.0, bandHeight * 0.25);
+                            int isx = (int) Math.round(sx);
+                            int itriW = (int) Math.round(Math.max(8.0, bandHeight * 0.15));
+                            int itriH = (int) Math.round(Math.max(10.0, bandHeight * 0.25));
+                            int baseY = bandTop + bandHeight - 2;
+                            int[] px = { isx, isx - itriW / 2, isx + itriW / 2 };
+                            int[] py = { baseY, baseY + itriH, baseY + itriH };
                             g2.setColor(new Color(80, 220, 120));
-                            Path2D.Double tri = new Path2D.Double();
-                            tri.moveTo(sx, bandTop + bandHeight - 2);
-                            tri.lineTo(sx - triW / 2.0, bandTop + bandHeight - 2 + triH);
-                            tri.lineTo(sx + triW / 2.0, bandTop + bandHeight - 2 + triH);
-                            tri.closePath();
-                            g2.fill(tri);
+                            g2.fillPolygon(px, py, 3);
                         }
                     }
                     case END -> {
@@ -673,15 +708,14 @@ public class TimelineRenderer {
                             at.scale(imgWidth / endImg.getWidth(), imgHeight / endImg.getHeight());
                             g2.drawImage(endImg, at, null);
                         } else {
-                            double triW = Math.max(8.0, bandHeight * 0.15);
-                            double triH = Math.max(10.0, bandHeight * 0.25);
+                            int isx = (int) Math.round(sx);
+                            int itriW = (int) Math.round(Math.max(8.0, bandHeight * 0.15));
+                            int itriH = (int) Math.round(Math.max(10.0, bandHeight * 0.25));
+                            int baseY = bandTop + bandHeight - 2;
+                            int[] px = { isx, isx - itriW / 2, isx + itriW / 2 };
+                            int[] py = { baseY, baseY + itriH, baseY + itriH };
                             g2.setColor(new Color(255, 60, 60));
-                            Path2D.Double tri = new Path2D.Double();
-                            tri.moveTo(sx, bandTop + bandHeight - 2);
-                            tri.lineTo(sx - triW / 2.0, bandTop + bandHeight - 2 + triH);
-                            tri.lineTo(sx + triW / 2.0, bandTop + bandHeight - 2 + triH);
-                            tri.closePath();
-                            g2.fill(tri);
+                            g2.fillPolygon(px, py, 3);
                         }
                     }
                     case INNER -> {
@@ -704,44 +738,40 @@ public class TimelineRenderer {
                             badge = "h/";
                         }
 
+                        int isx = (int) Math.round(sx);
+                        int idotR = (int) Math.round(dotR);
                         g2.setColor(sepCol);
-                        g2.draw(new Line2D.Double(sx, bandTop, sx, bandTop + bandHeight));
-                        g2.fill(new Ellipse2D.Double(sx - dotR, bandMid - dotR, dotR * 2.0, dotR * 2.0));
+                        g2.drawLine(isx, bandTop, isx, bandTop + bandHeight);
+                        g2.fillOval(isx - idotR, bandMid - idotR, idotR * 2, idotR * 2);
                         g2.setColor(new Color(30, 30, 30));
-                        g2.draw(new Ellipse2D.Double(sx - dotR, bandMid - dotR, dotR * 2.0, dotR * 2.0));
+                        g2.drawOval(isx - idotR, bandMid - idotR, idotR * 2, idotR * 2);
 
                         if (badge != null) {
-                            Font origFont = g2.getFont();
-                            Font badgeFont = new Font(origFont.getName(), Font.BOLD, Math.max(9, (int)(bandHeight * 0.2f)));
-                            g2.setFont(badgeFont);
-                            FontMetrics bfm = g2.getFontMetrics();
+                            Font badgeFont = getBadgeFont(bandHeight);
+                            FontMetrics bfm = g2.getFontMetrics(badgeFont);
                             int bw = bfm.stringWidth(badge);
-                            double bx = sx - bw / 2.0;
+                            int bx = isx - bw / 2;
                             int by = bandTop + bfm.getAscent() + 2;
                             g2.setColor(new Color(20, 20, 20, 200));
-                            g2.fill(new RoundRectangle2D.Double(bx - 2, by - bfm.getAscent(), bw + 4, bfm.getHeight(), 3, 3));
+                            g2.fillRoundRect(bx - 2, by - bfm.getAscent(), bw + 4, bfm.getHeight(), 3, 3);
                             g2.setColor(sepCol);
-                            g2.drawString(badge, (float) bx, (float) by);
-                            g2.setFont(origFont);
+                            g2.setFont(badgeFont);
+                            g2.drawString(badge, bx, by);
                         }
                     }
                     case LEGACY -> {
+                        int isx = (int) Math.round(sx);
+                        int itriSize = (int) Math.round(triSize);
                         g2.setColor(customization.timelineSeparator);
-                        g2.draw(new Line2D.Double(sx, bandTop, sx, bandTop + bandHeight));
+                        g2.drawLine(isx, bandTop, isx, bandTop + bandHeight);
                         g2.setColor(new Color(255, 200, 50));
-                        Path2D.Double leftTri = new Path2D.Double();
-                        leftTri.moveTo(sx - 1.0, bandMid);
-                        leftTri.lineTo(sx - 1.0 - triSize, bandMid - triSize / 2.0);
-                        leftTri.lineTo(sx - 1.0 - triSize, bandMid + triSize / 2.0);
-                        leftTri.closePath();
-                        g2.fill(leftTri);
+                        int[] lpx = { isx - 1, isx - 1 - itriSize, isx - 1 - itriSize };
+                        int[] lpy = { bandMid, bandMid - itriSize / 2, bandMid + itriSize / 2 };
+                        g2.fillPolygon(lpx, lpy, 3);
 
-                        Path2D.Double rightTri = new Path2D.Double();
-                        rightTri.moveTo(sx + 1.0, bandMid);
-                        rightTri.lineTo(sx + 1.0 + triSize, bandMid - triSize / 2.0);
-                        rightTri.lineTo(sx + 1.0 + triSize, bandMid + triSize / 2.0);
-                        rightTri.closePath();
-                        g2.fill(rightTri);
+                        int[] rpx = { isx + 1, isx + 1 + itriSize, isx + 1 + itriSize };
+                        int[] rpy = { bandMid, bandMid - itriSize / 2, bandMid + itriSize / 2 };
+                        g2.fillPolygon(rpx, rpy, 3);
                     }
                 }
             }
