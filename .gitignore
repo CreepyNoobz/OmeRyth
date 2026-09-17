@@ -23,6 +23,8 @@ python/
 whisper/
 temp/
 scratch/
+temp_transcribe/
+TESTWEB/temp_transcribe/
 __pycache__/
 *.pyc
 .src_files.txt

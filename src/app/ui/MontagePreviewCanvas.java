@@ -50,6 +50,14 @@ public class MontagePreviewCanvas extends JPanel {
     private boolean antiCopyright = false;
     private int antiCopyrightOpacity = 20;
 
+    private boolean blurBackgroundVideo = false;
+    private int blurRadius = 25;
+    private int blurOpacity = 100;
+    private java.util.List<String> layerOrder = new java.util.ArrayList<>(java.util.List.of("BACKGROUND_BLUR", "VIDEO", "BAND"));
+    private BufferedImage cachedBlurredSnapshot = null;
+    private int cachedBlurRadius = -1;
+    private BufferedImage cachedBlurSource = null;
+
     private boolean isDragging = false;
     private boolean isResizing = false;
     private int activeHandle = -1;
@@ -153,6 +161,113 @@ public class MontagePreviewCanvas extends JPanel {
 
     public boolean isAntiCopyright() {
         return antiCopyright;
+    }
+
+    public void setBlurBackgroundVideo(boolean blur) {
+        this.blurBackgroundVideo = blur;
+        repaint();
+    }
+
+    public boolean isBlurBackgroundVideo() {
+        return blurBackgroundVideo;
+    }
+
+    public void setBlurRadius(int radius) {
+        this.blurRadius = Math.max(1, Math.min(60, radius));
+        this.cachedBlurredSnapshot = null;
+        repaint();
+    }
+
+    public int getBlurRadius() {
+        return blurRadius;
+    }
+
+    public void setBlurOpacity(int opacityPercent) {
+        this.blurOpacity = Math.max(10, Math.min(100, opacityPercent));
+        repaint();
+    }
+
+    public int getBlurOpacity() {
+        return blurOpacity;
+    }
+
+    public void setLayerOrder(java.util.List<String> order) {
+        if (order != null && !order.isEmpty()) {
+            this.layerOrder = new java.util.ArrayList<>(order);
+            repaint();
+        }
+    }
+
+    public java.util.List<String> getLayerOrder() {
+        return new java.util.ArrayList<>(layerOrder);
+    }
+
+    public BufferedImage getBlurredSnapshot() {
+        if (videoSnapshot == null) return null;
+        if (cachedBlurredSnapshot != null && cachedBlurRadius == blurRadius && cachedBlurSource == videoSnapshot) {
+            return cachedBlurredSnapshot;
+        }
+        cachedBlurredSnapshot = createBlurredSnapshot(videoSnapshot, blurRadius);
+        cachedBlurRadius = blurRadius;
+        cachedBlurSource = videoSnapshot;
+        return cachedBlurredSnapshot;
+    }
+
+    public static BufferedImage createBlurredSnapshot(BufferedImage src, int radius) {
+        if (src == null) return null;
+        int w = Math.max(32, src.getWidth() / 4);
+        int h = Math.max(18, src.getHeight() / 4);
+        BufferedImage small = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = small.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.drawImage(src, 0, 0, w, h, null);
+        g.dispose();
+
+        int r = Math.max(1, Math.min(30, radius / 2));
+        boxBlur(small, r);
+        boxBlur(small, r);
+        return small;
+    }
+
+    private static void boxBlur(BufferedImage img, int radius) {
+        int w = img.getWidth();
+        int h = img.getHeight();
+        int[] pixels = new int[w * h];
+        img.getRGB(0, 0, w, h, pixels, 0, w);
+        int[] temp = new int[w * h];
+
+        for (int y = 0; y < h; y++) {
+            int yOffset = y * w;
+            for (int x = 0; x < w; x++) {
+                int r = 0, g = 0, b = 0, count = 0;
+                for (int kx = -radius; kx <= radius; kx++) {
+                    int px = Math.min(w - 1, Math.max(0, x + kx));
+                    int rgb = pixels[yOffset + px];
+                    r += (rgb >> 16) & 0xFF;
+                    g += (rgb >> 8) & 0xFF;
+                    b += rgb & 0xFF;
+                    count++;
+                }
+                temp[yOffset + x] = (0xFF << 24) | ((r / count) << 16) | ((g / count) << 8) | (b / count);
+            }
+        }
+
+        for (int x = 0; x < w; x++) {
+            for (int y = 0; y < h; y++) {
+                int r = 0, g = 0, b = 0, count = 0;
+                for (int ky = -radius; ky <= radius; ky++) {
+                    int py = Math.min(h - 1, Math.max(0, y + ky));
+                    int rgb = temp[py * w + x];
+                    r += (rgb >> 16) & 0xFF;
+                    g += (rgb >> 8) & 0xFF;
+                    b += rgb & 0xFF;
+                    count++;
+                }
+                pixels[y * w + x] = (0xFF << 24) | ((r / count) << 16) | ((g / count) << 8) | (b / count);
+            }
+        }
+
+        img.setRGB(0, 0, w, h, pixels, 0, w);
     }
 
     public void invalidateBandCache() {
@@ -359,15 +474,20 @@ public class MontagePreviewCanvas extends JPanel {
             }
         }
 
-        // 2. Vérifier si on clique sur un des éléments (Bande prioritaire si superposée)
+        // 2. Vérifier si on clique sur un des éléments (selon l'ordre des calques, du 1er plan vers l'arrière)
         Rectangle bandScreen = toScreenRect(bandRect, m);
         Rectangle videoScreen = toScreenRect(videoRect, m);
 
         ElementType hit = ElementType.NONE;
-        if (bandScreen.contains(p)) {
-            hit = ElementType.BAND;
-        } else if (videoScreen.contains(p)) {
-            hit = ElementType.VIDEO;
+        for (int i = layerOrder.size() - 1; i >= 0; i--) {
+            String layer = layerOrder.get(i);
+            if ("BAND".equals(layer) && bandScreen.contains(p)) {
+                hit = ElementType.BAND;
+                break;
+            } else if ("VIDEO".equals(layer) && videoScreen.contains(p)) {
+                hit = ElementType.VIDEO;
+                break;
+            }
         }
 
         selectedElement = hit;
@@ -580,15 +700,21 @@ public class MontagePreviewCanvas extends JPanel {
         g2.setColor(new Color(10, 10, 12));
         g2.fillRect(m.sheetX, m.sheetY, m.sheetW, m.sheetH);
 
-        // 4. Dessiner l'élément Vidéo
         Rectangle vScreen = toScreenRect(videoRect, m);
-        drawVideoElement(g2, vScreen, selectedElement == ElementType.VIDEO);
-
-        // 5. Dessiner l'élément Bande Rythmo
         Rectangle bScreen = toScreenRect(bandRect, m);
-        drawBandElement(g2, bScreen, selectedElement == ElementType.BAND);
 
-        // 6. Dessiner les poignées de redimensionnement de l'élément sélectionné
+        // 4. Dessiner les calques selon l'ordre personnalisé (de l'arrière vers l'avant)
+        for (String layer : layerOrder) {
+            if ("BACKGROUND_BLUR".equals(layer)) {
+                drawBlurredBackgroundElement(g2, m);
+            } else if ("VIDEO".equals(layer)) {
+                drawVideoElement(g2, vScreen, selectedElement == ElementType.VIDEO);
+            } else if ("BAND".equals(layer)) {
+                drawBandElement(g2, bScreen, selectedElement == ElementType.BAND);
+            }
+        }
+
+        // 5. Dessiner les poignées de redimensionnement de l'élément sélectionné
         if (selectedElement == ElementType.VIDEO) {
             drawHandles(g2, vScreen, new Color(56, 189, 248));
         } else if (selectedElement == ElementType.BAND) {
@@ -634,6 +760,44 @@ public class MontagePreviewCanvas extends JPanel {
         g2.fillRoundRect(bx, by, tw + 12, 16, 4, 4);
         g2.setColor(new Color(212, 212, 216));
         g2.drawString(text, bx + 6, by + 12);
+    }
+
+    private void drawBlurredBackgroundElement(Graphics2D g2, SheetMetrics m) {
+        if (!blurBackgroundVideo) return;
+
+        Composite oldComp = g2.getComposite();
+        float alpha = Math.max(0.05f, Math.min(1.0f, blurOpacity / 100.0f));
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
+
+        BufferedImage blurImg = getBlurredSnapshot();
+        Shape oldClip = g2.getClip();
+        g2.clipRect(m.sheetX, m.sheetY, m.sheetW, m.sheetH);
+
+        if (blurImg != null) {
+            // Remplir entièrement la feuille de rendu sans bandes noires (cadrage cover)
+            double imgRatio = (double) blurImg.getWidth() / blurImg.getHeight();
+            double sheetRatio = (double) m.sheetW / m.sheetH;
+            int drawW, drawH, drawX, drawY;
+            if (imgRatio > sheetRatio) {
+                drawH = m.sheetH;
+                drawW = (int) Math.round(drawH * imgRatio);
+                drawX = m.sheetX + (m.sheetW - drawW) / 2;
+                drawY = m.sheetY;
+            } else {
+                drawW = m.sheetW;
+                drawH = (int) Math.round(drawW / imgRatio);
+                drawX = m.sheetX;
+                drawY = m.sheetY + (m.sheetH - drawH) / 2;
+            }
+            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g2.drawImage(blurImg, drawX, drawY, drawW, drawH, null);
+        } else {
+            g2.setColor(new Color(20, 25, 45));
+            g2.fillRect(m.sheetX, m.sheetY, m.sheetW, m.sheetH);
+        }
+
+        g2.setClip(oldClip);
+        g2.setComposite(oldComp);
     }
 
     private void drawVideoElement(Graphics2D g2, Rectangle r, boolean isSelected) {

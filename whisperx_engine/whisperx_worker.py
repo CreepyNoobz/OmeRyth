@@ -72,14 +72,14 @@ def print_info(message: str):
     print(f"INFO:{message}", flush=True)
 
 def print_live_segment(seg_dict: dict):
-    """Envoie un segment prévisualisé en direct pendant la transcription."""
+    """Envoie un segment intermédiaire détecté en temps réel vers Java."""
     line = json.dumps(seg_dict, ensure_ascii=False)
     print(f"LIVE_SEGMENT:{line}", flush=True)
 
 def print_segment(seg_dict: dict):
-    """Envoie un segment final vers Java."""
+    """Envoie un segment détecté en temps réel vers Java."""
     line = json.dumps(seg_dict, ensure_ascii=False)
-    print(f"FINAL_SEGMENT:{line}", flush=True)
+    print(f"SEGMENT:{line}", flush=True)
 
 def format_timecode(seconds: float) -> str:
     """Formate des secondes en timecode HH:MM:SS.mmm."""
@@ -98,9 +98,9 @@ def format_timecode(seconds: float) -> str:
 # Text cleanup, French phonetic corrections & typography
 # ─────────────────────────────────────────────────────────
 
-# Patterns for Whisper hallucination artefacts (only 3+ identical consecutive repetitions)
+# Patterns for Whisper hallucination artefacts
 _BRACKET_RE = re.compile(r"\[.*?\]|\(.*?\)")
-_HALLUCINATION_LOOP_RE = re.compile(r"(\b.{4,}\b)(?:\s+\1){2,}", re.IGNORECASE)
+_REPEATED_PHRASE_RE = re.compile(r"\b(\w{3,}(?:\s+\w+){0,4})\b(?:\s+\1\b)+", re.IGNORECASE)
 _MULTI_SPACE_RE = re.compile(r"  +")
 
 FRENCH_PHONETIC_CORRECTIONS = [
@@ -176,8 +176,8 @@ def clean_text(raw: str, lang: str = "fr") -> str:
     # 1. Supprimer les annotations parasites entre crochets/parenthèses [Musique], (Rires), etc.
     text = _BRACKET_RE.sub("", text)
 
-    # 2. Supprimer les boucles d'hallucination infinies (3+ répétitions identiques de phrases)
-    text = _HALLUCINATION_LOOP_RE.sub(r"\1", text)
+    # 2. Supprimer les répétitions consécutives (hallucinations Whisper)
+    text = _REPEATED_PHRASE_RE.sub(r"\1", text)
 
     # 3. Normaliser les espaces multiples
     text = _MULTI_SPACE_RE.sub(" ", text).strip()
@@ -244,9 +244,9 @@ def load_audio(audio_path: str):
         return np.zeros(16000, dtype=np.float32), 16000
 
 
-def detect_silence_intervals(audio, sr: int = 16000, min_silence_sec: float = 0.20, frame_ms: int = 25) -> list:
+def detect_silence_intervals(audio, sr: int = 16000, min_silence_sec: float = 0.48, frame_ms: int = 25) -> list:
     """
-    Vérifie le signal audio pour détecter toutes les fenêtres d'au moins 0.20s (200ms)
+    Vérifie le signal audio pour détecter toutes les fenêtres d'au moins 0.48s (~0.5s)
     où la personne s'arrête de parler (énergie RMS en dessous du seuil de voix).
     Retourne les intervalles de silence [(start_sec, end_sec), ...] avec haute précision.
     """
@@ -266,7 +266,7 @@ def detect_silence_intervals(audio, sr: int = 16000, min_silence_sec: float = 0.
 
     p10 = float(np.percentile(rms, 10))
     p90 = float(np.percentile(rms, 90))
-    silence_thresh = max(0.003, p10 + 0.10 * (p90 - p10))
+    silence_thresh = max(0.003, p10 + 0.08 * (p90 - p10))
 
     min_silence_frames = max(1, int(min_silence_sec / (hop_len / sr)))
     is_silent = (rms < silence_thresh)
@@ -288,164 +288,13 @@ def detect_silence_intervals(audio, sr: int = 16000, min_silence_sec: float = 0.
     return silence_ranges
 
 
-def refine_speech_timestamps_acoustically(audio, sr: int, phrases: list) -> list:
+def segment_words_into_clean_phrases(words: list, silence_intervals: list = None, pause_threshold: float = 0.48, lang: str = "fr") -> list:
     """
-    Recale précisément le début (START) et la fin (END) de chaque réplique
-    sur les montées d'énergie acoustique réelles du signal audio (waveform).
-    Empêche qu'une phrase commence trop tôt pendant le silence ou s'étire après l'arrêt de la voix.
-    """
-    if audio is None or len(audio) == 0 or not phrases:
-        return phrases
-
-    import numpy as np
-    hop_len = int(sr * 0.010)  # 10ms
-    frame_len = int(sr * 0.025) # 25ms
-    num_frames = max(1, 1 + (len(audio) - frame_len) // hop_len)
-
-    rms = np.zeros(num_frames, dtype=np.float32)
-    for i in range(num_frames):
-        s_idx = i * hop_len
-        e_idx = s_idx + frame_len
-        chunk = audio[s_idx:e_idx]
-        rms[i] = np.sqrt(np.mean(chunk ** 2)) if len(chunk) > 0 else 0.0
-
-    p10 = float(np.percentile(rms, 10))
-    p90 = float(np.percentile(rms, 90))
-    voice_thresh = max(0.004, p10 + 0.12 * (p90 - p10))
-
-    for p in phrases:
-        p_start = float(p.get("start", 0.0))
-        p_end = float(p.get("end", p_start + 0.3))
-        words = p.get("words", [])
-        first_w_start = float(words[0]["start"]) if words else p_start
-        last_w_end = float(words[-1]["end"]) if words else p_end
-
-        # 1. Recaler le début sur la montée d'énergie de la voix
-        search_s_frame = max(0, int((first_w_start - 0.20) / (hop_len / sr)))
-        search_e_frame = min(num_frames, int((first_w_start + 0.40) / (hop_len / sr)))
-
-        voice_onset = None
-        for f in range(search_s_frame, search_e_frame):
-            if rms[f] >= voice_thresh:
-                # Vérifier la consistance sur 2 frames consécutives
-                if f + 1 < num_frames and rms[f + 1] >= (voice_thresh * 0.75):
-                    voice_onset = f * hop_len / sr
-                    break
-
-        if voice_onset is not None:
-            # Si le modèle avait placé le début dans le silence trop tôt, recaler sur le début de la voix
-            if voice_onset > p_start:
-                p["start"] = round(voice_onset, 2)
-            elif (p_start - voice_onset) <= 0.15:
-                p["start"] = round(voice_onset, 2)
-
-        # 2. Recaler la fin sur la retombée d'énergie (ne pas prolonger après le dernier mot parlé)
-        search_end_s = max(0, int((last_w_end - 0.40) / (hop_len / sr)))
-        search_end_e = min(num_frames, int((last_w_end + 0.20) / (hop_len / sr)))
-
-        voice_offset = None
-        for f in range(search_end_e - 1, search_end_s - 1, -1):
-            if rms[f] >= voice_thresh:
-                voice_offset = min(p_end, (f + 2) * hop_len / sr)
-                break
-
-        if voice_offset is not None and voice_offset > p["start"]:
-            p["end"] = round(min(p_end, last_w_end + 0.05, voice_offset + 0.04), 2)
-        else:
-            p["end"] = round(min(p_end, last_w_end + 0.05), 2)
-
-        if p["end"] <= p["start"]:
-            p["end"] = round(p["start"] + 0.25, 2)
-
-    return phrases
-
-
-def compute_phrase_rhythmic_separators(phrase: dict) -> list:
-    """
-    Calcule les séparateurs internes (INNER) pour chaque mot rallongé ou changement de rythme :
-    - Si un mot dure >= 0.35s (ex: un mot qui dure 1.5s), on place un séparateur à la fin de ce mot.
-    - Fait un check toutes les ~0.5s de parole pour découper le texte en tranches rythmiques.
-    - Fournit le timecode exact et le split_index dans le texte pour stretcher le mot fidèlement sur la rythmo.
-    """
-    words = phrase.get("words", [])
-    text = phrase.get("text", "")
-    if len(words) <= 1 or not text:
-        return []
-
-    separators = []
-    p_start = phrase["start"]
-    p_end = phrase["end"]
-
-    char_pos = 0
-    word_spans = []
-    for w in words:
-        w_raw = w.get("word", "").strip()
-        clean_w = re.sub(r"^[^\w]+|[^\w]+$", "", w_raw)
-        if not clean_w:
-            clean_w = w_raw
-        match_idx = text.lower().find(clean_w.lower(), char_pos)
-        if match_idx == -1:
-            match_idx = text.lower().find(clean_w.lower())
-        if match_idx != -1:
-            end_char = match_idx + len(clean_w)
-            while end_char < len(text) and text[end_char] in " ,;:!?.'’…-":
-                end_char += 1
-            word_spans.append((match_idx, end_char))
-            char_pos = max(char_pos, end_char)
-        else:
-            word_spans.append((-1, -1))
-
-    last_sep_time = p_start
-    for i in range(len(words) - 1):
-        w = words[i]
-        next_w = words[i + 1]
-        w_start = float(w.get("start", 0.0))
-        w_end = float(w.get("end", w_start + 0.05))
-        next_start = float(next_w.get("start", w_end))
-        w_dur = w_end - w_start
-        gap_to_next = max(0.0, next_start - w_end)
-        span_end = word_spans[i][1]
-
-        if span_end <= 0 or span_end >= len(text):
-            continue
-
-        # Tout temps mort ou tenue de voyelle entre les mots appartient au mot prolongé précédent (ex: "paaaas"),
-        # donc la coupure rythmique se place juste avant l'attaque du mot suivant !
-        transition_time = max(w_end, next_start - 0.04) if gap_to_next >= 0.05 else w_end
-
-        # Si le mot courant est rallongé (durée >= 0.35s ou traînée >= 0.15s),
-        # isoler ce mot en plaçant un séparateur avant lui pour éviter de déformer les mots précédents
-        if (w_dur >= 0.35 or gap_to_next >= 0.15) and i > 0 and word_spans[i - 1][1] > 0:
-            prev_span = word_spans[i - 1][1]
-            if prev_span < span_end and (w_start - last_sep_time) >= 0.20:
-                separators.append({
-                    "time": round(w_start, 2),
-                    "split_index": prev_span
-                })
-                last_sep_time = w_start
-
-        elapsed_since_last = transition_time - last_sep_time
-        remaining_to_end = p_end - transition_time
-
-        # Détecter un mot rallongé (>= 0.35s), une micro-pause (>= 0.08s) ou le check ~0.5s de parole
-        is_prolonged = (w_dur >= 0.35) or (gap_to_next >= 0.08) or (elapsed_since_last >= 0.50)
-
-        if is_prolonged and elapsed_since_last >= 0.18 and remaining_to_end >= 0.15:
-            separators.append({
-                "time": round(transition_time, 2),
-                "split_index": span_end
-            })
-            last_sep_time = transition_time
-
-    return separators
-
-
-def segment_words_into_clean_phrases(words: list, silence_intervals: list = None, pause_threshold: float = 0.22, lang: str = "fr") -> list:
-    """
-    Découpe les mots en répliques naturelles et indépendantes :
-    - Dès qu'une pause/temps mort de >= 0.22s (ou silence acoustique >= 0.20s) survient, on coupe via un séparateur END.
-    - Dès que la personne reparle, une nouvelle réplique redémarre avec son séparateur START (reprise).
-    - Coupe également après ponctuation forte (?, !, ., …, :) dès qu'il y a un intervalle >= 0.12s.
+    Découpe les mots en répliques naturelles et complètes en vérifiant toutes les 0.5s si la personne parle toujours :
+    - Si la personne s'arrête de parler pendant >= 0.48s (~0.5s), on coupe via un séparateur END.
+    - Dès qu'elle reparle, une nouvelle réplique redémarre avec un séparateur START pour espacer le tout.
+    - Détecte également les silences acoustiques directs dans le signal audio.
+    - Coupe proprement après ponctuation forte (?, !, ., …, :) dès qu'il y a un intervalle >= 0.18s.
     """
     if not words:
         return []
@@ -474,24 +323,21 @@ def segment_words_into_clean_phrases(words: list, silence_intervals: list = None
 
         is_punct = any(prev_word_text.endswith(p) for p in ["?", "!", ".", "…", "...", "—", ":"])
 
-        # Check acoustique : vérifier si un temps mort de silence >= 0.20s est présent entre les mots
+        # Check acoustique : vérifier si un temps mort de silence de >= 0.48s est présent entre les mots
         has_acoustic_silence = False
         if silence_intervals:
             for s_start, s_end in silence_intervals:
-                if s_end > (prev_end - 0.03) and s_start < (w_start + 0.03):
+                if s_end > (prev_end - 0.05) and s_start < (w_start + 0.05):
                     overlap = min(w_start, s_end) - max(prev_end, s_start)
-                    if overlap >= 0.15 or (s_end - s_start) >= 0.20:
+                    if overlap >= 0.38 or (s_end - s_start) >= 0.48:
                         has_acoustic_silence = True
                         break
 
         should_split = (gap >= pause_threshold) or \
                        has_acoustic_silence or \
-                       (is_punct and gap >= 0.08) or \
-                       (phrase_duration >= 2.2 and any(prev_word_text.endswith(p) for p in [",", ";"]) and gap >= 0.08) or \
-                       (phrase_duration >= 2.8 and prev_word_text.lower() in ["et", "mais", "donc", "car", "or", "alors", "que", "qui", "quand", "parce"]) or \
-                       (phrase_duration >= 3.2 and gap >= 0.10) or \
-                       (phrase_duration >= 4.0) or \
-                       (len(current_words) >= 8)
+                       (is_punct and gap >= 0.18) or \
+                       (phrase_duration >= 4.5 and any(prev_word_text.endswith(p) for p in [",", ";"]) and gap >= 0.20) or \
+                       (phrase_duration >= 5.5 and gap >= 0.22)
 
         if should_split:
             phrase_end = prev_end
@@ -658,7 +504,6 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
         sos_pitch = signal.butter(4, [65, 450], btype="bandpass", fs=target_sr, output="sos")
 
         features = []
-        all_med_pitches = []
 
         for p in phrases:
             s_idx = max(0, int(p["start"] * sr))
@@ -683,16 +528,12 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
                         pitches.append(target_sr / pk)
 
             if len(pitches) >= 2:
-                med_pitch = float(np.median(pitches))
-                pitch_std = float(np.std(pitches))
+                med_pitch = np.median(pitches)
             elif len(pitches) == 1:
-                med_pitch = float(pitches[0])
-                pitch_std = 0.0
+                med_pitch = pitches[0]
             else:
                 med_pitch = 0.0
-                pitch_std = 0.0
 
-            all_med_pitches.append(med_pitch)
             log_pitch = np.log2(med_pitch / 55.0) if med_pitch > 50 else 0.0
 
             # MFCCs globaux de la phrase (timbre vocal)
@@ -705,12 +546,11 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
             centroid = np.sum(freqs * spec) / spec_sum
             norm_centroid = centroid / 4000.0
 
-            # Pondération sur la hauteur de voix (Pitch fondamental) et le timbre vocal (MFCCs)
+            # Pondération forte sur la hauteur de voix (Pitch homme/femme) et le timbre
             feat = np.hstack([
-                [log_pitch * 5.0],
-                [min(2.0, pitch_std / 25.0)],
-                mfcc_mean[:10],
-                mfcc_std[:5],
+                [log_pitch * 6.0],
+                mfcc_mean[:8],
+                mfcc_std[:4],
                 [norm_centroid * 2.0]
             ])
             features.append(feat)
@@ -722,24 +562,16 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
         if num_speakers > 1:
             target_k = min(num_speakers, len(phrases))
         else:
-            # Mode Auto-détection : analyse de séparation spectrale et écart de pitch
+            # Mode Auto-détection : recherche automatique de tous les personnages distincts
             from sklearn.metrics import silhouette_score
-            max_candidates = min(6, max(2, len(phrases)))
+            max_candidates = min(12, max(2, len(phrases) // 2))
             best_k = 1
             best_score = -1.0
 
-            valid_pitches = [pt for pt in all_med_pitches if pt > 50]
-            pitch_spread = (np.percentile(valid_pitches, 85) - np.percentile(valid_pitches, 15)) if len(valid_pitches) >= 2 else 0.0
-
             for k in range(2, max_candidates + 1):
-                if k >= len(phrases):
-                    continue
                 try:
-                    cl = KMeans(n_clusters=k, random_state=42, n_init=15)
+                    cl = KMeans(n_clusters=k, random_state=42, n_init=10)
                     labels = cl.fit_predict(X_norm)
-                    unique_lbls = np.unique(labels)
-                    if len(unique_lbls) < k:
-                        continue
                     score = float(silhouette_score(X_norm, labels))
                     if score > best_score:
                         best_score = score
@@ -747,23 +579,22 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
                 except Exception:
                     pass
 
-            # Seuil réaliste sur voix parlées (0.035) ou écart de hauteur de voix (> 28Hz)
-            if best_k >= 2 and (best_score >= 0.035 or pitch_spread >= 28.0):
-                target_k = best_k
-            else:
+            if best_score < 0.12 or best_k < 2:
                 target_k = 1
+            else:
+                target_k = best_k
 
-            print_info(f"Auto-détection vocale : {target_k} personnage(s) distinct(s) identifié(s) (score: {best_score:.2f}, écart pitch: {pitch_spread:.1f}Hz)")
+            print_info(f"Auto-détection vocale : {target_k} personnage(s) distinct(s) identifié(s) (indice de séparation: {best_score:.2f})")
 
         if target_k <= 1:
             for p in phrases:
                 p["speaker"] = "SPEAKER_00"
             return phrases
 
-        clusterer = KMeans(n_clusters=target_k, random_state=42, n_init=20)
+        clusterer = KMeans(n_clusters=target_k, random_state=42, n_init=15)
         raw_labels = clusterer.fit_predict(X_norm)
 
-        # Réassignation chronologique (premier intervenant qui parle = SPEAKER_00)
+        # Réassignation chronologique (premier intervenant = SPEAKER_00)
         label_map = {}
         next_speaker_id = 0
         for lbl in raw_labels:
@@ -775,14 +606,6 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
             spk_num = label_map.get(raw_labels[i], 0)
             p["speaker"] = f"SPEAKER_{spk_num:02d}"
 
-        # Rapport de répartition vocale
-        spk_counts = {}
-        for p in phrases:
-            spk = p.get("speaker", "SPEAKER_00")
-            spk_counts[spk] = spk_counts.get(spk, 0) + 1
-        summary_str = ", ".join(f"Locuteur {int(re.findall(r'\\d+', k)[0]) + 1} ({v} répliques)" for k, v in sorted(spk_counts.items()))
-        print_info(f"Scan des personnages : {len(spk_counts)} interlocuteurs séparés ({summary_str})")
-
         return phrases
 
     except Exception as e:
@@ -793,16 +616,14 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
         return phrases
 
 
-def merge_consecutive_same_speaker_phrases(phrases: list, max_gap: float = 0.35, max_duration: float = 5.0, max_words: int = 12) -> list:
+def merge_consecutive_same_speaker_phrases(phrases: list, max_gap: float = 0.25, max_duration: float = 5.0, max_words: int = 16) -> list:
     """
-    Fusionne les micro-fragments immédiatement contigus (< 0.35s) appartenant au même locuteur,
-    notamment les bégaiements, mots parasites ("euh") et micro-pauses,
-    sans jamais fusionner par-dessus un vrai silence de 0.5s ou entre personnages différents.
+    Fusionne uniquement les micro-fragments immédiatement contigus (< 0.25s)
+    appartenant au même locuteur, sans jamais avaler les pauses ni les silences de 0.5s,
+    ni les répliques terminées par une ponctuation.
     """
     if not phrases:
         return []
-
-    filler_words = {"euh", "heu", "ben", "bah", "hum", "ouais", "on", "et", "je", "le", "la", "de", "un"}
 
     merged = []
     for p in phrases:
@@ -816,21 +637,17 @@ def merge_consecutive_same_speaker_phrases(phrases: list, max_gap: float = 0.35,
         combined_words = len(prev.get("words", [])) + len(p.get("words", []))
 
         prev_text = prev.get("text", "").strip()
-        p_text = p.get("text", "").strip()
-        p_first_word = p_text.split()[0].lower().strip(" ,;:!?.") if p_text else ""
+        ends_with_strong_punct = any(prev_text.endswith(pt) for pt in [".", "!", "?", "…", "...", ":"])
 
-        is_filler_or_stutter = (p_first_word in filler_words) or (len(p.get("words", [])) <= 1)
-        ends_with_final_punct = any(prev_text.endswith(pt) for pt in [".", "!", "?"])
+        prev_word_count = len(prev.get("words", []))
+        is_tiny_fragment = (prev_word_count <= 2) and not ends_with_strong_punct
+        allowed_gap = 0.35 if is_tiny_fragment else max_gap
 
-        can_merge = (
+        if (not ends_with_strong_punct and
             prev.get("speaker") == p.get("speaker") and
-            gap < max_gap and
+            gap < allowed_gap and
             combined_dur <= max_duration and
-            combined_words <= max_words and
-            (not ends_with_final_punct or is_filler_or_stutter)
-        )
-
-        if can_merge:
+            combined_words <= max_words):
             prev["end"] = p["end"]
             prev["text"] = (prev["text"] + " " + p["text"]).strip()
             prev["words"] = prev.get("words", []) + p.get("words", [])
@@ -919,16 +736,15 @@ def main():
     # ── Inférence & transcription haute résilience avec repli automatique CPU ──
     batch_size = max(1, min(args.batch_size, 32))
 
-    # Prompt initial riche en français pour orienter le modèle sur le vocabulaire parlé, les hésitations et bégaiements
+    # Prompt initial riche en français pour orienter le modèle sur le vocabulaire et les accents
     initial_prompt_text = None
     if lang_param == "fr" or lang_param is None:
         initial_prompt_text = (
-            "Transcription verbatim intégrale mot à mot avec tous les bégaiements, hésitations, répétitions et mots parasites : "
-            "Et... et, heu, mais après... Et, et des fois... On, on dira que... Le, le football il a changé. "
-            "Je, je pense que... Euh, ben, heu, hum, bah oui, c'est ça. "
-            "Attends, attends ! Mais, mais pourquoi ? C'est, c'est pas possible. "
-            "T'as oublié ? Qu'est-ce que tu racontes ! Regarde-moi. "
-            "Yo les gens, salut à tous, salam aleykoum, la tête de oim, wesh, wallah, en sah."
+            "Transcription française fidèle, rythmée et parfaitement ponctuée pour le doublage et la bande rythmo : "
+            "T'as oublié que je suis ta mère ? Mais qu'est-ce que tu racontes ! Attends... Regarde-moi. "
+            "Pourquoi tu fais ça ? C'est pas possible ! D'accord, je comprends, mais s'il te plaît, écoute-moi. "
+            "Yo les gens, salut à tous, salam aleykoum, frères et sœurs, la tête de oim, la tête de oit, j'ai juré. "
+            "Wesh, wallah, en sah, de ouf, frérot, t'inquiète, vas-y, c'est parti, oui, non, merci, absolument."
         )
 
     # Décodage haute précision multi-faisceaux (Beam size 5 avec repli de température)
@@ -942,19 +758,14 @@ def main():
         word_timestamps=True,
         vad_filter=True,
         vad_parameters={
-            "threshold": 0.35,
-            "min_speech_duration_ms": 60,
+            "threshold": 0.20,
+            "min_speech_duration_ms": 50,
             "max_speech_duration_s": 30,
-            "min_silence_duration_ms": 180,
-            "speech_pad_ms": 60,
+            "min_silence_duration_ms": 160,
+            "speech_pad_ms": 80,
         },
         condition_on_previous_text=False,
         initial_prompt=initial_prompt_text,
-        hotwords="et et on on je je mais mais le le heu heu euh euh bah ben des fois et",
-        suppress_tokens=[],
-        repetition_penalty=1.0,
-        no_repeat_ngram_size=0,
-        hallucination_silence_threshold=0.5,
         no_speech_threshold=0.45,
         log_prob_threshold=-1.5,
         temperature=[0.0, 0.2, 0.4],
@@ -1041,24 +852,21 @@ def main():
 
             collected_words.extend(seg_words)
 
-            # Découpage direct en phrases nettes selon le check de silence
+            # Découpage direct en phrases nettes selon le check de silence de 0.5s
             live_phrases = segment_words_into_clean_phrases(
                 seg_words,
                 silence_intervals=silence_intervals,
-                pause_threshold=0.38,
+                pause_threshold=0.48,
                 lang=det_lang
             )
             for lp in live_phrases:
                 raw_count += 1
-                lp_seps = compute_phrase_rhythmic_separators(lp)
                 print_live_segment({
                     "id": raw_count,
                     "speaker": "SPEAKER_00",
                     "start": lp["start"],
                     "end": lp["end"],
                     "text": lp["text"],
-                    "words": lp.get("words", []),
-                    "separators": lp_seps,
                 })
 
         return collected_words, det_lang, raw_count
@@ -1111,18 +919,15 @@ def main():
             }, f, ensure_ascii=False, indent=2)
         sys.exit(0)
 
-    # ── 1. Découpage en répliques naturelles et indépendantes (avec reprise START) ──
+    # ── 1. Découpage en répliques naturelles et complètes (sans hachage) ──
     print_progress(70, 100, "Découpage en phrases naturelles pour la bande rythmo...")
 
     phrases = segment_words_into_clean_phrases(
         all_words,
         silence_intervals=silence_intervals,
-        pause_threshold=0.38,
+        pause_threshold=0.48,
         lang=detected_lang
     )
-
-    # ── 1.5. Recalage acoustique haute fidélité sur les montées de voix réelles (Waveform) ──
-    phrases = refine_speech_timestamps_acoustically(audio_data, audio_sr, phrases)
 
     # ── 2. Diarisation vocale haute précision sur phrases complètes (Pitch F0 + MFCCs) ──
     num_spk = args.num_speakers
@@ -1130,30 +935,18 @@ def main():
         spk_label = "Auto-détection de tous les personnages" if num_spk <= 0 else f"{num_spk} locuteurs"
         print_progress(80, 100, f"Diarisation des répliques ({spk_label}, analyse pitch F0 & timbre)...")
         phrases = diarize_clean_phrases(args.audio, phrases, num_spk)
+
+        # ── 3. Fusion des répliques strictement contiguës (< 0.18s) sans jamais avaler les pauses de 0.5s ──
+        phrases = merge_consecutive_same_speaker_phrases(phrases, max_gap=0.18, max_duration=3.5, max_words=6)
     else:
         for p in phrases:
             p["speaker"] = "SPEAKER_00"
-
-    # ── 3. Fusion des micro-répliques contiguës du même locuteur (< 0.35s) ──
-    phrases = merge_consecutive_same_speaker_phrases(phrases, max_gap=0.35, max_duration=5.0, max_words=12)
-
-    # ── 3.5. Garantie absolue d'espacement chronologique (au moins 100ms entre phrases) ──
-    for i in range(len(phrases) - 1):
-        curr = phrases[i]
-        nxt = phrases[i + 1]
-        if curr["end"] > nxt["start"] - 0.10:
-            if nxt["start"] > curr["start"] + 0.30:
-                curr["end"] = round(nxt["start"] - 0.10, 2)
-            else:
-                nxt["start"] = round(curr["end"] + 0.10, 2)
-                nxt["end"] = round(max(nxt["start"] + 0.25, nxt["end"]), 2)
 
     # ── 4. Construction des segments finaux et streaming direct ──
     print_progress(90, 100, "Génération des repères et envoi vers OmeRyth...")
 
     final_segments = []
     for idx, phrase in enumerate(phrases):
-        phrase_seps = compute_phrase_rhythmic_separators(phrase)
         seg_data = {
             "id": idx + 1,
             "speaker": phrase.get("speaker", "SPEAKER_00"),
@@ -1164,7 +957,6 @@ def main():
             "duration": round(max(0.1, phrase["end"] - phrase["start"]), 3),
             "text": phrase["text"],
             "words": phrase.get("words", []),
-            "separators": phrase_seps,
         }
         final_segments.append(seg_data)
 

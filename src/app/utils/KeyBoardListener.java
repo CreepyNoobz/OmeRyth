@@ -369,7 +369,7 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         }
 
         // NUMPAD1 : ajout de repère de plan
-        if (e.getKeyCode() == KeyEvent.VK_NUMPAD1) {
+        if (e.getKeyCode() == KeyEvent.VK_NUMPAD1 || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && e.getKeyCode() == KeyEvent.VK_END)) {
             timelinePanel.addPlanMarkerAtCursor();
             e.consume();
             return true;

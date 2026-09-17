@@ -72,6 +72,10 @@ public class ExportVideoDialog extends JDialog {
         public Rectangle videoRect = new Rectangle(0, 0, 1920, 780);
         public Rectangle bandRect = new Rectangle(0, 780, 1920, 300);
         public String encoder = "auto";
+        public boolean blurBackgroundVideo = false;
+        public int blurRadius = 25;
+        public int blurOpacity = 85;
+        public java.util.List<String> layerOrder = new java.util.ArrayList<>(java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"));
         public boolean approved = false;
     }
 
@@ -112,6 +116,27 @@ public class ExportVideoDialog extends JDialog {
     private JComboBox<String> comboMontageEncoder;
     private JSpinner spinnerMontageVisibleSeconds;
     private boolean updatingMontageSpinners = false;
+
+    // Contrôles du Fond Flouté et de l'Ordre des Calques
+    private JCheckBox checkBlurBackground;
+    private JSpinner spinnerBlurRadius;
+    private JSpinner spinnerBlurOpacity;
+    public static class LayerItem {
+        public final String id;
+        public final String label;
+        public LayerItem(String id, String label) {
+            this.id = id;
+            this.label = label;
+        }
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+    private DefaultListModel<LayerItem> layerListModel;
+    private JList<LayerItem> layerList;
+    private JButton btnLayerUp;
+    private JButton btnLayerDown;
 
     private final JTabbedPane tabbedPane;
     private final ExportConfig config = new ExportConfig();
@@ -553,11 +578,121 @@ public class ExportVideoDialog extends JDialog {
         controlsPanel.add(inspectorPanel);
         controlsPanel.add(Box.createVerticalStrut(8));
 
-        // 4. Options d'encodage et suppression vocale
+        // 4. Fond Vidéo Flouté & Ordre des Calques
+        JPanel layerPanel = new JPanel();
+        layerPanel.setLayout(new BoxLayout(layerPanel, BoxLayout.Y_AXIS));
+        layerPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(new Color(63, 63, 70)),
+                "4. Arrière-Plan Flouté & Calques",
+                TitledBorder.LEFT, TitledBorder.TOP,
+                new Font("Segoe UI", Font.BOLD, 11),
+                new Color(212, 212, 216)
+        ));
+
+        checkBlurBackground = new JCheckBox("✨ Vidéo source floutée en arrière-plan", false);
+        checkBlurBackground.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        checkBlurBackground.setForeground(new Color(56, 189, 248));
+        checkBlurBackground.setToolTipText("Remplit l'arrière-plan de la vidéo exportée avec une version floutée de la vidéo source.");
+        layerPanel.add(checkBlurBackground);
+
+        JPanel blurParamsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        blurParamsPanel.add(new JLabel("Flou :"));
+        spinnerBlurRadius = new JSpinner(new SpinnerNumberModel(25, 1, 60, 2));
+        spinnerBlurRadius.setPreferredSize(new Dimension(50, 22));
+        spinnerBlurRadius.setEnabled(false);
+        blurParamsPanel.add(spinnerBlurRadius);
+        blurParamsPanel.add(new JLabel("px"));
+
+        blurParamsPanel.add(Box.createHorizontalStrut(6));
+        blurParamsPanel.add(new JLabel("Opacité :"));
+        spinnerBlurOpacity = new JSpinner(new SpinnerNumberModel(85, 10, 100, 5));
+        spinnerBlurOpacity.setPreferredSize(new Dimension(50, 22));
+        spinnerBlurOpacity.setEnabled(false);
+        blurParamsPanel.add(spinnerBlurOpacity);
+        blurParamsPanel.add(new JLabel("%"));
+        layerPanel.add(blurParamsPanel);
+
+        layerPanel.add(Box.createVerticalStrut(4));
+        JLabel lblLayerOrder = new JLabel("Ordre des calques (Haut = Devant / Bas = Derrière) :");
+        lblLayerOrder.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+        lblLayerOrder.setForeground(new Color(180, 180, 190));
+        layerPanel.add(lblLayerOrder);
+
+        layerListModel = new DefaultListModel<>();
+        LayerItem itemBand = new LayerItem("BAND", "🎵 Bande Rythmo");
+        LayerItem itemVideo = new LayerItem("VIDEO", "🎬 Vidéo source");
+        LayerItem itemBlur = new LayerItem("BACKGROUND_BLUR", "✨ Fond Vidéo Flouté");
+        layerListModel.addElement(itemBand);
+        layerListModel.addElement(itemVideo);
+        layerListModel.addElement(itemBlur);
+
+        layerList = new JList<>(layerListModel);
+        layerList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        layerList.setSelectedIndex(0);
+        layerList.setVisibleRowCount(3);
+        layerList.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        JScrollPane layerScroll = new JScrollPane(layerList);
+        layerScroll.setPreferredSize(new Dimension(240, 70));
+
+        JPanel layerListContainer = new JPanel(new BorderLayout(4, 0));
+        layerListContainer.add(layerScroll, BorderLayout.CENTER);
+
+        JPanel layerBtnCol = new JPanel(new GridLayout(2, 1, 2, 2));
+        btnLayerUp = new JButton("<html><span style='color:#000000;'>▲ Monter</span></html>");
+        btnLayerUp.setToolTipText("Avancer ce calque vers le premier plan (au-dessus)");
+        btnLayerUp.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+        btnLayerUp.setForeground(Color.BLACK);
+        btnLayerDown = new JButton("<html><span style='color:#000000;'>▼ Descendre</span></html>");
+        btnLayerDown.setToolTipText("Reculer ce calque vers l'arrière-plan (en-dessous)");
+        btnLayerDown.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+        btnLayerDown.setForeground(Color.BLACK);
+
+        btnLayerUp.addActionListener(e -> {
+            int idx = layerList.getSelectedIndex();
+            if (idx > 0) {
+                LayerItem it = layerListModel.remove(idx);
+                layerListModel.add(idx - 1, it);
+                layerList.setSelectedIndex(idx - 1);
+                applyLayerOrderToCanvas();
+            }
+        });
+        btnLayerDown.addActionListener(e -> {
+            int idx = layerList.getSelectedIndex();
+            if (idx >= 0 && idx < layerListModel.getSize() - 1) {
+                LayerItem it = layerListModel.remove(idx);
+                layerListModel.add(idx + 1, it);
+                layerList.setSelectedIndex(idx + 1);
+                applyLayerOrderToCanvas();
+            }
+        });
+
+        layerBtnCol.add(btnLayerUp);
+        layerBtnCol.add(btnLayerDown);
+        layerListContainer.add(layerBtnCol, BorderLayout.EAST);
+        layerPanel.add(layerListContainer);
+
+        Runnable updateBlurState = () -> {
+            boolean active = checkBlurBackground.isSelected();
+            spinnerBlurRadius.setEnabled(active);
+            spinnerBlurOpacity.setEnabled(active);
+            montageCanvas.setBlurBackgroundVideo(active);
+            int r = ((Number) spinnerBlurRadius.getValue()).intValue();
+            int op = ((Number) spinnerBlurOpacity.getValue()).intValue();
+            montageCanvas.setBlurRadius(r);
+            montageCanvas.setBlurOpacity(op);
+        };
+        checkBlurBackground.addActionListener(e -> updateBlurState.run());
+        spinnerBlurRadius.addChangeListener(e -> updateBlurState.run());
+        spinnerBlurOpacity.addChangeListener(e -> updateBlurState.run());
+
+        controlsPanel.add(layerPanel);
+        controlsPanel.add(Box.createVerticalStrut(8));
+
+        // 5. Options d'encodage et suppression vocale
         JPanel optionsPanel = new JPanel(new GridLayout(0, 1, 4, 4));
         optionsPanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createLineBorder(new Color(63, 63, 70)),
-                "4. Audio, Doublage & Qualité",
+                "5. Audio, Doublage & Qualité",
                 TitledBorder.LEFT, TitledBorder.TOP,
                 new Font("Segoe UI", Font.BOLD, 11),
                 new Color(212, 212, 216)
@@ -624,7 +759,10 @@ public class ExportVideoDialog extends JDialog {
         optionsPanel.add(encRow);
 
         controlsPanel.add(optionsPanel);
-        panel.add(controlsPanel, BorderLayout.EAST);
+        JScrollPane scrollControls = new JScrollPane(controlsPanel, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scrollControls.setBorder(null);
+        scrollControls.getVerticalScrollBar().setUnitIncrement(16);
+        panel.add(scrollControls, BorderLayout.EAST);
 
         // Écouteurs pour synchroniser le canevas et les contrôles
         montageCanvas.setOnLayoutChanged(this::syncMontageSpinnersFromCanvas);
@@ -691,6 +829,18 @@ public class ExportVideoDialog extends JDialog {
             case 3 -> montageCanvas.applyLayoutTemplate("TIKTOK_CENTER_9_16");
             case 4 -> montageCanvas.applyLayoutTemplate("STACKED_TOP_BOTTOM");
         }
+    }
+
+    private void applyLayerOrderToCanvas() {
+        if (montageCanvas == null || layerListModel == null) return;
+        java.util.List<String> order = new java.util.ArrayList<>();
+        // L'UI affiche du haut (devant) vers le bas (derrière).
+        // Le moteur de rendu dessine de l'index 0 (fond) au dernier index (premier plan).
+        // On inverse donc l'ordre pour le rendu.
+        for (int i = layerListModel.getSize() - 1; i >= 0; i--) {
+            order.add(layerListModel.getElementAt(i).id);
+        }
+        montageCanvas.setLayerOrder(order);
     }
 
     private void syncMontageSpinnersFromCanvas() {
@@ -767,6 +917,18 @@ public class ExportVideoDialog extends JDialog {
                 case 2 -> "cpu";
                 default -> "auto";
             };
+            config.blurBackgroundVideo = (checkBlurBackground != null && checkBlurBackground.isSelected());
+            config.blurRadius = (spinnerBlurRadius != null) ? ((Number) spinnerBlurRadius.getValue()).intValue() : 25;
+            config.blurOpacity = (spinnerBlurOpacity != null) ? ((Number) spinnerBlurOpacity.getValue()).intValue() : 85;
+            java.util.List<String> order = new java.util.ArrayList<>();
+            if (layerListModel != null) {
+                for (int i = layerListModel.getSize() - 1; i >= 0; i--) {
+                    order.add(layerListModel.getElementAt(i).id);
+                }
+            } else {
+                order.addAll(java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"));
+            }
+            config.layerOrder = order;
         } else {
             int w = (Integer) spinnerWidth.getValue();
             int h = (Integer) spinnerHeight.getValue();

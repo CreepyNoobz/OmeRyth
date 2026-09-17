@@ -170,7 +170,7 @@ public class TextManager {
     public SeparatorMark addSeparator(int band, int x, SeparatorMark.Type type, int splitIndex, SeparatorMark.SignType signType) {
         ArrayList<SeparatorMark> list = bandSeparators.computeIfAbsent(band, k -> new ArrayList<>());
         for (SeparatorMark mark : list) {
-            if (mark.x == x) {
+            if (mark.x == x && mark.type == type) {
                 return mark;
             }
         }
@@ -1149,7 +1149,19 @@ public class TextManager {
     }
 
     private void sortSeparators(ArrayList<SeparatorMark> list) {
-        Collections.sort(list, Comparator.comparingInt(m -> m.x));
+        list.sort((m1, m2) -> {
+            if (m1.x != m2.x) {
+                return Integer.compare(m1.x, m2.x);
+            }
+            return Integer.compare(separatorTypeOrder(m1.type), separatorTypeOrder(m2.type));
+        });
+    }
+
+    private static int separatorTypeOrder(SeparatorMark.Type t) {
+        if (t == SeparatorMark.Type.END) return 0;
+        if (t == SeparatorMark.Type.INNER) return 1;
+        if (t == SeparatorMark.Type.START) return 2;
+        return 3;
     }
 
     private TextItem getTextByStart(int band, int startX) {

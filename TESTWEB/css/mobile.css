@@ -1,0 +1,299 @@
+/**
+ * OmeRyth Web - Mobile & Tablet Responsive Stylesheet
+ * Optimisations tactiles, adaptation smartphone complète (Portrait & Paysage),
+ * Mobile Dubbing Pad, Drawer menu et commandes de transport adaptées.
+ */
+
+/* Par défaut sur grand écran : barre mobile masquée, barre desktop visible */
+.mobile-toolbar {
+  display: none;
+}
+
+.desktop-toolbar {
+  display: flex;
+}
+
+.desktop-only {
+  display: flex;
+}
+
+/* --- Mobile Dubbing Pad (Barre d'outils tactiles rapides) --- */
+.mobile-dubbing-pad {
+  display: none;
+  background-color: #16161b;
+  border-top: 1px solid var(--border-color);
+  padding: 6px 8px;
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  gap: 8px;
+  flex-shrink: 0;
+  z-index: 10;
+  scrollbar-width: none;
+}
+
+.mobile-dubbing-pad::-webkit-scrollbar {
+  display: none;
+}
+
+.dub-pad-btn {
+  background-color: #24242d;
+  border: 1px solid #363644;
+  color: #f0f0f5;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  touch-action: manipulation;
+  min-height: 42px;
+  flex-shrink: 0;
+  transition: transform 0.1s ease, background-color 0.1s ease;
+}
+
+.dub-pad-btn:active {
+  background-color: #3b3b4a;
+  transform: scale(0.95);
+}
+
+.dub-pad-btn[data-action="start"] {
+  border-color: #50dc78;
+  color: #50dc78;
+  background-color: rgba(80, 220, 120, 0.12);
+}
+
+.dub-pad-btn[data-action="end"] {
+  border-color: #ff3c3c;
+  color: #ff3c3c;
+  background-color: rgba(255, 60, 60, 0.12);
+}
+
+.dub-pad-btn[data-action="inner"] {
+  border-color: #ffc832;
+  color: #ffc832;
+  background-color: rgba(255, 200, 50, 0.12);
+}
+
+.dub-pad-btn[data-action="plan"] {
+  border-color: var(--accent-gold);
+  color: var(--accent-gold);
+  background-color: rgba(250, 204, 21, 0.12);
+}
+
+.dub-pad-btn[data-action="fvr"] {
+  border-color: #00beff;
+  color: #00beff;
+  background-color: rgba(0, 190, 255, 0.12);
+}
+
+.dub-pad-btn[data-action="mpb"] {
+  border-color: #ff5a96;
+  color: #ff5a96;
+  background-color: rgba(255, 90, 150, 0.12);
+}
+
+.dub-pad-btn[data-action="open_a"] {
+  border-color: #ffbe00;
+  color: #ffbe00;
+  background-color: rgba(255, 190, 0, 0.12);
+}
+
+.dub-pad-btn[data-action="neutral"] {
+  border-color: #b496e6;
+  color: #b496e6;
+  background-color: rgba(180, 150, 230, 0.12);
+}
+
+/* --- Adaptations Mobile Smartphone (< 768px) --- */
+@media (max-width: 768px) {
+  .header {
+    padding: 0 10px;
+    height: 46px;
+  }
+
+  .brand-title {
+    font-size: 15px;
+  }
+
+  .brand-tag {
+    display: none;
+  }
+
+  .desktop-toolbar {
+    display: none !important;
+  }
+
+  .desktop-only {
+    display: none !important;
+  }
+
+  .mobile-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .mobile-toolbar .btn {
+    padding: 6px 10px;
+    font-size: 12px;
+    min-height: 34px;
+  }
+
+  .main-workspace {
+    height: calc(100vh - 46px - 52px - 48px);
+  }
+
+  .video-section {
+    min-height: 140px;
+    max-height: 32vh;
+  }
+
+  .resizer-bar {
+    display: none; /* Proportions fixes confortables sur mobile */
+  }
+
+  .timeline-section {
+    flex: 1;
+    min-height: 180px;
+    height: auto;
+  }
+
+  .mobile-dubbing-pad {
+    display: flex;
+    height: 48px;
+  }
+
+  .transport-bar {
+    height: 52px;
+    padding: 0 8px;
+    gap: 6px;
+  }
+
+  .timecode-group {
+    gap: 4px;
+  }
+
+  .timecode-box {
+    font-size: 13px;
+    min-width: 85px;
+    padding: 5px 6px;
+    letter-spacing: 0.5px;
+  }
+
+  .select-control {
+    font-size: 11px;
+    padding: 4px;
+  }
+
+  .playback-group {
+    gap: 5px;
+  }
+
+  .btn-step {
+    padding: 6px 8px;
+    font-size: 12px;
+    min-width: 44px;
+    min-height: 38px;
+  }
+
+  .btn-secondary {
+    padding: 6px 7px;
+    font-size: 11px;
+    min-height: 38px;
+  }
+
+  .btn-play-main {
+    padding: 6px 12px;
+    font-size: 13px;
+    min-height: 38px;
+  }
+
+  /* Modales adaptées au smartphone */
+  .modal-content {
+    width: 94%;
+    max-width: 440px;
+    margin: 0 auto;
+    padding: 16px;
+    border-radius: 12px;
+  }
+
+  .form-input {
+    font-size: 16px; /* Empêche le zoom auto gênant d'iOS Safari */
+    min-height: 44px;
+  }
+
+  .shortcuts-grid {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  /* Menu contextuel mobile */
+  .custom-context-menu {
+    width: 90vw;
+    max-width: 320px;
+    padding: 8px;
+  }
+
+  .cmenu-item {
+    padding: 12px 14px;
+    font-size: 14px;
+  }
+}
+
+/* --- Mode Paysage sur Smartphone (Orientation Landscape) --- */
+@media (max-height: 520px) and (orientation: landscape) {
+  .header {
+    height: 40px;
+    padding: 0 12px;
+  }
+
+  .main-workspace {
+    flex-direction: row;
+    height: calc(100vh - 40px - 44px);
+  }
+
+  .video-section {
+    width: 44%;
+    height: 100%;
+    min-height: unset;
+    max-height: unset;
+    border-right: 1px solid var(--border-color);
+  }
+
+  .resizer-bar {
+    display: none;
+  }
+
+  .timeline-section {
+    width: 56%;
+    height: 100%;
+    min-height: unset;
+  }
+
+  .mobile-dubbing-pad {
+    display: none; /* En paysage cinéma, les boutons transport suffisent pour maximiser la hauteur */
+  }
+
+  .transport-bar {
+    height: 44px;
+  }
+
+  .btn-step,
+  .btn-secondary,
+  .btn-play-main {
+    min-height: 32px;
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+}
+
+/* --- Support PWA Plein Écran & Encoches iPhone (Safe Areas) --- */
+body {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}

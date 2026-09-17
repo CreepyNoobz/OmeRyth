@@ -137,8 +137,8 @@ public class TimelineRenderer {
         drawTexts(g2, texts, bandSeparators, bandHeight, offsetX, activeBand, isEditing, textX, currentInput, editingItem, cursorIndex, cursorRightSide, caretVisible, panelWidth);
         if (separatorsVisible) {
             drawSeparators(g2, bandSeparators, bandHeight, offsetX, panelWidth);
-            drawPlanMarkers(g2, planMarkers, offsetX, panelHeight, panelWidth);
         }
+        drawPlanMarkers(g2, planMarkers, offsetX, panelHeight, panelWidth);
         drawCursor(g2, panelHeight);
     }
 
@@ -304,20 +304,24 @@ public class TimelineRenderer {
             ArrayList<SeparatorMark> sepList = bandSeparators.get(t.band);
             int leftSep = Integer.MIN_VALUE;
             int rightSep = Integer.MAX_VALUE;
+            int nextPhraseStartX = Integer.MAX_VALUE;
             ArrayList<SeparatorMark> innerMarks = new ArrayList<>();
 
             if (sepList != null && !sepList.isEmpty()) {
                 int searchIdx = findSepIndex(sepList, t.x);
                 // Recherche vers la gauche du START le plus proche <= t.x
-                for (int i = Math.min(searchIdx, sepList.size() - 1); i >= 0; i--) {
+                int maxI = Math.min(searchIdx + 1, sepList.size() - 1);
+                for (int i = maxI; i >= 0; i--) {
                     SeparatorMark s = sepList.get(i);
                     if (s.x > t.x) continue;
                     if (s.isStartBoundary()) {
                         leftSep = s.x;
                         break;
                     }
-                    if (s.isEndBoundary() && s.x < t.x) {
-                        break; // On a dépassé la phrase précédente vers la gauche
+                    if (s.isEndBoundary()) {
+                        // Un END situé à gauche ou à t.x appartient à une phrase antérieure :
+                        // On ne doit JAMAIS traverser un END vers la gauche pour voler un START précédent !
+                        break;
                     }
                 }
                 // Recherche vers la droite du END le plus proche >= t.x
@@ -329,7 +333,8 @@ public class TimelineRenderer {
                         break;
                     }
                     if (s.isStartBoundary() && s.x > t.x) {
-                        break; // Nouvelle phrase commence à droite
+                        nextPhraseStartX = s.x;
+                        break; // Nouvelle phrase commence à droite : ne jamais traverser un START !
                     }
                 }
             }
@@ -346,6 +351,9 @@ public class TimelineRenderer {
                 anchoredRight = true;
             } else {
                 segmentEnd = segmentStart + naturalWidth;
+                if (nextPhraseStartX != Integer.MAX_VALUE && segmentEnd > nextPhraseStartX - 5) {
+                    segmentEnd = Math.max(segmentStart + 10, nextPhraseStartX - 5);
+                }
                 anchoredRight = false;
             }
 
@@ -751,13 +759,37 @@ public class TimelineRenderer {
 
     private void drawPlanMarkers(Graphics2D g2, ArrayList<Integer> planMarkers, double offsetX, int panelHeight, int panelWidth) {
         if (planMarkers == null || planMarkers.isEmpty()) return;
-        g2.setColor(new Color(220, 220, 220, 120));
         float strokeW = Math.max(2f, (float) (panelHeight * 0.006f));
-        g2.setStroke(new BasicStroke(strokeW));
         for (Integer markerX : planMarkers) {
             double sx = markerX + offsetX;
             if (sx < -10 || sx > panelWidth + 10) continue;
+
+            // Ombre contrastée
+            g2.setColor(new Color(20, 20, 25, 160));
+            g2.setStroke(new BasicStroke(strokeW + 2f));
             g2.draw(new Line2D.Double(sx, 0, sx, panelHeight));
+
+            // Ligne principale de repère de plan (blanc/argenté lumineux)
+            g2.setColor(new Color(245, 245, 250, 230));
+            g2.setStroke(new BasicStroke(strokeW));
+            g2.draw(new Line2D.Double(sx, 0, sx, panelHeight));
+
+            // Repères triangulaires discrets en haut et en bas pour repérage rapide
+            double tagSize = Math.max(5.0, strokeW * 2.2);
+            Path2D.Double topMarker = new Path2D.Double();
+            topMarker.moveTo(sx - tagSize, 0);
+            topMarker.lineTo(sx + tagSize, 0);
+            topMarker.lineTo(sx, tagSize * 1.5);
+            topMarker.closePath();
+            g2.setColor(new Color(250, 204, 21, 230)); // Jaune d'or pour plan cut
+            g2.fill(topMarker);
+
+            Path2D.Double bottomMarker = new Path2D.Double();
+            bottomMarker.moveTo(sx - tagSize, panelHeight);
+            bottomMarker.lineTo(sx + tagSize, panelHeight);
+            bottomMarker.lineTo(sx, panelHeight - tagSize * 1.5);
+            bottomMarker.closePath();
+            g2.fill(bottomMarker);
         }
         g2.setStroke(new BasicStroke(1));
     }

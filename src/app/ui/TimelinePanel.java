@@ -163,12 +163,14 @@ public class TimelinePanel extends JPanel {
                 boolean hitMarker = false;
                 int worldX = e.getX() - intOffsetX;
                 for (Integer markerX : textManager.getPlanMarkers()) {
-                    if (Math.abs(markerX - worldX) <= 8) {
+                    if (Math.abs(markerX - worldX) <= 12) {
                         hitMarker = true;
                         break;
                     }
                 }
-                if (hitSep != null || hitMarker || hoveredText != null) {
+                if (hitMarker) {
+                    setCursor(Cursor.getPredefinedCursor(Cursor.E_RESIZE_CURSOR));
+                } else if (hitSep != null || hoveredText != null) {
                     setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                 } else {
                     setCursor(Cursor.getDefaultCursor());
@@ -201,7 +203,8 @@ public class TimelinePanel extends JPanel {
                 }
 
                 if (draggingPlanMarker) {
-                    int snappedWorldX = snapWorldXDownToTenth(newWorldX);
+                    // Arrondi au dixième de seconde près pour aligner sur les traits de marquage
+                    int snappedWorldX = snapWorldXToTenth(newWorldX);
                     if (snappedWorldX != draggingPlanMarkerX) {
                         if (!hasMovedDuringDrag) {
                             recordUndoSnapshot();
@@ -212,7 +215,7 @@ public class TimelinePanel extends JPanel {
                         repaint();
                     }
                 } else if (draggingSeparator) {
-                    // Ctrl+drag : déplace physiquement le symbole, pas de transfert de chars
+                    // Déplace physiquement le symbole, pas de transfert de chars
                     int snappedWorldX = snapWorldXDownToTenth(newWorldX);
                     snappedWorldX = clampSeparatorMove(draggingSeparatorBand, draggingSeparatorX, snappedWorldX);
                     if (snappedWorldX != draggingSeparatorX) {
@@ -237,12 +240,13 @@ public class TimelinePanel extends JPanel {
                 hasMovedDuringDrag = false;
 
                 int intOffsetX = getIntOffsetX();
-                if ((e.getModifiersEx() & InputEvent.CTRL_DOWN_MASK) != 0
-                        && SwingUtilities.isLeftMouseButton(e)) {
-                    int worldX = e.getX() - intOffsetX;
+                int worldX = e.getX() - intOffsetX;
+
+                // Déplacement de repère de plan comme un signe (clic gauche simple ou avec Ctrl)
+                if (SwingUtilities.isLeftMouseButton(e)) {
                     Integer hitMarker = null;
                     for (Integer markerX : textManager.getPlanMarkers()) {
-                        if (Math.abs(markerX - worldX) <= 8) {
+                        if (Math.abs(markerX - worldX) <= 12) {
                             hitMarker = markerX;
                             break;
                         }
@@ -250,14 +254,19 @@ public class TimelinePanel extends JPanel {
                     if (hitMarker != null) {
                         draggingPlanMarker = true;
                         draggingPlanMarkerX = hitMarker;
-                    } else {
-                        int[] hit = textManager.findSeparatorAtScaled(
-                                e.getX(), e.getY(), intOffsetX, getHeight(), bandCount, 8);
-                        if (hit != null) {
-                            draggingSeparator = true;
-                            draggingSeparatorBand = hit[0];
-                            draggingSeparatorX = hit[1];
-                        }
+                        repaint();
+                        return;
+                    }
+                }
+
+                if ((e.getModifiersEx() & InputEvent.CTRL_DOWN_MASK) != 0
+                        && SwingUtilities.isLeftMouseButton(e)) {
+                    int[] hit = textManager.findSeparatorAtScaled(
+                            e.getX(), e.getY(), intOffsetX, getHeight(), bandCount, 8);
+                    if (hit != null) {
+                        draggingSeparator = true;
+                        draggingSeparatorBand = hit[0];
+                        draggingSeparatorX = hit[1];
                     }
                 } else if (SwingUtilities.isLeftMouseButton(e)) {
                     // Clic gauche seul : transfert de texte autour d'un séparateur INNER
@@ -286,11 +295,21 @@ public class TimelinePanel extends JPanel {
                     draggingSeparatorBand = -1;
                     draggingSeparatorX = Integer.MIN_VALUE;
                     draggingPlanMarkerX = Integer.MIN_VALUE;
-                    dragPixelAccum = 0f;
                     // reset shifting helper state
                     shiftingBaseSeparatorX = Integer.MIN_VALUE;
                     shiftingPointerPrevX = Integer.MIN_VALUE;
-                    hasMovedDuringDrag = false;
+                }
+
+                if ((e.isPopupTrigger() || SwingUtilities.isRightMouseButton(e)) && !hasMovedDuringDrag) {
+                    int intOffsetX = getIntOffsetX();
+                    int worldX = e.getX() - intOffsetX;
+                    for (Integer markerX : textManager.getPlanMarkers()) {
+                        if (Math.abs(markerX - worldX) <= 14) {
+                            showPlanMarkerContextMenu(e.getComponent(), e.getX(), e.getY(), markerX);
+                            suppressNextClick = true;
+                            return;
+                        }
+                    }
                 }
             }
 
@@ -312,7 +331,7 @@ public class TimelinePanel extends JPanel {
                 if (SwingUtilities.isRightMouseButton(e)) {
                     int worldX = e.getX() - intOffsetX;
                     for (Integer markerX : textManager.getPlanMarkers()) {
-                        if (Math.abs(markerX - worldX) <= 10) {
+                        if (Math.abs(markerX - worldX) <= 14) {
                             showPlanMarkerContextMenu(e.getComponent(), e.getX(), e.getY(), markerX);
                             return;
                         }
@@ -579,7 +598,7 @@ public class TimelinePanel extends JPanel {
 
     private void showPlanMarkerContextMenu(Component parent, int screenX, int screenY, int worldX) {
         JPopupMenu menu = new JPopupMenu();
-        JMenuItem supprimer = new JMenuItem("Supprimer le repère de plan");
+        JMenuItem supprimer = new JMenuItem("🗑️ Supprimer le repère de plan");
         supprimer.addActionListener(ev -> {
             recordUndoSnapshot();
             textManager.removePlanMarker(worldX);
@@ -1448,7 +1467,7 @@ public class TimelinePanel extends JPanel {
         return closest;
     }
 
-    private void recordUndoSnapshot() {
+    public void recordUndoSnapshot() {
         if (restoringHistory) return;
         pushSnapshot(undoStack, captureSnapshot());
         redoStack.clear();

@@ -309,16 +309,80 @@ public class MediaWorkflowService {
                         filter.append("color=s=").append(cW).append("x").append(cH)
                               .append(":c=black:r=").append(fps)
                               .append(":d=").append(String.format(Locale.US, "%.3f", dureeSec)).append("[bg];");
-                        filter.append("[1:v]fps=fps=").append(fps).append(":round=near,scale=w=").append(vW).append(":h=").append(vH)
-                              .append(":force_original_aspect_ratio=decrease:flags=bicubic,pad=").append(vW).append(":").append(vH)
-                              .append(":(ow-iw)/2:(oh-ih)/2:color=black");
+
+                        if (config.blurBackgroundVideo) {
+                            int blurRadius = Math.max(1, Math.min(60, config.blurRadius));
+                            double blurAlpha = Math.max(0.05, Math.min(1.0, config.blurOpacity / 100.0));
+                            filter.append("[1:v]split=2[v_scaled_in][v_blur_in];");
+                            filter.append("[v_blur_in]fps=fps=").append(fps)
+                                  .append(":round=near,scale=w=").append(cW).append(":h=").append(cH)
+                                  .append(":force_original_aspect_ratio=increase,crop=").append(cW).append(":").append(cH)
+                                  .append(",boxblur=").append(blurRadius).append(":2,format=yuva420p,colorchannelmixer=aa=")
+                                  .append(String.format(Locale.US, "%.2f", blurAlpha)).append("[vblurred];");
+                            filter.append("[v_scaled_in]fps=fps=").append(fps).append(":round=near,scale=w=").append(vW).append(":h=").append(vH)
+                                  .append(":force_original_aspect_ratio=decrease:flags=bicubic,pad=").append(vW).append(":").append(vH)
+                                  .append(":(ow-iw)/2:(oh-ih)/2:color=black");
+                        } else {
+                            filter.append("[1:v]fps=fps=").append(fps).append(":round=near,scale=w=").append(vW).append(":h=").append(vH)
+                                  .append(":force_original_aspect_ratio=decrease:flags=bicubic,pad=").append(vW).append(":").append(vH)
+                                  .append(":(ow-iw)/2:(oh-ih)/2:color=black");
+                        }
+
                         if (config.antiCopyright && config.antiCopyrightOpacity > 0) {
                             double alphaFloat = Math.max(0.0, Math.min(1.0, config.antiCopyrightOpacity / 100.0));
                             filter.append(String.format(Locale.US, ",drawbox=x=0:y=0:w=iw:h=ih:color=white@%.2f:t=fill", alphaFloat));
                         }
                         filter.append("[vscaled];");
-                        filter.append("[bg][vscaled]overlay=").append(vX).append(":").append(vY).append(":eof_action=pass[bg_vid];");
-                        filter.append("[bg_vid][0:v]overlay=").append(bX).append(":").append(bY).append(":shortest=1[vout]");
+
+                        java.util.List<String> activeLayers = new java.util.ArrayList<>();
+                        if (config.layerOrder != null && !config.layerOrder.isEmpty()) {
+                            for (String layerId : config.layerOrder) {
+                                if ("BACKGROUND_BLUR".equals(layerId)) {
+                                    if (config.blurBackgroundVideo) activeLayers.add(layerId);
+                                } else if ("VIDEO".equals(layerId) || "BAND".equals(layerId)) {
+                                    activeLayers.add(layerId);
+                                }
+                            }
+                        }
+                        if (!activeLayers.contains("VIDEO")) activeLayers.add("VIDEO");
+                        if (!activeLayers.contains("BAND")) activeLayers.add("BAND");
+                        if (config.blurBackgroundVideo && !activeLayers.contains("BACKGROUND_BLUR")) {
+                            activeLayers.add(0, "BACKGROUND_BLUR");
+                        }
+
+                        String currentBase = "bg";
+                        for (int idx = 0; idx < activeLayers.size(); idx++) {
+                            String layer = activeLayers.get(idx);
+                            boolean isLast = (idx == activeLayers.size() - 1);
+                            String nextBase = isLast ? "vout" : ("layer" + (idx + 1));
+                            String inputTag;
+                            int posX = 0, posY = 0;
+                            if ("BACKGROUND_BLUR".equals(layer)) {
+                                inputTag = "vblurred";
+                                posX = 0;
+                                posY = 0;
+                            } else if ("VIDEO".equals(layer)) {
+                                inputTag = "vscaled";
+                                posX = vX;
+                                posY = vY;
+                            } else {
+                                inputTag = "0:v";
+                                posX = bX;
+                                posY = bY;
+                            }
+
+                            filter.append("[").append(currentBase).append("][").append(inputTag).append("]overlay=")
+                                  .append(posX).append(":").append(posY)
+                                  .append(":eof_action=pass");
+                            if (isLast) {
+                                filter.append(":shortest=1");
+                            }
+                            filter.append("[").append(nextBase).append("]");
+                            if (!isLast) {
+                                filter.append(";");
+                            }
+                            currentBase = nextBase;
+                        }
 
                         if (separatedAudio != null) {
                             filter.append(";[2:a]aresample=async=1:first_pts=0[aout]");
@@ -802,7 +866,7 @@ public class MediaWorkflowService {
                 ProcessBuilder pb = new ProcessBuilder(
                         ffmpegPath,
                         "-i", videoFile.getAbsolutePath(),
-                        "-filter:v", "select='gt(scene,0.60)',showinfo",
+                        "-filter:v", "select='gt(scene,0.35)',showinfo",
                         "-f", "null",
                         "-"
                 );
@@ -838,12 +902,30 @@ public class MediaWorkflowService {
                 try {
                     java.util.List<Double> times = get();
                     if (times != null && !times.isEmpty()) {
+                        timelinePanel.recordUndoSnapshot();
+                        double pps = timelinePanel.getPixelsPerSecond();
+                        int addedCount = 0;
+                        double lastT = -1.0;
                         for (Double t : times) {
-                            int markerX = (int) Math.round(t * timelinePanel.getPixelsPerSecond());
-                            timelinePanel.getTextManager().addPlanMarker(markerX);
+                            if (t == null || t < 0.15) continue;
+                            // Arrondi au dixième de seconde près pour aligner sur les traits de marquage
+                            double roundedT = Math.round(t * 10.0) / 10.0;
+                            if (lastT >= 0 && Math.abs(roundedT - lastT) < 0.25) {
+                                continue;
+                            }
+                            int markerX = timelinePanel.snapWorldXToTenth(roundedT * pps);
+                            if (!timelinePanel.getTextManager().getPlanMarkers().contains(markerX)) {
+                                timelinePanel.getTextManager().addPlanMarker(markerX);
+                                addedCount++;
+                                lastT = roundedT;
+                            }
                         }
                         timelinePanel.repaint();
-                        JOptionPane.showMessageDialog(owner, times.size() + " plans détectés avec succès.");
+                        if (addedCount > 0) {
+                            JOptionPane.showMessageDialog(owner, addedCount + " plans détectés et calés sur les traits de marquage.");
+                        } else {
+                            JOptionPane.showMessageDialog(owner, "Aucun nouveau plan détecté.");
+                        }
                     } else {
                         JOptionPane.showMessageDialog(owner, "Aucun changement de plan détecté.");
                     }

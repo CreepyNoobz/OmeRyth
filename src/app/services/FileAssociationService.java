@@ -153,7 +153,7 @@ public class FileAssociationService {
     private static void notifyWindowsShell() {
         try {
             String psCommand = "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class S { [DllImport(\"shell32.dll\")] public static extern void SHChangeNotify(int w, int u, IntPtr d1, IntPtr d2); }'; [S]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)";
-            ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-NonInteractive", "-Command", psCommand);
+            ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", psCommand);
             Process p = pb.start();
             p.waitFor();
         } catch (Throwable ignored) {}
