@@ -100,18 +100,28 @@ public class TimerClass extends JPanel {
         return String.format("%02d:%02d:%02d.%d", min / 60, min % 60, sec, tenth);
     }
 
-    /** Toggle the timer running state (start/pause) and update the timeline. */
+    /**
+     * Bascule l'état de lecture du chronomètre (lecture / pause) dans le sens de défilement actuel.
+     */
     public void toggle() {
         toggle(direction);
     }
 
-    /** Toggle playback state in the requested direction. */
+    /**
+     * Bascule l'état de lecture dans la direction demandée (+1 avance, -1 recul).
+     * <p>
+     * À la mise en pause, le temps est tronqué au dixième de seconde inférieur (ex: 1.37s -> 1.30s)
+     * pour garantir un alignement géométrique net avec les graduations du quadrillage de la bande rythmo.
+     * </p>
+     *
+     * @param newDirection Sens souhaité (>= 0 : avance, < 0 : marche arrière).
+     */
     public void toggle(int newDirection) {
         int requestedDirection = newDirection >= 0 ? 1 : -1;
         if (timer.isRunning()) {
             if (direction == requestedDirection) {
                 timer.stop();
-                // On pause, truncate to the lower tenth (ex: 1.32 -> 1.30).
+                // À la mise en pause, troncature au dixième inférieur (ex: 1.32s -> 1.30s)
                 time = Math.floor(time * 10.0) / 10.0;
                 startRythmoTime = time;
                 timerLabel.setText(format());
@@ -129,7 +139,9 @@ public class TimerClass extends JPanel {
         }
     }
 
-    /** Reset the timer to zero and update the timeline. */
+    /**
+     * Réinitialise le chronomètre au début absolu (0.0 seconde) et réaligne la timeline.
+     */
     public void reset() {
         timer.stop();
         time = 0;
@@ -143,8 +155,9 @@ public class TimerClass extends JPanel {
     }
 
     // ==========================
-    // Nouvelle méthode pour caper le timer
-    /** Set the maximum allowed time for the timer (cap). */
+    /**
+     * Définit la durée temporelle maximale autorisée pour le chronomètre (borne supérieure calée sur la vidéo).
+     */
     public void setMaxTime(double maxTime) {
         this.maxTime = maxTime;
     }
@@ -180,12 +193,14 @@ public class TimerClass extends JPanel {
         return maxTime;
     }
 
-    /** Add delta seconds to the current timer and update the timeline. */
+    /**
+     * Ajoute un décalage temporel relatif (delta en secondes) au chronomètre courant et actualise la timeline.
+     */
     public void addTime(double delta) {
         this.time += delta;
         if (this.time < 0) this.time = 0;
 
-        // Capper à la durée max si tu as défini setMaxTime
+        // Limiter à la durée maximale configurée
         if (maxTime > 0 && time > maxTime) {
             time = maxTime;
             timer.stop();
@@ -198,12 +213,16 @@ public class TimerClass extends JPanel {
         timeline.setTime(time);
     }
 
-    /** Set the visual theme background color (convenience overload). */
+    /**
+     * Définit la couleur de fond du thème visuel du chronomètre.
+     */
     public void setTheme(Color background) {
         setTheme(background, "");
     }
 
-    /** Set the visual theme background and optional background image path. */
+    /**
+     * Définit la couleur de fond et le chemin optionnel d'une image d'arrière-plan pour le chronomètre.
+     */
     public void setTheme(Color background, String imagePath) {
         if (background != null) {
             themeColor = background;

@@ -8,8 +8,22 @@ import java.util.*;
 import java.util.regex.*;
 
 /**
- * Service de transcription vocale haute précision basé sur le pipeline noScribe
- * (faster-whisper + Silero VAD + word timestamps + diarisation).
+ * Service orchestrant la transcription vocale haute fidélité pour le doublage.
+ * <p>
+ * Architecture technique :
+ * <ul>
+ *   <li><b>Moteur de reconnaissance :</b> Exécution asynchrone du script Python {@code whisperx_worker.py}
+ *       basé sur <i>faster-whisper</i> (CTranslate2 int8) et <i>Silero VAD</i>.</li>
+ *   <li><b>Protocole de communication IPC :</b> Dialogue bidirectionnel en temps réel via les flux standards (stdout/stdin)
+ *       avec balises textuelles ({@code PROGRESS:step:total:msg}, {@code LIVE_SEGMENT:...}, {@code FINAL_SEGMENT:...}).</li>
+ *   <li><b>Isolation & Sécurité :</b> Arbre de processus sous haute surveillance. En cas d'annulation ou de fermeture
+ *       abrupte d'OmeRyth, un ShutdownHook Java déclenche une destruction récursive de l'arbre de processus
+ *       via {@code ProcessHandle.descendants()} et la commande Windows {@code taskkill /F /T /PID} pour éliminer
+ *       tout processus zombie en mémoire.</li>
+ *   <li><b>Zéro dépendance Java :</b> Analyse syntaxique du flux JSON réalisée en interne par une machine à états finis
+ *       comptabilisant la profondeur des accolades.</li>
+ * </ul>
+ * </p>
  */
 public class SpeechWorkflowService {
 
@@ -18,11 +32,13 @@ public class SpeechWorkflowService {
     private volatile boolean isCancelled = false;
 
     static {
-        // Garantit qu'aucun processus ne reste en arrière-plan à la fermeture d'OmeRyth
+        // Garantit qu'aucun processus Python ou FFmpeg ne reste orphelin en arrière-plan à la fermeture d'OmeRyth
         Runtime.getRuntime().addShutdownHook(new Thread(SpeechWorkflowService::killAllProcesses));
     }
 
-    /** Arrête immédiatement tous les processus actifs et leurs sous-processus descendants. */
+    /**
+     * Arrête immédiatement et sans délai tous les processus actifs enregistrés ainsi que leurs descendants.
+     */
     public static void killAllProcesses() {
         synchronized (ACTIVE_PROCESSES) {
             for (Process p : ACTIVE_PROCESSES) {
@@ -36,6 +52,13 @@ public class SpeechWorkflowService {
 
     /**
      * Détruit de manière récursive et immédiate un processus et tous ses sous-processus descendants.
+     * <p>
+     * Sous Windows, la création de sous-processus par Python (ex: workers PyTorch ou FFmpeg) échappe souvent
+     * au simple {@link Process#destroy()}. Cette méthode combine donc l'API ProcessHandle de Java et l'utilitaire
+     * système {@code taskkill /F /T} pour une terminaison garantie et sans résidu.
+     * </p>
+     *
+     * @param p Le processus parent à neutraliser.
      */
     public static void killProcessTree(Process p) {
         if (p == null) return;
@@ -265,13 +288,24 @@ public class SpeechWorkflowService {
     }
 
     /**
-     * Vérifie rapidement si un GPU compatible CUDA est disponible via ctranslate2.
+     * Vérifie de façon rigoureuse si un GPU compatible CUDA est réellement fonctionnel
+     * avec faster-whisper et ctranslate2 (sans crash de DLL manquante).
      */
     public static boolean isCudaAvailable() {
         try {
-            ProcessBuilder pb = new ProcessBuilder("python", "-c",
-                    "import sys, ctranslate2; sys.exit(0 if ctranslate2.get_cuda_device_count() > 0 else 1)");
+            SpeechWorkflowService service = new SpeechWorkflowService();
+            String py = service.findPython();
+            if (py == null) py = "python";
+            ProcessBuilder pb = new ProcessBuilder(py, "-c",
+                    "import ctranslate2; assert ctranslate2.get_cuda_device_count() > 0; " +
+                    "from faster_whisper import WhisperModel; " +
+                    "m = WhisperModel('tiny', device='cuda', compute_type='float16'); " +
+                    "m.model.encode(__import__('numpy').zeros((1, 80, 3000), dtype=__import__('numpy').float32))");
+            pb.redirectErrorStream(true);
             Process p = pb.start();
+            try (InputStream is = p.getInputStream()) {
+                is.transferTo(OutputStream.nullOutputStream());
+            }
             return p.waitFor() == 0;
         } catch (Exception e) {
             return false;
@@ -279,21 +313,18 @@ public class SpeechWorkflowService {
     }
 
     /**
-     * Extrait l'audio de la vidéo en format WAV 16kHz mono, synchronisé précisément
-     * au PTS de la vidéo via aresample async pour éviter tout décalage.
+     * Extrait l'audio de la vidéo en format WAV 16kHz mono, synchronisé précisément 1:1
+     * avec la vidéo sans altération temporelle.
      * Utilise tous les cœurs CPU disponibles (-threads 0) pour une extraction ultra-rapide.
      */
     public boolean extractAudio(File videoFile, File outputWav) {
         String ffmpeg = findFfmpeg();
         if (ffmpeg == null) return false;
 
-        // Filtrage audio haute performance : aresample async + passe-haut voix + normalisation sans latence
-        String audioFilter = "aresample=async=1000:first_pts=0,highpass=f=80,lowpass=f=7600,volume=1.2";
-
+        // Extraction 1:1 propre et sans latence (aucun étirement d'échantillons)
         ProcessBuilder pb = new ProcessBuilder(
                 ffmpeg, "-threads", "0", "-i", videoFile.getAbsolutePath(),
                 "-vn", "-sn", "-dn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-                "-af", audioFilter,
                 outputWav.getAbsolutePath(), "-y"
         );
         pb.redirectErrorStream(true);
@@ -310,11 +341,11 @@ public class SpeechWorkflowService {
             }
         } catch (Exception ignored) {}
 
-        // Repli de sécurité si un filtre audio n'est pas supporté par une version minimale de FFmpeg
+        // Repli avec normalisation douce de volume
         ProcessBuilder fallbackPb = new ProcessBuilder(
                 ffmpeg, "-threads", "0", "-i", videoFile.getAbsolutePath(),
                 "-vn", "-sn", "-dn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-                "-af", "aresample=async=1000:first_pts=0,highpass=f=80,volume=1.1",
+                "-af", "volume=1.1",
                 outputWav.getAbsolutePath(), "-y"
         );
         fallbackPb.redirectErrorStream(true);

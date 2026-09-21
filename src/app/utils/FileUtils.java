@@ -54,8 +54,9 @@ public class FileUtils {
             }
         };
     }
-    // Enregistrer un fichier
-    /** Copy a file from source to destination and show an error dialog on failure. */
+    /**
+     * Copie un fichier source vers un emplacement de destination et affiche une boîte d'alerte en cas d'échec.
+     */
     public void saveFile(File sourceFile, File destFile) {
         try {
             Files.copy(sourceFile.toPath(), destFile.toPath());
@@ -169,15 +170,15 @@ public class FileUtils {
     }
 
     /**
-     * Returns true when the application is running for the first time (no appstate file
-     * or firstRunCompleted==false).
+     * Indique si l'application est exécutée pour la toute première fois
+     * (absence du fichier appstate ou champ firstRunCompleted manquant).
      */
     public static boolean isFirstRun() {
         Properties props = new Properties();
         try (FileInputStream fis = new FileInputStream(APPSTATE_FILE)) {
             props.load(fis);
         } catch (IOException e) {
-            // No state file -> consider first run
+            // Aucun fichier d'état existant : considéré comme un premier lancement
             return true;
         }
         return !Boolean.parseBoolean(props.getProperty("firstRunCompleted", "false"));

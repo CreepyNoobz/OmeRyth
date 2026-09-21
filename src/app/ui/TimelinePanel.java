@@ -57,14 +57,30 @@ public class TimelinePanel extends JPanel {
         int splitIndex;
     }
 
-    // ================= VARIABLES =================
+    // =========================================================================
+    // PARAMÈTRES ET VARIABLES DU SYSTÈME DE COORDONNÉES TEMPORELLES
+    // =========================================================================
     private int bandCount = 4;
     private int bandHeight = 50;
     private int cursorX = 80;
+    
+    // Vitesse de base du défilement : 80 pixels pour 1 seconde de temps réel.
+    // L'échelle de zoom multiplie ce facteur (1.0x, 1.5x, 2.0x, 2.5x, 3.0x).
     private static final double BASE_PIXELS_PER_SECOND = 80.0;
     private static final double[] ZOOM_LEVELS = {1.0, 1.5, 2.0, 2.5, 3.0};
     private int zoomLevelIndex = 0;
 
+    /**
+     * Temps courant de lecture vidéo en secondes.
+     * 
+     * Formule fondamentale de transformation des coordonnées :
+     *   worldX  = pixelsPerSecond * timeSeconds
+     *   screenX = worldX + offsetX
+     *   offsetX = cursorX - (currentTime * pixelsPerSecond)
+     * 
+     * À tout moment, le point dans le signal correspondant à currentTime est aligné
+     * précisément sous le curseur rouge d'écoute (cursorX).
+     */
     private double currentTime = 0;
     private double pixelsPerSecond = BASE_PIXELS_PER_SECOND;
     private double offsetX = 80.0;
@@ -73,17 +89,18 @@ public class TimelinePanel extends JPanel {
         return (int) Math.round(offsetX);
     }
     private int selectedBand = -1;
-    private boolean draggingSeparator = false;      // Ctrl+drag : déplace le symbole
-    private boolean draggingPlanMarker = false;
-    private boolean shiftingText = false;             // drag simple : transfère du texte
+    private boolean draggingSeparator = false;      // Ctrl+drag : déplace le repère physique dans le temps
+    private boolean draggingPlanMarker = false;     // Déplacement à la souris d'un repère de changement de plan
+    private boolean shiftingText = false;           // Drag simple sur un INNER : redistribution élastique des lettres
     private int draggingSeparatorBand = -1;
     private int draggingSeparatorX = Integer.MIN_VALUE;
     private int draggingPlanMarkerX = Integer.MIN_VALUE;
     private boolean suppressNextClick = false;
     private float dragPixelAccum = 0f;
-    // Pixels needed to shift one character; tuned in constructor
+    
+    // Nombre de pixels de déplacement de souris nécessaires pour faire sauter 1 caractère d'un sous-segment à l'autre
     private int pixelsPerChar = 2;
-    // For shifting text: base separator X (world coord) and previous pointer world X
+    // Position de référence (en coordonnées monde) lors du glissement de texte
     private int shiftingBaseSeparatorX = Integer.MIN_VALUE;
     private int shiftingPointerPrevX = Integer.MIN_VALUE;
     private int contextSeparatorBand = -1;
@@ -120,8 +137,10 @@ public class TimelinePanel extends JPanel {
 
     // ================= CONSTRUCTEUR =================
     /**
-     * Initialise le panneau : timers (caret blink / insertion pulse), écouteurs souris,
-     * et calcule la sensibilité du drag selon la police pour un déplacement fluide des caractères.
+     * Initialise le panneau de la timeline :
+     * - Configure les timers de clignotement du caret et de pulsation d'insertion
+     * - Installe les écouteurs de souris pour le survol, le drag, le clic droit et le double-clic
+     * - Évalue la sensibilité de déplacement des caractères selon les métriques de la police courante.
      */
     public TimelinePanel() {
         setPreferredSize(new Dimension(800, 200));
@@ -143,7 +162,7 @@ public class TimelinePanel extends JPanel {
         });
         insertionPulseTimer.setRepeats(false);
 
-        // Estimate pixels needed per character for drag sensitivity using font metrics
+        // Calcule la sensibilité de glissement selon la largeur moyenne de la lettre 'M' dans la police choisie
         try {
             Font font = new Font(customization.timelineFontFamily != null && !customization.timelineFontFamily.isBlank()
                     ? customization.timelineFontFamily : "Arial", Font.BOLD, Math.max(18, bandHeight));
@@ -617,6 +636,19 @@ public class TimelinePanel extends JPanel {
         return textManager.getActiveBand();
     }
 
+    // =========================================================================
+    // QUANTIFICATION ET MAGNÉTISME TEMPOREL (DIXIÈMES DE SECONDE)
+    // =========================================================================
+
+    /**
+     * Aligne (snap) une coordonnée monde au dixième de seconde le plus proche (arrondi standard).
+     * 
+     * En doublage professionnel, le pas de travail conventionnel est le dixième de seconde (0.1s)
+     * ou l'image cinéma/vidéo (24/25 fps).
+     * Calcul mathématique :
+     *   pasEnPixels = pixelsPerSecond * 0.1
+     *   positionQuantifiée = round(worldX / pasEnPixels) * pasEnPixels
+     */
     public int snapWorldXToTenth(double worldX) {
         double step = pixelsPerSecond * 0.1;
         if (step <= 0) return (int) Math.round(worldX);
@@ -627,6 +659,10 @@ public class TimelinePanel extends JPanel {
         return snapWorldXToTenth((double) worldX);
     }
 
+    /**
+     * Aligne (snap) une coordonnée monde au dixième de seconde inférieur (arrondi par défaut / floor).
+     * Utilisé lors de certains déplacements pour garantir de ne pas empiéter sur le pas suivant.
+     */
     public int snapWorldXDownToTenth(double worldX) {
         double step = pixelsPerSecond * 0.1;
         if (step <= 0) return (int) Math.round(worldX);
@@ -637,6 +673,11 @@ public class TimelinePanel extends JPanel {
         return snapWorldXDownToTenth((double) worldX);
     }
 
+    /**
+     * Restreint le déplacement d'un séparateur pour empêcher toute collision ou inversion d'ordre :
+     * un séparateur ne peut jamais dépasser son voisin précédent ou suivant, préservant
+     * un écart minimal de sécurité (minGap = 0.1 seconde).
+     */
     private int clampSeparatorMove(int band, int currentX, int desiredX) {
         ArrayList<SeparatorMark> separators = textManager.getBandSeparators().get(band);
         if (separators == null || separators.size() <= 1) {
@@ -666,6 +707,7 @@ public class TimelinePanel extends JPanel {
         return desiredX;
     }
 
+    /** Insère un marqueur de changement de plan vidéo (cut) à la position temporelle courante. */
     public void addPlanMarkerAtCursor() {
         recordUndoSnapshot();
         int markerX = snapWorldXToTenth(cursorX - offsetX);
@@ -673,11 +715,12 @@ public class TimelinePanel extends JPanel {
         repaint();
     }
 
-    /** Add a separator at the current cursor position (snapped) on the given band. */
+    /** Ajoute un repère de synchronisation standard à la position du curseur sur la bande spécifiée. */
     public boolean addSeparatorAtCursor(int band) {
         return addSeparatorAtCursor(band, SeparatorMark.SignType.DEFAULT);
     }
 
+    /** Ajoute un repère spécifique (FVR, MPB, voyelle A, etc.) magnétisé au dixième de seconde. */
     public boolean addSeparatorAtCursor(int band, SeparatorMark.SignType signType) {
         if (band < 0) {
             band = selectedBand >= 0 ? selectedBand : 0;
@@ -760,7 +803,7 @@ public class TimelinePanel extends JPanel {
         return removed;
     }
 
-    /** Start a new phrase on a band (creates start separator + empty text and enters edit). */
+    /** Démarre une nouvelle phrase sur une bande (crée le repère START + texte vide et entre en mode saisie). */
     public void startPhrase(int band, Role role) {
         recordUndoSnapshot();
         int worldCursorX = snapWorldXToTenth(cursorX - offsetX);
@@ -784,7 +827,7 @@ public class TimelinePanel extends JPanel {
         return focused;
     }
 
-    /** End the current editing phrase by inserting an END separator at the cursor. */
+    /** Clôture la phrase courante en insérant un séparateur END à la position du curseur. */
     public void endPhrase() {
         recordUndoSnapshot();
         int worldCursorX = snapWorldXToTenth(cursorX - offsetX);
@@ -897,7 +940,7 @@ public class TimelinePanel extends JPanel {
         }
     }
 
-    /** Type a character into the currently edited phrase (handles special keys). */
+    /** Insère un caractère dans la phrase en cours d'édition (avec support complet des accents et de l'historique d'annulation). */
     public void typeChar(char c) {
         if (!textManager.isEditing()) return;
         recordUndoSnapshot();
@@ -906,35 +949,35 @@ public class TimelinePanel extends JPanel {
         repaint();
     }
 
-    /** Move the edit cursor by delta positions and update the UI. */
+    /** Déplace le curseur de saisie de delta positions et met à jour l'affichage visuel. */
     public void moveCursor(int delta) {
         textManager.moveCursor(delta);
         resetCaretBlink();
         repaint();
     }
 
-    /** Move the edit cursor by a word in the given direction (-1 left, +1 right). */
+    /** Déplace le curseur mot par mot dans la direction spécifiée (-1 vers la gauche, +1 vers la droite). */
     public void moveCursorByWord(int direction) {
         textManager.moveCursorByWord(direction);
         resetCaretBlink();
         repaint();
     }
 
-    /** Move the edit cursor to the start of the current editing buffer. */
+    /** Déplace le curseur au tout début de la réplique éditée. */
     public void moveCursorToStart() {
         textManager.moveCursorToStart();
         resetCaretBlink();
         repaint();
     }
 
-    /** Move the edit cursor to the end of the current editing buffer. */
+    /** Déplace le curseur à la toute fin de la réplique éditée. */
     public void moveCursorToEnd() {
         textManager.moveCursorToEnd();
         resetCaretBlink();
         repaint();
     }
 
-    /** Delete a single character before the cursor in the current edit. */
+    /** Supprime le caractère situé immédiatement avant le curseur (touche Retour arrière / Backspace). */
     public void deleteChar() {
         if (!textManager.isEditing()) return;
         recordUndoSnapshot();
@@ -943,7 +986,7 @@ public class TimelinePanel extends JPanel {
         repaint();
     }
 
-    /** Delete the previous word before the cursor in the current edit. */
+    /** Supprime le mot précédent situé avant le curseur (raccourci Ctrl+Backspace). */
     public void deleteWord() {
         if (!textManager.isEditing()) return;
         recordUndoSnapshot();
@@ -952,14 +995,14 @@ public class TimelinePanel extends JPanel {
         repaint();
     }
 
-    /** Stop typing mode and hide the caret. */
+    /** Quitte le mode édition et masque le curseur clignotant. */
     public void stopTyping() {
         textManager.stopTyping();
         caretVisible = false;
         repaint();
     }
 
-    /** Paste provided text into the editing buffer at cursor. */
+    /** Colle le texte fourni à la position actuelle du curseur de saisie. */
     public void pasteText(String text) {
         if (!textManager.isEditing() || text == null || text.isEmpty()) return;
         recordUndoSnapshot();
@@ -979,7 +1022,7 @@ public class TimelinePanel extends JPanel {
         insertionPulseTimer.restart();
     }
 
-    /** Clear all timeline content (texts and separators) with undo snapshot. */
+    /** Réinitialise l'ensemble de la timeline (textes et séparateurs) avec sauvegarde dans l'historique Annuler. */
     public void clearAll() {
         recordUndoSnapshot();
         textManager.clearAll();
@@ -1000,7 +1043,7 @@ public class TimelinePanel extends JPanel {
         return separatorsVisible;
     }
 
-    /** Toggle visibility of separators and repaint. */
+    /** Active ou masque l'affichage des séparateurs et repères de synchro. */
     public void setSeparatorsVisible(boolean visible) {
         this.separatorsVisible = visible;
         repaint();
@@ -1010,7 +1053,7 @@ public class TimelinePanel extends JPanel {
         return graduationsVisible;
     }
 
-    /** Toggle visibility of time graduations and repaint. */
+    /** Active ou masque l'affichage des graduations temporelles (dixièmes et secondes). */
     public void setGraduationsVisible(boolean visible) {
         this.graduationsVisible = visible;
         repaint();
@@ -1020,15 +1063,15 @@ public class TimelinePanel extends JPanel {
         return customization.showWaveform;
     }
 
-    /** Toggle visibility of audio waveform and repaint. */
+    /** Active ou masque l'affichage de la forme d'onde audio (waveform). */
     public void setWaveformVisible(boolean visible) {
         this.customization.showWaveform = visible;
         repaint();
     }
 
     /**
-     * Returns a warning message if reducing to {@code newBandCount} would hide
-     * bands that already contain content, or {@code null} if nothing would be hidden.
+     * Avertit l'utilisateur si la réduction du nombre de bandes risquerait de masquer
+     * des répliques ou des séparateurs déjà placés sur les pistes supprimées.
      */
     public String getHiddenBandWarning(int newBandCount) {
         java.util.LinkedHashSet<String> roles = new java.util.LinkedHashSet<>();
@@ -1131,6 +1174,12 @@ public class TimelinePanel extends JPanel {
         }
     }
 
+    /**
+     * Applique le niveau de zoom sélectionné :
+     * - Met à l'échelle toutes les coordonnées X de la timeline selon le ratio (nouveauPPS / ancienPPS)
+     * - Met à jour l'historique d'annulation pour que les snapshots restent cohérents
+     * - Recale l'affichage pour que la position temporelle courante reste stationnaire sous le curseur.
+     */
     private void applyZoomLevel() {
         double oldPixelsPerSecond = pixelsPerSecond;
         pixelsPerSecond = BASE_PIXELS_PER_SECOND * ZOOM_LEVELS[zoomLevelIndex];
@@ -1140,15 +1189,17 @@ public class TimelinePanel extends JPanel {
             scaleSnapshots(undoStack, ratio);
             scaleSnapshots(redoStack, ratio);
         }
-        // Keep the timeline centered on the current time when zoom changes.
+        // Conserve le calage exact du curseur sur le temps courant pendant le zoom
         setTime(currentTime);
     }
 
     /**
-    /**
-     * Session de rendu optimisée pour l'export vidéo.
-     * Met en cache les textes, séparateurs et marqueurs dimensionnés une fois pour toutes,
-     * et utilise un TimelineRenderer dédié indépendant de l'affichage UI.
+     * Session de rendu dédiée et ultra-rapide pour l'exportation vidéo finale (Burn-in rythmo).
+     * 
+     * Optimisations clés :
+     * - Pré-calcule et met en cache l'ensemble des coordonnées géométriques mises à l'échelle
+     * - Évite toute allocation mémoire (Garbage Collector) pendant la boucle de rendu des images (24, 25 ou 30 fps)
+     * - Utilise une instance dédiée et isolée de TimelineRenderer, garantissant l'indépendance vis-à-vis de l'UI.
      */
     public static class ExportSession {
         private final int width;
@@ -1248,15 +1299,15 @@ public class TimelinePanel extends JPanel {
     }
 
     /**
-     * Crée une session d'export pré-calculée pour le rendu rapide de milliers de frames consécutives.
+     * Crée une session d'export pré-calculée pour le rendu rapide de milliers d'images consécutives.
      */
     public ExportSession createExportSession(int width, int height, double visibleSecondsAhead) {
         return new ExportSession(width, height, visibleSecondsAhead, this);
     }
 
     /**
-     * Renders the timeline at a given time position into a BufferedImage.
-     * Scales tracks, text, and timecode proportionally to target resolution for high readability and sharp text.
+     * Calcule et génère l'image d'une frame de la bande rythmo à un instant T donné.
+     * Met à l'échelle proportionnellement les bandes, les textes et les repères pour une netteté maximale.
      */
     public BufferedImage renderFrame(int width, int height, double time, double visibleSecondsAhead) {
         ExportSession session = createExportSession(width, height, visibleSecondsAhead);
@@ -1280,7 +1331,7 @@ public class TimelinePanel extends JPanel {
 
     public void saveProject(File file, File videoFile, java.util.ArrayList<Role> roles) {
         ProjectManager.save(file, videoFile, textManager, roles, bandCount, pixelsPerSecond, zoomLevelIndex);
-        // Saving to a project file clears the dirty flag.
+        // La sauvegarde sur disque réinitialise l'état modifié (dirty flag)
         clearDirty();
     }
 
@@ -1316,7 +1367,7 @@ public class TimelinePanel extends JPanel {
         }
         setTime(currentTime);
         repaint();
-        // Loading a project is considered a clean state with clean undo history.
+        // Le chargement d'un projet initialise un état propre avec un historique d'annulation vierge
         undoStack.clear();
         redoStack.clear();
         clearDirty();
@@ -1324,7 +1375,7 @@ public class TimelinePanel extends JPanel {
     }
 
     public boolean isDirty() { return dirty; }
-    // Callback to notify host when dirty state changes.
+    // Callback pour notifier la fenêtre principale dès que l'état d'enregistrement change
     private Runnable dirtyCallback = null;
 
     public void setDirtyCallback(Runnable cb) {
@@ -1465,11 +1516,16 @@ public class TimelinePanel extends JPanel {
         return closest;
     }
 
+    /**
+     * Enregistre un instantané complet (Pattern Memento / Snapshot) de l'état de la timeline
+     * avant toute action destructive ou modification utilisateur (saisie, déplacement, ajout/suppression de repère).
+     * Vide la pile 'Rétablir' (Redo) et marque le document comme modifié.
+     */
     public void recordUndoSnapshot() {
         if (restoringHistory) return;
         pushSnapshot(undoStack, captureSnapshot());
         redoStack.clear();
-        // Mark document as modified by user actions
+        // Marque le projet comme modifié par l'utilisateur
         markDirty();
     }
 

@@ -21,6 +21,24 @@ import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 
+/**
+ * Service gérant l'historique textuel interactif des répliques et actions de la bande rythmo.
+ * <p>
+ * Fonctionnalités interactives :
+ * <ul>
+ *   <li><b>Visualisation chronologique :</b> Affiche en continu la liste ordonnée des répliques
+ *       (timecodes de début et de fin, comédien/rôle, contenu textuel).</li>
+ *   <li><b>Navigation bidirectionnelle au clic :</b> L'utilisateur peut cliquer directement sur n'importe quelle ligne
+ *       de texte dans la zone d'historique pour téléporter instantanément la tête de lecture et la timeline
+ *       au timecode précis de la réplique ({@code onSeekRequested}).</li>
+ *   <li><b>Détection géométrique précise :</b> Utilise {@code viewToModel2D} et {@code modelToView2D} pour mapper
+ *       les coordonnées physiques de la souris vers la ligne de document correspondante, adaptant le curseur
+ *       en main interactive ({@link Cursor#HAND_CURSOR}).</li>
+ *   <li><b>Rafraîchissement non-bloquant :</b> Met à jour l'affichage périodiquement sans altérer la position
+ *       de défilement de l'utilisateur si le texte n'a pas changé.</li>
+ * </ul>
+ * </p>
+ */
 public class ActionHistoryService {
 
     private final int maxLines;
@@ -166,20 +184,26 @@ public class ActionHistoryService {
         }
     }
 
-    /** Bind this service to a TimelinePanel and perform an immediate refresh. */
+    /**
+     * Associe ce service au {@link TimelinePanel} actif et déclenche un rafraîchissement immédiat des entrées.
+     */
     public void bind(TimelinePanel timelinePanel) {
         this.timelinePanel = timelinePanel;
         refreshNow();
     }
 
-    /** Start periodic refresh of the action history display. */
+    /**
+     * Démarre la boucle de mise à jour périodique de l'historique visuel.
+     */
     public void start() {
         stop();
         refreshTimer = new Timer(refreshMs, e -> refreshNow());
         refreshTimer.start();
     }
 
-    /** Stop the periodic refresh timer if running. */
+    /**
+     * Arrête le minuteur de rafraîchissement périodique.
+     */
     public void stop() {
         if (refreshTimer != null) {
             refreshTimer.stop();
@@ -187,7 +211,9 @@ public class ActionHistoryService {
         }
     }
 
-    /** Immediately refresh the action history panel using the timeline's data. */
+    /**
+     * Rafraîchit immédiatement le panneau d'historique en synchronisant les données depuis la timeline.
+     */
     public void refreshNow() {
         if (timelinePanel == null) return;
 

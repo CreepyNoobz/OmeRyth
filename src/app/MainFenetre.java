@@ -123,7 +123,7 @@ public class MainFenetre extends JFrame {
         // Fenêtre
         updateTitle();
 
-        // Load icon - works both from JAR (resource) and from filesystem
+        // Chargement de l'icône de l'application (supporte à la fois le JAR empaqueté et le système de fichiers de dev)
         java.net.URL iconUrl = getClass().getResource("/images/logo.png");
         if (iconUrl != null) {
             setIconImage(new ImageIcon(iconUrl).getImage());
@@ -137,7 +137,7 @@ public class MainFenetre extends JFrame {
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setLayout(new BorderLayout());
 
-        // Look & Feel Windows
+        // Look & Feel Windows natif
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception ignored) {}
@@ -170,7 +170,7 @@ public class MainFenetre extends JFrame {
         this.projectWorkflowService = parts.projectWorkflowService;
         this.windowEventBinder = parts.windowEventBinder;
 
-        // Update title whenever timeline dirty state changes and manage autosave timer
+        // Met à jour le titre dès que l'état de modification de la timeline change et gère le minuteur d'autosave
         try {
             if (this.timelinePanel != null) this.timelinePanel.setDirtyCallback(this::onTimelineDirtyChanged);
         } catch (Throwable ignored) {}
@@ -250,7 +250,7 @@ public class MainFenetre extends JFrame {
         });
     }
 
-    // Called when TimelinePanel dirty state toggles.
+    // Invoqué automatiquement lorsque l'état de modification (dirty state) de la timeline bascule
     private void onTimelineDirtyChanged() {
         try { updateTitle(); } catch (Throwable ignored) {}
         try {
@@ -258,7 +258,7 @@ public class MainFenetre extends JFrame {
                 if (autosaveService != null) autosaveService.start();
             } else {
                 if (autosaveService != null) autosaveService.stop();
-                // remove any existing autosave when document is clean
+                // Nettoie toute sauvegarde temporaire lorsque le document est enregistré et propre
                 try { if (autosaveFile.exists()) autosaveFile.delete(); } catch (Throwable ignored) {}
                 try { File origin = new File(autosaveFile.getAbsolutePath() + ".origin"); if (origin.exists()) origin.delete(); } catch (Throwable ignored) {}
             }
@@ -505,7 +505,7 @@ public class MainFenetre extends JFrame {
         try {
             if (timelinePanel == null) return;
             if (fichierSelectionne == null && !timelinePanel.hasContent()) return;
-            // Record the project file this autosave reflects so recovery can reapply
+            // Enregistrer le chemin du fichier projet d'origine associé à cette sauvegarde automatique
             File origin = new File(autosaveFile.getAbsolutePath() + ".origin");
             try (java.io.PrintWriter pw = new java.io.PrintWriter(origin, java.nio.charset.StandardCharsets.UTF_8)) {
                 pw.println(currentProjectFile == null ? "" : currentProjectFile.getAbsolutePath());
@@ -513,19 +513,18 @@ public class MainFenetre extends JFrame {
 
             ProjectManager.save(autosaveFile, fichierSelectionne, timelinePanel.getTextManager(), roles, timelinePanel.getBandCount(), timelinePanel.getPixelsPerSecond(), timelinePanel.getZoomLevelIndex());
         } catch (Exception ex) {
-            System.err.println("Autosave failed: " + ex.getMessage());
+            System.err.println("Échec de la sauvegarde automatique : " + ex.getMessage());
         }
     }
 
     private void tryRecoverAutosaveOnStartup() {
         int decision = autosaveService.askRecover(this);
-        if (decision != 1) return; // not accepted or nothing to do
+        if (decision != 1) return; // Non accepté ou aucun fichier à récupérer
 
         try {
-            // If user had a previously saved project path, load it first so we can
-            // reapply/overwrite it with the autosave contents.
-            // Prefer the origin saved with the autosave (the project active when the autosave
-            // was made). Fallback to lastproject.path if no origin exists.
+            // Si l'utilisateur avait un projet enregistré avant le crash, tenter de retrouver son emplacement
+            // Priorité absolue au marqueur '.origin' créé au moment précis du crash.
+            // Repli sur le fichier 'lastproject.path' si l'origine est absente.
             File lastProject = null;
             File originFile = new File(autosaveFile.getAbsolutePath() + ".origin");
             if (originFile.exists()) {
@@ -550,14 +549,14 @@ public class MainFenetre extends JFrame {
                 }
             }
 
-            // Load the autosave into the timeline (this will populate timeline state)
+            // Charger l'autosave dans la timeline (restaure l'intégralité des segments et séparateurs)
             File loadedVideo = timelinePanel.loadProject(autosaveFile, roles);
             if (loadedVideo != null && loadedVideo.exists()) {
                 fichierSelectionne = loadedVideo;
                 loadVideo(loadedVideo);
             }
 
-            // If we have an original project file, persist the autosave over it
+            // Si un fichier projet d'origine est identifié, écraser le fichier avec l'autosave récupérée
             if (lastProject != null) {
                 try {
                     timelinePanel.saveProject(lastProject, fichierSelectionne, roles);
@@ -567,11 +566,12 @@ public class MainFenetre extends JFrame {
                 currentProjectFile = null;
             }
 
-            // Mark as clean and refresh UI
+            // Marquer comme propre et rafraîchir l'interface graphique
             try { timelinePanel.clearDirty(); } catch (Throwable ignored) {}
             updateTitle();
             refreshActionHistory();
-            // Remove the autosave and origin now that it has been applied so we don't prompt again
+
+            // Supprimer le fichier temporaire d'autosave et ses marqueurs maintenant que le projet est restauré
             try {
                 if (autosaveFile.exists()) autosaveFile.delete();
                 File originFileDel = new File(autosaveFile.getAbsolutePath() + ".origin");
@@ -581,8 +581,8 @@ public class MainFenetre extends JFrame {
             } catch (Throwable ignored) {}
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this,
-                    "Impossible de recuperer l'autosave : " + ex.getMessage(),
-                    "Recovery error",
+                    "Impossible de récupérer la sauvegarde automatique : " + ex.getMessage(),
+                    "Erreur de récupération",
                     JOptionPane.ERROR_MESSAGE);
         }
     }
@@ -662,7 +662,7 @@ public class MainFenetre extends JFrame {
         }
         loadVideo(video);
 
-        // Save project immediately to the chosen location if a file was selected
+        // Enregistre immédiatement le projet à l'emplacement choisi si un fichier a été sélectionné
         if (this.currentProjectFile != null && timeline != null) {
             try {
                 timeline.saveProject(this.currentProjectFile, this.fichierSelectionne, roles);
@@ -681,7 +681,9 @@ public class MainFenetre extends JFrame {
         JOptionPane.showMessageDialog(this, "Projet créé !");
     }
     // ===== Sauvegarder Projet =====
-    /** Save the current project to disk, prompting for a path if needed. */
+    /**
+     * Enregistre le projet actif sur le disque, en sollicitant l'utilisateur pour un emplacement si nécessaire.
+     */
     public void sauvegarderProjet(TimelinePanel timeline) {
         if (timeline == null) timeline = this.timelinePanel;
         if (timeline == null) return;
@@ -692,16 +694,18 @@ public class MainFenetre extends JFrame {
         updateTitle();
 
         timeline.saveProject(currentProjectFile, fichierSelectionne, roles);
-        // Mark timeline as saved / clean
+        // Marque la timeline comme propre (enregistrée sans modification en attente)
         timeline.clearDirty();
-        // Persist last saved project path for future autosave recovery
+        // Conserve le chemin du dernier projet enregistré pour la restauration automatique
         try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.File("lastproject.path"), java.nio.charset.StandardCharsets.UTF_8)) {
             pw.println(currentProjectFile.getAbsolutePath());
         } catch (Throwable ignored) {}
     }
 
     // ==== Ouvrir Projet =====
-    /** Open an existing project file and load its timeline and media. */
+    /**
+     * Ouvre un projet existant depuis le disque et charge sa timeline ainsi que son média vidéo/audio associé.
+     */
     public void ouvrirProjet(TimelinePanel timeline) {
         if (timeline == null) timeline = this.timelinePanel;
         if (timeline != null && timeline.hasContent() && timeline.isDirty()) {
@@ -716,7 +720,7 @@ public class MainFenetre extends JFrame {
         if (video != null && video.exists()) {
             fichierSelectionne = video;
             loadVideo(video);
-            // Persist last opened/saved project path so recovery knows where to reapply autosave
+            // Conserve le chemin du dernier projet ouvert pour les futures restaurations
             try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.File("lastproject.path"), java.nio.charset.StandardCharsets.UTF_8)) {
                 pw.println(currentProjectFile.getAbsolutePath());
             } catch (Throwable ignored) {}
@@ -993,7 +997,7 @@ public class MainFenetre extends JFrame {
             java.util.List<SpeechWorkflowService.TranscriptionSegment> bandSegments = entry.getValue();
             bandSegments.sort(Comparator.comparingDouble(SpeechWorkflowService.TranscriptionSegment::getStartSeconds));
 
-            // Déduplication de segments superposés ou identiques
+            // Déduplication de segments superposés ou identiques et ajustement des bornes
             java.util.List<SpeechWorkflowService.TranscriptionSegment> cleanBandSegments = new ArrayList<>();
             for (SpeechWorkflowService.TranscriptionSegment seg : bandSegments) {
                 if (seg.getText() == null || seg.getText().trim().isEmpty()) continue;
@@ -1008,6 +1012,11 @@ public class MainFenetre extends JFrame {
                     }
                     if (seg.getStartSeconds() < prevSeg.getEndSeconds() - 0.1 && seg.getText().trim().equalsIgnoreCase(prevSeg.getText().trim())) {
                         continue;
+                    }
+                    // Éviter le débordement du segment précédent sur le début du nouveau :
+                    // On réduit la fin du précédent au lieu de repousser le début du nouveau dans le futur !
+                    if (prevSeg.endSeconds > seg.startSeconds - 0.05) {
+                        prevSeg.endSeconds = Math.max(prevSeg.startSeconds + 0.20, seg.startSeconds - 0.05);
                     }
                 }
                 cleanBandSegments.add(seg);
@@ -1048,10 +1057,20 @@ public class MainFenetre extends JFrame {
             int lastCommittedEndX = 0;
 
             // Insérer chaque groupe de phrases
-            for (java.util.List<SpeechWorkflowService.TranscriptionSegment> group : phraseGroups) {
+            for (int gi = 0; gi < phraseGroups.size(); gi++) {
+                java.util.List<SpeechWorkflowService.TranscriptionSegment> group = phraseGroups.get(gi);
                 if (group.isEmpty()) continue;
 
                 Role spkRole = speakerRolesMap.get(group.get(0).getSpeakerIndex());
+
+                // Calcul du début prévu du prochain groupe pour borner proprement la fin sans décalage
+                Integer nextGroupStartX = null;
+                if (gi + 1 < phraseGroups.size()) {
+                    java.util.List<SpeechWorkflowService.TranscriptionSegment> nextGrp = phraseGroups.get(gi + 1);
+                    if (!nextGrp.isEmpty()) {
+                        nextGroupStartX = timelinePanel.snapWorldXToTenth((int) Math.round(nextGrp.get(0).startSeconds * pps));
+                    }
+                }
 
                 if (group.size() == 1) {
                     // Phrase unitaire classique : Début propre [START] et Fin propre [END]
@@ -1065,13 +1084,18 @@ public class MainFenetre extends JFrame {
                         segEndSec = segStartSec + 0.3;
                     }
 
+                    // Le début de réplique est toujours calé sur son timecode réel (pas de dérive dans le futur)
                     int segStartX = timelinePanel.snapWorldXToTenth((int) Math.round(segStartSec * pps));
-                    int segEndX = timelinePanel.snapWorldXToTenth((int) Math.round(segEndSec * pps));
-                    if (segStartX < lastCommittedEndX + minStep) {
-                        segStartX = lastCommittedEndX + minStep;
+                    if (segStartX < lastCommittedEndX + 4) {
+                        segStartX = Math.max(segStartX, lastCommittedEndX + 4);
                     }
-                    if (segEndX - segStartX < minStep) {
+
+                    int segEndX = timelinePanel.snapWorldXToTenth((int) Math.round(segEndSec * pps));
+                    if (segEndX <= segStartX + minStep) {
                         segEndX = segStartX + minStep;
+                    }
+                    if (nextGroupStartX != null && segEndX > nextGroupStartX - 4) {
+                        segEndX = Math.max(segStartX + minStep, nextGroupStartX - 4);
                     }
                     lastCommittedEndX = segEndX;
 
@@ -1086,8 +1110,8 @@ public class MainFenetre extends JFrame {
                     // Micro-enchaînement (gap < 0.22s) : relié par des séparateurs internes
                     double groupStartSec = Math.round(group.get(0).startSeconds * 100.0) / 100.0;
                     int groupStartX = timelinePanel.snapWorldXToTenth((int) Math.round(groupStartSec * pps));
-                    if (groupStartX < lastCommittedEndX + minStep) {
-                        groupStartX = lastCommittedEndX + minStep;
+                    if (groupStartX < lastCommittedEndX + 4) {
+                        groupStartX = Math.max(groupStartX, lastCommittedEndX + 4);
                     }
 
                     StringBuilder fullText = new StringBuilder();
@@ -1142,6 +1166,9 @@ public class MainFenetre extends JFrame {
                         curX = sep.x;
                     }
                     int finalEndX = Math.max(curX + minStep, lastEndX);
+                    if (nextGroupStartX != null && finalEndX > nextGroupStartX - 4) {
+                        finalEndX = Math.max(curX + minStep, nextGroupStartX - 4);
+                    }
                     lastCommittedEndX = finalEndX;
 
                     TextItem item = new TextItem(fullText.toString(), groupStartX, band);
@@ -1157,6 +1184,7 @@ public class MainFenetre extends JFrame {
             }
         }
 
+        textManager.sortTexts();
         timelinePanel.repaint();
 
         int distinctSpeakers = speakerRolesMap.size();
@@ -1177,9 +1205,12 @@ public class MainFenetre extends JFrame {
         }
     }
 
-    /** Quit the application after autosave and resource cleanup. */
+    /**
+     * Ferme proprement l'application : confirmation de sauvegarde si nécessaire,
+     * arrêt des services d'arrière-plan, neutralisation des processus fils et libération des ressources VLCJ.
+     */
     public void quitterApplication() {
-        // Only ask to save if the timeline has unsaved changes.
+        // Demande la sauvegarde uniquement si des modifications non enregistrées sont présentes
         if (timelinePanel.hasContent() && timelinePanel.isDirty()) {
             int response = JOptionPane.showConfirmDialog(this,
                     "Voulez-vous sauvegarder le projet avant de quitter ?",
@@ -1192,20 +1223,19 @@ public class MainFenetre extends JFrame {
             }
 
             if (response == JOptionPane.YES_OPTION) {
-                // Ask user for a save path if needed
+                // Demande à l'utilisateur où enregistrer si aucun fichier n'était assigné
                 sauvegarderProjet(timelinePanel);
                 if (currentProjectFile == null) {
-                    // User cancelled save dialog
+                    // L'utilisateur a annulé la boîte de dialogue d'enregistrement
                     return;
                 }
-                // saved to currentProjectFile by sauvegarderProjet
             } else {
-                // User chose NO: do NOT save. Record the decision so we don't offer autosave recovery.
+                // L'utilisateur a choisi NON : ne pas sauvegarder. Enregistrer le refus pour ne pas proposer de récupération
                 try {
                     File declined = new File(autosaveFile.getAbsolutePath() + ".declined");
                     if (!declined.exists()) declined.createNewFile();
                     declined.setLastModified(System.currentTimeMillis());
-                    // Also remove any autosave/origin to avoid accidental restores
+                    // Supprimer également les fichiers temporaires pour éviter toute restauration erronée
                     if (autosaveFile.exists()) autosaveFile.delete();
                     File originFile = new File(autosaveFile.getAbsolutePath() + ".origin");
                     if (originFile.exists()) originFile.delete();
@@ -1213,13 +1243,12 @@ public class MainFenetre extends JFrame {
             }
         }
 
-        // Stop background services and timers
+        // Arrêter les services d'arrière-plan et les minuteurs
         try { if (autosaveService != null) autosaveService.stop(); } catch (Throwable ignored) {}
         try { if (actionHistoryService != null) actionHistoryService.stop(); } catch (Throwable ignored) {}
         try { SpeechWorkflowService.killAllProcesses(); } catch (Throwable ignored) {}
 
-        // Mark a clean shutdown so we don't prompt to recover autosave on next start.
-        // Also delete any stale autosave file since shutdown was intentional.
+        // Écrire le marqueur '.clean' pour certifier un arrêt volontaire et propre
         try {
             if (autosaveFile.exists()) autosaveFile.delete();
             File clean = new File(autosaveFile.getAbsolutePath() + ".clean");
@@ -1227,7 +1256,7 @@ public class MainFenetre extends JFrame {
             clean.setLastModified(System.currentTimeMillis());
         } catch (Throwable ignored) {}
 
-        // Release media player resources
+        // Libérer les ressources matérielles et surfaces vidéo de LibVLC
         try {
             if (mediaPlayerComponent != null) {
                 try { mediaPlayerComponent.mediaPlayer().controls().stop(); } catch (Throwable ignored) {}
@@ -1237,7 +1266,7 @@ public class MainFenetre extends JFrame {
         } catch (Throwable ignored) {}
         try { if (mediaPlayerFactory != null) { mediaPlayerFactory.release(); mediaPlayerFactory = null; } } catch (Throwable ignored) {}
 
-        // Dispose UI and exit JVM to ensure process termination
+        // Libérer l'interface graphique et terminer la JVM pour garantir l'absence de processus orphelin
         try { dispose(); } catch (Throwable ignored) {}
         System.exit(0);
     }
