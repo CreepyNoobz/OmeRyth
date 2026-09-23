@@ -400,4 +400,50 @@ export class TextManager {
     this.roles.push(role);
     return role;
   }
+
+  // --- Mise à l'échelle temporelle (Zoom & Synchronisation PPS) ---
+  scaleTimelineX(anchorX = 0, ratio = 1.0) {
+    if (ratio <= 0 || Math.abs(ratio - 1.0) < 1e-6) return;
+
+    for (const t of this.texts) {
+      t.x = Math.round(anchorX + (t.x - anchorX) * ratio);
+    }
+
+    for (const seps of this.bandSeparators.values()) {
+      for (const s of seps) {
+        s.x = Math.round(anchorX + (s.x - anchorX) * ratio);
+      }
+      seps.sort((a, b) => a.x - b.x);
+    }
+
+    this.planMarkers = this.planMarkers.map(x => Math.round(anchorX + (x - anchorX) * ratio));
+    this.planMarkers.sort((a, b) => a - b);
+
+    // Mettre à l'échelle l'historique Undo / Redo
+    this.scaleSnapshots(this.undoStack, anchorX, ratio);
+    this.scaleSnapshots(this.redoStack, anchorX, ratio);
+  }
+
+  scaleSnapshots(stack, anchorX, ratio) {
+    if (!Array.isArray(stack)) return;
+    for (const s of stack) {
+      if (Array.isArray(s.texts)) {
+        for (const t of s.texts) {
+          t.x = Math.round(anchorX + (t.x - anchorX) * ratio);
+        }
+      }
+      if (Array.isArray(s.separators)) {
+        for (const sep of s.separators) {
+          sep.x = Math.round(anchorX + (sep.x - anchorX) * ratio);
+        }
+        s.separators.sort((a, b) => a.x - b.x);
+      }
+      if (Array.isArray(s.planMarkers)) {
+        for (let i = 0; i < s.planMarkers.length; i++) {
+          s.planMarkers[i] = Math.round(anchorX + (s.planMarkers[i] - anchorX) * ratio);
+        }
+        s.planMarkers.sort((a, b) => a - b);
+      }
+    }
+  }
 }

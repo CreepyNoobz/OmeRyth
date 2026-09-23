@@ -11,6 +11,7 @@ import { TouchControls } from './touch-controls.js';
 import { ShortcutsManager } from './shortcuts.js';
 import { ProjectIO } from './project-io.js';
 import { TextItem, SeparatorType, Role } from './models.js';
+import { VideoFpsDetector } from './video-fps-detector.js';
 
 export class OmeRythApp {
   constructor() {
@@ -21,6 +22,8 @@ export class OmeRythApp {
     this.selectedPlanMarker = null;
     this.contextTarget = null;
     this.currentMediaFile = null;
+    this.currentMediaObjectUrl = null;
+    this.isCreatingNewProject = false;
     this.transcribeTaskId = null;
     this.transcribeInterval = null;
 
@@ -35,11 +38,17 @@ export class OmeRythApp {
     this.renderer = new TimelineRenderer(this.canvas);
     this.videoSync = new VideoSync(this.videoEl, (time) => this.onTimeUpdate(time));
     this.videoSync.pps = this.pps;
+    this.videoSync.onPlayStateChange = (playing) => this.updatePlayButton(playing);
+
+    if (this.videoEl) {
+      this.videoEl.addEventListener('error', (e) => this.handleVideoError(e));
+    }
 
     this.touchControls = new TouchControls(this.canvas, this.renderer, this.textManager, this.videoSync, () => this.render());
     this.touchControls.onContextMenu = (info) => this.openContextMenuAt(info.worldX, info.bandIdx, info.clientX, info.clientY);
     this.touchControls.onDoubleTap = (worldX, bandIdx) => this.handleDoubleTap(worldX, bandIdx);
     this.touchControls.onTap = (info) => this.handleTap(info.worldX, info.bandIdx);
+    this.touchControls.onZoom = (factor) => this.setPps(this.pps * factor, true);
 
     this.shortcuts = new ShortcutsManager(this);
 
@@ -48,7 +57,9 @@ export class OmeRythApp {
     this.initContextMenu();
     this.initMobileDrawer();
     this.initTranscribeModal();
+    this.initVideoPromptModal();
     this.initResizeHandler();
+    this.updateFpsBadge();
 
     // Démarrage propre : ne rien mettre au début par défaut
     this.render();
@@ -59,6 +70,17 @@ export class OmeRythApp {
     const btnPlay = document.getElementById('btnPlay');
     if (btnPlay) {
       btnPlay.addEventListener('click', () => this.togglePlayPause());
+    }
+
+    const btnToggleFps = document.getElementById('btnToggleFps');
+    if (btnToggleFps) {
+      btnToggleFps.addEventListener('click', () => {
+        const nextFps = (Math.round(this.videoSync.fps) === 24) ? 60 : 24;
+        this.videoSync.setFps(nextFps);
+        this.updateFpsBadge();
+        this.render();
+        this.showToast(`Cadence d'images : ${Math.round(this.videoSync.fps)} IPS`);
+      });
     }
 
     // Saut 0.1s arrière (Flèche Gauche)
@@ -141,15 +163,11 @@ export class OmeRythApp {
     });
 
     document.getElementById('btnZoomIn')?.addEventListener('click', () => {
-      this.pps = Math.min(240, this.pps * 1.25);
-      this.videoSync.pps = this.pps;
-      this.render();
+      this.setPps(this.pps * 1.25, true);
     });
 
     document.getElementById('btnZoomOut')?.addEventListener('click', () => {
-      this.pps = Math.max(30, this.pps * 0.8);
-      this.videoSync.pps = this.pps;
-      this.render();
+      this.setPps(this.pps * 0.8, true);
     });
 
     document.getElementById('btnWaveform')?.addEventListener('click', () => this.toggleWaveform());
@@ -162,11 +180,11 @@ export class OmeRythApp {
 
     // --- Gestion de Projet (Nouveau, Ouvrir, Sauvegarder, Démo) ---
     document.getElementById('btnNew')?.addEventListener('click', () => {
-      if (confirm('Créer un nouveau projet vierge ? Les modifications non enregistrées seront perdues.')) {
-        this.textManager = new TextManager(4);
-        this.render();
-        this.showToast('Nouveau projet initialisé');
-      }
+      this.promptNewProject();
+    });
+
+    document.getElementById('btnMobileNew')?.addEventListener('click', () => {
+      this.promptNewProject();
     });
 
     document.getElementById('btnSave')?.addEventListener('click', () => this.exportProject());
@@ -181,34 +199,54 @@ export class OmeRythApp {
       fileInputProject?.click();
     });
 
-    fileInputProject?.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (evt) => {
-          try {
-            ProjectIO.importRythmo(evt.target.result, this.textManager);
-            this.render();
-            this.showToast(`Projet "${file.name}" chargé avec succès !`);
-          } catch (err) {
-            alert('Erreur lors du chargement du fichier .rythmo : ' + err.message);
+    fileInputProject?.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files || []);
+      if (files.length === 0) return;
+
+      const projectFile = files.find(f => f.name.toLowerCase().endsWith('.rythmo') || f.name.toLowerCase().endsWith('.json'));
+      const mediaFile = files.find(f => f.type.startsWith('video/') || f.type.startsWith('audio/') || f.name.toLowerCase().endsWith('.mkv'));
+
+      if (projectFile) {
+        try {
+          const text = await projectFile.text();
+          const meta = ProjectIO.importRythmo(text, this.textManager);
+
+          if (meta && typeof meta.pixelsPerSecond === 'number' && meta.pixelsPerSecond > 0) {
+            this.setPps(meta.pixelsPerSecond, false);
+          } else {
+            this.setPps(80.0, false);
           }
-        };
-        reader.readAsText(file);
+          this.render();
+
+          if (mediaFile) {
+            this.isCreatingNewProject = false;
+            await this.loadMediaFile(mediaFile, false);
+            this.showToast(`Projet "${projectFile.name}" et vidéo "${mediaFile.name}" chargés !`);
+          } else {
+            const expectedVideo = meta ? meta.video : null;
+            this.updatePlaceholderForProject(projectFile.name, expectedVideo);
+            this.isCreatingNewProject = false;
+            this.openVideoPromptModal(projectFile.name, expectedVideo);
+          }
+        } catch (err) {
+          alert('Erreur lors du chargement du fichier .rythmo : ' + err.message);
+        }
+      } else if (mediaFile) {
+        await this.loadMediaFile(mediaFile, false);
       }
+      e.target.value = '';
     });
 
-    // --- Chargement Média (Vidéo / Audio) ---
+    // --- Sélecteur de média masqué ---
     const fileInputMedia = document.getElementById('fileInputMedia');
-    document.getElementById('btnLoadMedia')?.addEventListener('click', () => {
-      fileInputMedia?.click();
-    });
-
     fileInputMedia?.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (file) {
-        await this.loadMediaFile(file);
+        const resetProject = this.isCreatingNewProject === true;
+        await this.loadMediaFile(file, resetProject);
+        this.isCreatingNewProject = false;
       }
+      e.target.value = '';
     });
 
     // Bouton Démo
@@ -226,10 +264,6 @@ export class OmeRythApp {
     });
 
     // Boutons de la barre mobile supérieure
-    document.getElementById('btnMobileMedia')?.addEventListener('click', () => {
-      fileInputMedia?.click();
-    });
-
     document.getElementById('btnMobileSave')?.addEventListener('click', () => {
       this.exportProject();
     });
@@ -273,34 +307,97 @@ export class OmeRythApp {
     window.addEventListener('drop', async (e) => {
       e.preventDefault();
       if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-        const file = e.dataTransfer.files[0];
-        const nameLower = file.name.toLowerCase();
-        if (nameLower.endsWith('.rythmo') || nameLower.endsWith('.json')) {
-          const text = await file.text();
-          ProjectIO.importRythmo(text, this.textManager);
-          this.render();
-          this.showToast(`Projet "${file.name}" importé !`);
-        } else if (file.type.startsWith('video/') || file.type.startsWith('audio/') || nameLower.endsWith('.mkv')) {
-          await this.loadMediaFile(file);
+        const files = Array.from(e.dataTransfer.files);
+        const projectFile = files.find(f => f.name.toLowerCase().endsWith('.rythmo') || f.name.toLowerCase().endsWith('.json'));
+        const mediaFile = files.find(f => f.type.startsWith('video/') || f.type.startsWith('audio/') || f.name.toLowerCase().endsWith('.mkv'));
+
+        if (projectFile) {
+          try {
+            const text = await projectFile.text();
+            const meta = ProjectIO.importRythmo(text, this.textManager);
+            if (meta && typeof meta.pixelsPerSecond === 'number' && meta.pixelsPerSecond > 0) {
+              this.setPps(meta.pixelsPerSecond, false);
+            } else {
+              this.setPps(80.0, false);
+            }
+            this.render();
+
+            if (mediaFile) {
+              this.isCreatingNewProject = false;
+              await this.loadMediaFile(mediaFile, false);
+              this.showToast(`Projet "${projectFile.name}" et média "${mediaFile.name}" importés !`);
+            } else {
+              const expectedVideo = meta ? meta.video : null;
+              this.updatePlaceholderForProject(projectFile.name, expectedVideo);
+              this.isCreatingNewProject = false;
+              this.openVideoPromptModal(projectFile.name, expectedVideo);
+            }
+          } catch (err) {
+            alert('Erreur lors du chargement du fichier .rythmo : ' + err.message);
+          }
+        } else if (mediaFile) {
+          const reset = this.textManager.texts.length === 0;
+          await this.loadMediaFile(mediaFile, reset);
         }
       }
     });
   }
 
-  async loadMediaFile(file) {
+  async loadMediaFile(file, resetTextManager = true) {
     this.currentMediaFile = file;
     this.updateTranscribeMediaCard();
     this.showToast(`Chargement de "${file.name}"...`);
-    const objectUrl = URL.createObjectURL(file);
-    this.videoSync.loadSource(objectUrl);
-    if (this.videoPlaceholder) {
-      this.videoPlaceholder.style.display = 'none';
-    }
-    this.videoEl.style.display = 'block';
 
-    // Règle : ne rien mettre au début lors de l'ouverture d'un média (timeline vierge et curseur à 0)
-    this.textManager = new TextManager(4);
-    this.videoSync.seekTo(0);
+    // Fermer la modale de demande vidéo si elle était active
+    document.getElementById('videoPromptModal')?.classList.remove('active');
+
+    // Nettoyer l'ancienne URL d'objet pour éviter les fuites de mémoire
+    if (this.currentMediaObjectUrl) {
+      URL.revokeObjectURL(this.currentMediaObjectUrl);
+      this.currentMediaObjectUrl = null;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    this.currentMediaObjectUrl = objectUrl;
+    this.videoSync.loadSource(objectUrl);
+
+    // Détection automatique du framerate : 24 IPS si ~24 (cinéma/23.976/24), sinon 60 IPS
+    try {
+      const targetFps = await VideoFpsDetector.detectTargetFps(file, this.videoEl);
+      this.videoSync.setFps(targetFps);
+      this.updateFpsBadge();
+      console.log(`[VideoSync] FPS configuré à : ${targetFps} IPS`);
+    } catch (e) {
+      console.warn('[VideoSync] Repli sur 60 IPS :', e);
+      this.videoSync.setFps(60);
+      this.updateFpsBadge();
+    }
+
+    // Gestion propre des fichiers audio purs (sans flux vidéo)
+    const isAudioOnly = (file.type && file.type.startsWith('audio/')) ||
+      (!file.type && /\.(mp3|wav|ogg|aac|flac|m4a)$/i.test(file.name));
+
+    if (this.videoPlaceholder) {
+      if (isAudioOnly) {
+        this.videoPlaceholder.style.display = 'flex';
+        this.videoPlaceholder.innerHTML = `
+          <div class="icon">🎵</div>
+          <p><strong>${file.name}</strong></p>
+          <p style="font-size: 12px; color: var(--accent-gold);">Fichier audio chargé (${Math.round(this.videoSync.fps)} IPS)</p>
+        `;
+        this.videoEl.style.display = 'none';
+      } else {
+        this.videoPlaceholder.style.display = 'none';
+        this.videoEl.style.display = 'block';
+      }
+    } else {
+      this.videoEl.style.display = isAudioOnly ? 'none' : 'block';
+    }
+
+    if (resetTextManager) {
+      this.textManager = new TextManager(4);
+      this.setPps(80.0, false);
+    }
     this.render();
 
     // Extraction et décodage de la forme d'onde via Web Audio API
@@ -487,9 +584,7 @@ export class OmeRythApp {
       if (e.ctrlKey || e.metaKey) {
         // Zoom
         const factor = e.deltaY < 0 ? 1.15 : 0.87;
-        this.pps = Math.max(30, Math.min(this.pps * factor, 240));
-        this.videoSync.pps = this.pps;
-        this.render();
+        this.setPps(this.pps * factor, true);
       } else {
         // Défilement temporel
         const deltaSec = (e.deltaY / 100) * 0.5;
@@ -504,7 +599,7 @@ export class OmeRythApp {
       const container = this.canvas.parentElement;
       if (container) {
         const w = container.clientWidth;
-        const h = Math.max(160, container.clientHeight);
+        const h = container.clientHeight > 0 ? container.clientHeight : 160;
         this.renderer.resize(w, h);
         this.render();
       }
@@ -527,15 +622,22 @@ export class OmeRythApp {
       this.textManager,
       this.videoSync.currentTime,
       this.pps,
-      this.waveform
+      this.waveform,
+      this.videoSync.mediaDuration || 0
     );
   }
 
   togglePlayPause() {
     this.videoSync.togglePlayPause();
+  }
+
+  updatePlayButton(isPlaying) {
     const btnPlay = document.getElementById('btnPlay');
     if (btnPlay) {
-      btnPlay.innerHTML = this.videoSync.isPlaying ? '⏸ Pause' : '▶ Lecture';
+      btnPlay.innerHTML = isPlaying 
+        ? '<span class="play-icon">⏸</span><span class="play-text"> Pause</span>' 
+        : '<span class="play-icon">▶</span><span class="play-text"> Lecture</span>';
+      btnPlay.classList.toggle('playing', !!isPlaying);
     }
   }
 
@@ -594,8 +696,51 @@ export class OmeRythApp {
   }
 
   exportProject() {
-    ProjectIO.exportRythmo(this.textManager, this.pps, this.videoEl?.src || null);
+    ProjectIO.exportRythmo(this.textManager, this.pps, this.currentMediaFile?.name || null);
     this.showToast('Projet .rythmo téléchargé !');
+  }
+
+  setPps(newPps, scaleContent = true) {
+    newPps = Math.max(30, Math.min(240, newPps));
+    const oldPps = this.pps;
+    if (Math.abs(newPps - oldPps) < 1e-4) return;
+
+    this.pps = newPps;
+    this.videoSync.pps = newPps;
+
+    if (scaleContent && oldPps > 0) {
+      const ratio = newPps / oldPps;
+      this.textManager.scaleTimelineX(0, ratio);
+    }
+    this.render();
+  }
+
+  promptNewProject() {
+    if (this.textManager.texts.length > 0) {
+      if (!confirm('Créer un nouveau projet vierge ? Les répliques et modifications non enregistrées seront perdues.')) {
+        return;
+      }
+    }
+    this.isCreatingNewProject = true;
+    document.getElementById('fileInputMedia')?.click();
+  }
+
+  updatePlaceholderForProject(projectName, expectedVideo = null) {
+    if (!this.videoPlaceholder) return;
+    const pText = document.getElementById('placeholderText');
+    const btnAction = document.getElementById('btnPlaceholderAction');
+    if (pText) {
+      if (expectedVideo) {
+        pText.innerHTML = `Projet <strong>${projectName}</strong> chargé.<br>Vidéo attendue : <strong>${expectedVideo}</strong>`;
+      } else {
+        pText.innerHTML = `Projet <strong>${projectName}</strong> chargé.<br>Sélectionnez la vidéo correspondante :`;
+      }
+    }
+    if (btnAction) {
+      btnAction.textContent = expectedVideo ? `🎬 Choisir "${expectedVideo}"` : '🎬 Associer la vidéo';
+    }
+    this.videoPlaceholder.style.display = 'flex';
+    this.videoEl.style.display = 'none';
   }
 
   openPromptForStart(bandIdx, worldX) {
@@ -900,7 +1045,7 @@ export class OmeRythApp {
     modal.classList.add('active');
   }
 
-  showToast(message) {
+  showToast(message, duration = 2200) {
     const toast = document.getElementById('toast');
     if (toast) {
       toast.textContent = message;
@@ -908,7 +1053,7 @@ export class OmeRythApp {
       clearTimeout(this.toastTimer);
       this.toastTimer = setTimeout(() => {
         toast.classList.remove('show');
-      }, 2200);
+      }, duration);
     }
   }
 
@@ -1148,11 +1293,7 @@ export class OmeRythApp {
 
     document.getElementById('mBtnNew')?.addEventListener('click', () => {
       closeDrawer();
-      if (confirm('Créer un nouveau projet vierge ? Les modifications non enregistrées seront perdues.')) {
-        this.textManager = new TextManager(4);
-        this.render();
-        this.showToast('Nouveau projet initialisé');
-      }
+      this.promptNewProject();
     });
 
     document.getElementById('mBtnOpen')?.addEventListener('click', () => {
@@ -1163,11 +1304,6 @@ export class OmeRythApp {
     document.getElementById('mBtnSave')?.addEventListener('click', () => {
       closeDrawer();
       this.exportProject();
-    });
-
-    document.getElementById('mBtnMedia')?.addEventListener('click', () => {
-      closeDrawer();
-      fileInputMedia?.click();
     });
 
     document.getElementById('mBtnExportSrt')?.addEventListener('click', () => {
@@ -1212,15 +1348,11 @@ export class OmeRythApp {
     });
 
     document.getElementById('mBtnZoomIn')?.addEventListener('click', () => {
-      this.pps = Math.min(240, this.pps * 1.25);
-      this.videoSync.pps = this.pps;
-      this.render();
+      this.setPps(this.pps * 1.25, true);
     });
 
     document.getElementById('mBtnZoomOut')?.addEventListener('click', () => {
-      this.pps = Math.max(30, this.pps * 0.8);
-      this.videoSync.pps = this.pps;
-      this.render();
+      this.setPps(this.pps * 0.8, true);
     });
 
     document.getElementById('mBtnHelp')?.addEventListener('click', () => {
@@ -1286,6 +1418,19 @@ export class OmeRythApp {
 
   initTranscribeModal() {
     const modal = document.getElementById('transcribeModal');
+
+    const notifyUnavailable = () => {
+      this.showToast("🎙️ La transcription n'est pas encore disponible pour l'instant.", 2800);
+    };
+
+    // Au clic sur transcription : afficher une notification et ne pas ouvrir la fenêtre
+    document.getElementById('btnTranscribe')?.addEventListener('click', notifyUnavailable);
+    document.getElementById('btnMobileTranscribe')?.addEventListener('click', notifyUnavailable);
+    document.getElementById('mBtnTranscribe')?.addEventListener('click', () => {
+      document.getElementById('mobileDrawerBackdrop')?.classList.remove('active');
+      notifyUnavailable();
+    });
+
     if (!modal) return;
 
     const openModal = () => {
@@ -1304,13 +1449,6 @@ export class OmeRythApp {
         modal.classList.remove('active');
       }
     };
-
-    document.getElementById('btnTranscribe')?.addEventListener('click', openModal);
-    document.getElementById('btnMobileTranscribe')?.addEventListener('click', openModal);
-    document.getElementById('mBtnTranscribe')?.addEventListener('click', () => {
-      document.getElementById('mobileDrawerBackdrop')?.classList.remove('active');
-      openModal();
-    });
 
     document.getElementById('btnCloseTranscribeModal')?.addEventListener('click', closeModal);
     document.getElementById('btnCancelTranscribe')?.addEventListener('click', closeModal);
@@ -1750,6 +1888,72 @@ export class OmeRythApp {
       this.showToast(`${segments.length} répliques synchronisées sur ${distinctSpeakers} personnages !`);
     } else {
       this.showToast(`${segments.length} répliques synchronisées sur la bande ${baseTargetBand + 1} !`);
+    }
+  }
+
+  initVideoPromptModal() {
+    const modal = document.getElementById('videoPromptModal');
+    const btnClose = document.getElementById('btnCloseVideoPromptModal');
+    const btnSkip = document.getElementById('btnSkipPromptVideo');
+    const btnChoose = document.getElementById('btnChoosePromptVideo');
+
+    const closeModal = () => {
+      if (modal) modal.classList.remove('active');
+    };
+
+    btnClose?.addEventListener('click', closeModal);
+    btnSkip?.addEventListener('click', closeModal);
+    btnChoose?.addEventListener('click', () => {
+      closeModal();
+      document.getElementById('fileInputMedia')?.click();
+    });
+  }
+
+  openVideoPromptModal(projectName, expectedVideo = null) {
+    const modal = document.getElementById('videoPromptModal');
+    const pProj = document.getElementById('videoPromptProjectName');
+    const pExp = document.getElementById('videoPromptExpected');
+    const sExp = document.getElementById('videoPromptExpectedName');
+
+    if (pProj) pProj.textContent = `Projet "${projectName}" chargé avec succès`;
+    if (sExp && pExp) {
+      if (expectedVideo) {
+        sExp.textContent = expectedVideo;
+        pExp.style.display = 'block';
+      } else {
+        pExp.style.display = 'none';
+      }
+    }
+
+    if (modal) {
+      modal.classList.add('active');
+    }
+  }
+
+  updateFpsBadge() {
+    const btnToggleFps = document.getElementById('btnToggleFps');
+    if (btnToggleFps) {
+      btnToggleFps.textContent = `${Math.round(this.videoSync.fps)} IPS`;
+    }
+  }
+
+  handleVideoError(e) {
+    console.error('Erreur de lecture vidéo :', this.videoEl?.error);
+    const err = this.videoEl?.error;
+    let msg = "Impossible de lire le fichier vidéo. Le format ou codec n'est pas pris en charge par votre navigateur (ex: HEVC/H.265 ou AC3). Utilisez de préférence un fichier MP4 (H.264 / AAC) ou WebM.";
+    if (err && err.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+      msg = "Format ou codec non supporté par ce navigateur (privilégiez MP4 H.264 ou WebM).";
+    }
+    this.showToast(`⚠️ ${msg}`, 6000);
+    if (this.videoPlaceholder) {
+      this.videoPlaceholder.style.display = 'flex';
+      this.videoPlaceholder.innerHTML = `
+        <div class="icon" style="color: #ff5555;">⚠️</div>
+        <p style="color: #ff7777;"><strong>Erreur de lecture vidéo</strong></p>
+        <p style="font-size: 12px; max-width: 380px; margin: 0 auto 12px auto; color: var(--text-muted);">${msg}</p>
+        <button class="btn btn-sm btn-primary" onclick="document.getElementById('fileInputMedia').click()">Choisir une autre vidéo</button>
+      `;
+      this.videoEl.style.display = 'none';
     }
   }
 }

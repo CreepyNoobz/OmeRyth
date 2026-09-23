@@ -52,7 +52,7 @@ export class TimelineRenderer {
   /**
    * Rendu complet d'une frame à 60 FPS
    */
-  render(textManager, currentTime, pps, waveform = null) {
+  render(textManager, currentTime, pps, waveform = null, mediaDuration = 0) {
     const ctx = this.ctx;
     const width = this.width;
     const height = this.height;
@@ -94,7 +94,12 @@ export class TimelineRenderer {
     // 7. Repères de plan (visibles en permanence avec triangles dorés)
     this.drawPlanMarkers(ctx, textManager.planMarkers, offsetX, width, headerH, height);
 
-    // 8. Barre témoin de lecture (rouge)
+    // 8. Démarcation fin de vidéo (si vidéo chargée)
+    if (mediaDuration > 0) {
+      this.drawVideoEndBoundary(ctx, mediaDuration, offsetX, width, pps, headerH, height);
+    }
+
+    // 9. Barre témoin de lecture (rouge)
     this.drawPlayhead(ctx, height);
   }
 
@@ -482,5 +487,32 @@ export class TimelineRenderer {
     const b = parseInt(clean.substring(4, 6), 16) || 0;
     const luma = 0.299 * r + 0.587 * g + 0.114 * b;
     return luma < 120;
+  }
+
+  drawVideoEndBoundary(ctx, mediaDuration, offsetX, width, pps, headerH, height) {
+    const endX = mediaDuration * pps + offsetX;
+    if (endX < width) {
+      const startDrawX = Math.max(0, endX);
+      // Zone assombrie indiquant l'après-vidéo
+      ctx.fillStyle = 'rgba(10, 10, 14, 0.70)';
+      ctx.fillRect(startDrawX, headerH, width - startDrawX, height - headerH);
+
+      // Ligne verticale rouge distinctive marquant la fin exacte
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(endX, 0);
+      ctx.lineTo(endX, height);
+      ctx.stroke();
+
+      // Badge rouge "FIN VIDÉO"
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.9)';
+      ctx.font = `bold 10px ${this.fontFamily}`;
+      const badgeText = 'FIN VIDÉO';
+      const textW = ctx.measureText(badgeText).width;
+      ctx.fillRect(endX + 4, headerH + 6, textW + 8, 16);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(badgeText, endX + 8, headerH + 18);
+    }
   }
 }

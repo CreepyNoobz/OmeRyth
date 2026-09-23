@@ -22,8 +22,9 @@
   display: none;
   background-color: #16161b;
   border-top: 1px solid var(--border-color);
-  padding: 6px 8px;
+  padding: 4px 8px;
   overflow-x: auto;
+  overflow-y: hidden;
   white-space: nowrap;
   -webkit-overflow-scrolling: touch;
   gap: 8px;
@@ -40,7 +41,7 @@
   background-color: #24242d;
   border: 1px solid #363644;
   color: #f0f0f5;
-  padding: 8px 14px;
+  padding: 0 12px;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
@@ -49,7 +50,8 @@
   gap: 6px;
   cursor: pointer;
   touch-action: manipulation;
-  min-height: 42px;
+  height: 36px;
+  min-height: 36px;
   flex-shrink: 0;
   transition: transform 0.1s ease, background-color 0.1s ease;
 }
@@ -109,9 +111,24 @@
 
 /* --- Adaptations Mobile Smartphone (< 768px) --- */
 @media (max-width: 768px) {
+  body {
+    height: 100vh;
+    height: 100dvh;
+    min-height: -webkit-fill-available;
+    width: 100vw;
+    padding: 0;
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
   .header {
     padding: 0 10px;
-    height: 46px;
+    padding-top: env(safe-area-inset-top, 0px);
+    height: calc(46px + env(safe-area-inset-top, 0px));
+    flex-shrink: 0;
   }
 
   .brand-title {
@@ -142,13 +159,21 @@
     min-height: 34px;
   }
 
+  /* Espace principal dynamique sans débordement */
   .main-workspace {
-    height: calc(100vh - 46px - 52px - 48px);
+    flex: 1 1 0;
+    min-height: 0;
+    height: auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
   .video-section {
-    min-height: 140px;
-    max-height: 32vh;
+    flex: 0 0 auto;
+    height: 25vh;
+    min-height: 80px;
+    max-height: 30vh;
   }
 
   .resizer-bar {
@@ -156,59 +181,98 @@
   }
 
   .timeline-section {
-    flex: 1;
-    min-height: 180px;
+    flex: 1 1 0;
+    min-height: 100px;
     height: auto;
+    overflow: hidden;
   }
 
+  /* Barre tactile de signes (Dubbing Pad) */
   .mobile-dubbing-pad {
     display: flex;
-    height: 48px;
+    align-items: center;
+    height: 44px;
+    min-height: 44px;
+    padding: 4px 8px;
+    gap: 6px;
+    flex-shrink: 0;
+    z-index: 10;
   }
 
+  .dub-pad-btn {
+    height: 34px;
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: 12px;
+    border-radius: 6px;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+
+  /* Barre de transport inférieure - Toujours visible et ergonomique */
   .transport-bar {
-    height: 52px;
-    padding: 0 8px;
-    gap: 6px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: calc(48px + env(safe-area-inset-bottom, 0px));
+    min-height: calc(48px + env(safe-area-inset-bottom, 0px));
+    padding: 0 8px env(safe-area-inset-bottom, 0px) 8px;
+    gap: 5px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    z-index: 10;
+  }
+
+  .transport-bar::-webkit-scrollbar {
+    display: none;
   }
 
   .timecode-group {
-    gap: 4px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 3px;
   }
 
   .timecode-box {
-    font-size: 13px;
-    min-width: 85px;
-    padding: 5px 6px;
-    letter-spacing: 0.5px;
+    font-size: 12px;
+    min-width: 74px;
+    padding: 4px 6px;
+    letter-spacing: 0.3px;
+    text-align: center;
   }
 
   .select-control {
     font-size: 11px;
-    padding: 4px;
+    padding: 3px 2px;
   }
 
   .playback-group {
-    gap: 5px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 3px;
   }
 
-  .btn-step {
-    padding: 6px 8px;
-    font-size: 12px;
-    min-width: 44px;
-    min-height: 38px;
-  }
-
+  .btn-step,
   .btn-secondary {
-    padding: 6px 7px;
+    padding: 4px 6px;
     font-size: 11px;
-    min-height: 38px;
+    min-width: 32px;
+    min-height: 34px;
+    height: 34px;
   }
 
   .btn-play-main {
-    padding: 6px 12px;
-    font-size: 13px;
-    min-height: 38px;
+    padding: 4px 10px;
+    font-size: 12px;
+    min-width: 38px;
+    min-height: 34px;
+    height: 34px;
   }
 
   /* Modales adaptées au smartphone */
@@ -243,16 +307,59 @@
   }
 }
 
+/* --- Écrans très étroits (< 520px) : étiquettes compactes pour garantir 100% de visibilité --- */
+@media (max-width: 520px) {
+  .lbl-full {
+    display: none;
+  }
+
+  .lbl-short {
+    display: inline;
+  }
+
+  .play-text {
+    display: none;
+  }
+
+  .transport-bar {
+    padding: 0 4px env(safe-area-inset-bottom, 0px) 4px;
+    gap: 3px;
+  }
+
+  .timecode-box {
+    font-size: 11px;
+    min-width: 68px;
+    padding: 4px 4px;
+  }
+
+  .btn-step,
+  .btn-secondary {
+    padding: 4px 5px;
+    font-size: 10px;
+  }
+
+  .toast {
+    right: 12px;
+    left: 12px;
+    bottom: calc(52px + env(safe-area-inset-bottom, 0px) + 48px);
+    text-align: center;
+  }
+}
+
 /* --- Mode Paysage sur Smartphone (Orientation Landscape) --- */
 @media (max-height: 520px) and (orientation: landscape) {
   .header {
-    height: 40px;
-    padding: 0 12px;
+    height: calc(36px + env(safe-area-inset-top, 0px));
+    padding: 0 10px;
+    padding-top: env(safe-area-inset-top, 0px);
   }
 
   .main-workspace {
     flex-direction: row;
-    height: calc(100vh - 40px - 44px);
+    flex: 1 1 0;
+    min-height: 0;
+    height: auto;
+    overflow: hidden;
   }
 
   .video-section {
@@ -273,27 +380,40 @@
     min-height: unset;
   }
 
+  /* Afficher aussi la barre de signes en paysage en version compacte */
   .mobile-dubbing-pad {
-    display: none; /* En paysage cinéma, les boutons transport suffisent pour maximiser la hauteur */
+    display: flex;
+    height: 36px;
+    min-height: 36px;
+    padding: 2px 6px;
+    gap: 4px;
+  }
+
+  .dub-pad-btn {
+    height: 28px;
+    min-height: 28px;
+    padding: 0 8px;
+    font-size: 11px;
   }
 
   .transport-bar {
-    height: 44px;
+    height: calc(38px + env(safe-area-inset-bottom, 0px));
+    min-height: calc(38px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   .btn-step,
   .btn-secondary,
   .btn-play-main {
-    min-height: 32px;
-    padding: 4px 8px;
-    font-size: 11px;
+    min-height: 28px;
+    height: 28px;
+    padding: 2px 6px;
+    font-size: 10px;
   }
-}
 
-/* --- Support PWA Plein Écran & Encoches iPhone (Safe Areas) --- */
-body {
-  padding-top: env(safe-area-inset-top, 0px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  padding-left: env(safe-area-inset-left, 0px);
-  padding-right: env(safe-area-inset-right, 0px);
+  .timecode-box {
+    font-size: 10px;
+    min-width: 65px;
+    padding: 2px 4px;
+  }
 }
