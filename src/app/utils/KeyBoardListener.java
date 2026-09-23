@@ -14,6 +14,20 @@ import app.ui.RoleWindow;
 import app.ui.SeparatorMark;
 import uk.co.caprica.vlcj.player.component.EmbeddedMediaPlayerComponent;
 
+/**
+ * Écouteur et répartiteur central des événements clavier pour l'édition et le doublage rythmo.
+ * <p>
+ * Deux modes opératoires étanches :
+ * <ul>
+ *   <li><b>Mode Navigation / Lecture :</b> Contrôle la tête de lecture (Espace, avance/recul frame-accurate),
+ *       le zoom temporel (+ / -), l'historique d'annulation (Ctrl+Z / Ctrl+Y), et l'insertion instantanée
+ *       de repères phonétiques (pavé numérique 4: MPB, 5: FVR, 6: Neutre, 7: Voyelle A, 8: Respiration).</li>
+ *   <li><b>Mode Saisie de texte :</b> Capture les caractères typés pour les injecter directement dans le segment actif,
+ *       gère le collage presse-papiers (Ctrl+V), la suppression par mot (Ctrl+Backspace), le saut par mot (Ctrl+Flèches),
+ *       et la clôture de réplique (Entrée / fin de phrase).</li>
+ * </ul>
+ * </p>
+ */
 public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreationListener {
     private TimerClass timer;
     private EmbeddedMediaPlayerComponent mediaPlayerComponent;

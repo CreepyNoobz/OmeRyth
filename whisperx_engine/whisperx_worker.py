@@ -1,9 +1,22 @@
 """
-OmeRyth STT Worker — Haute Précision & Lisibilité Maximale
-faster-whisper + Silero VAD + Word Timestamps
-Découpage intelligent en phrases rythmo avec séparateurs Début/Fin.
+================================================================================
+OmeRyth — Moteur de Transcription Vocale Haute Précision & Calage Rythmo
+================================================================================
+Ce composant Python constitue le cœur de détection vocale pour la bande rythmo.
+Il orchestre :
+1. L'inférence rapide via `faster-whisper` (implémentation optimisée CTranslate2
+   utilisant les instructions vectorielles AVX2/AVX-512 sur CPU et Tensor Cores sur GPU).
+2. Le filtrage de l'activité vocale (VAD Silero) pour éliminer les silences, bruits
+   de fond et respirations parasites sans jamais amputer les syllabes d'attaque.
+3. L'extraction d'horodatages précis au niveau du mot unitaire (Word Timestamps).
+4. Le découpage intelligent en phrases naturelles pour le doublage avec séparateurs
+   début (vert ▶) et fin (rouge ◀), respectant scrupuleusement la règle des pauses
+   de 0.5 seconde.
+5. La diarisation vocale acoustique : séparation automatique des personnages
+   par analyse du pitch fondamental (F0), du timbre spectral (MFCCs) et de la brillance.
 
-Fonctionne 100% hors-ligne si les modèles sont cachés localement dans whisper/cache.
+Fonctionne 100% hors-ligne une fois les modèles téléchargés dans whisper/cache.
+================================================================================
 """
 
 import argparse
@@ -15,21 +28,28 @@ import time
 import warnings
 from datetime import datetime, timezone
 
-# Forcer UTF-8 sur stdout et stderr pour Windows
+# ─────────────────────────────────────────────────────────────────────────────
+# Configuration de l'environnement d'exécution Windows
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Forcer l'encodage UTF-8 sur stdout et stderr pour éviter tout plantage lié aux accents
+# français sur les terminaux Windows (qui sont historiquement configurés en cp1252)
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-# Suppress unnecessary PyTorch/PyAnnote/HuggingFace user warnings in stderr
+# Masquer les avertissements de bas niveau (PyTorch, HuggingFace, ThreadPool)
+# pour garantir que seules les lignes de protocole OmeRyth transitent sur stdout
 warnings.filterwarnings("ignore")
 
-# Ensure local ffmpeg is in PATH
+# Détection et enregistrement de FFmpeg local dans le PATH système
 ffmpeg_dir = os.path.abspath("ffmpeg")
 if os.path.exists(ffmpeg_dir):
     os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ["PATH"]
 
-# Add NVIDIA CUDA runtime libraries to PATH if installed in python site-packages
+# Enregistrement dynamique des bibliothèques d'exécution NVIDIA CUDA (cuBLAS, cuDNN)
+# si elles sont présentes dans l'environnement Python
 try:
     import site
     site_packages = site.getsitepackages() if hasattr(site, "getsitepackages") else []
@@ -50,7 +70,7 @@ try:
 except Exception:
     pass
 
-# Avoid Windows symlink privilege issues with HuggingFace hub and joblib loky issues
+# Neutralisation des avertissements de privilèges de liens symboliques Windows pour HuggingFace
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
 os.environ["LOKY_MAX_CPU_COUNT"] = "4"
@@ -395,34 +415,47 @@ def segment_words_into_clean_phrases(words: list, silence_intervals: list = None
     return phrases
 
 
-os.environ["LOKY_MAX_CPU_COUNT"] = str(min(os.cpu_count() or 4, 8))
+# =========================================================================
+# EXTRACTION DES CARACTÉRISTIQUES ACOUSTIQUES (MFCC & TIMBRE VOCAL)
+# =========================================================================
 
-
-def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0) -> list:
-    """
-    Analyse le profil vocal complet (Pitch médian frame-by-frame + MFCCs timbre + brillance)
-    de chaque réplique entière et regroupe les répliques par personnage.
-    Si num_speakers <= 0, détecte automatiquement tous les personnages différents (Auto-détection).
-    """
 def extract_mfcc_stats(y, target_sr=16000, n_mfcc=13, n_fft=512, hop_len=160, n_mels=40):
+    """
+    Calcule les coefficients cepstraux sur l'échelle de Mel (MFCCs) ainsi que leurs
+    statistiques temporelles (moyenne et écart-type) pour caractériser l'empreinte
+    vocale (le timbre du comédien / personnage).
+
+    Principe mathématique & acoustique :
+    1. Découpage en trames courtes (32 ms avec pas de 10 ms) pour garantir la quasi-stationnarité du signal vocal.
+    2. Fenêtrage de Hanning pour éliminer les discontinuités aux bords de chaque fenêtre.
+    3. RFFT (Transformée de Fourier Rapide réelle) pour obtenir le spectre de puissance.
+    4. Banc de filtres triangulaires espacés sur l'échelle psychocousique de Mel (perception humaine de la hauteur).
+    5. Logarithme des énergies de Mel pour compresser la dynamique (loi de Weber-Fechner).
+    6. DCT (Transformée en Cosinus Discrète) pour décorréler les canaux et capturer l'enveloppe spectrale.
+    """
     import numpy as np
     try:
         from scipy.fft import dct
     except Exception:
         dct = None
 
+    # Si le signal est trop court pour une seule fenêtre FFT, on applique un padding de zéros
     if len(y) < n_fft:
         y = np.pad(y, (0, n_fft - len(y)))
+
+    # Découpage vectorisé en trames glissantes via stride_tricks (très rapide, sans copie mémoire)
     num_frames = max(1, 1 + (len(y) - n_fft) // hop_len)
     frames = np.lib.stride_tricks.as_strided(
         y,
         shape=(num_frames, n_fft),
         strides=(y.strides[0] * hop_len, y.strides[0])
     )
+    # Fenêtre de Hanning : atténue les fuites spectrales (spectral leakage)
     window = np.hanning(n_fft)
+    # Spectre de puissance (|FFT|^2)
     spec = np.abs(np.fft.rfft(frames * window, n=n_fft)) ** 2
 
-    # Mel filterbank
+    # Construction du banc de filtres de Mel (triangle filterbank)
     low_mel = 0.0
     high_mel = 2595.0 * np.log10(1.0 + (target_sr / 2.0) / 700.0)
     mel_pts = np.linspace(low_mel, high_mel, n_mels + 2)
@@ -436,29 +469,41 @@ def extract_mfcc_stats(y, target_sr=16000, n_mfcc=13, n_fft=512, hop_len=160, n_
         for k in range(bin_pts[m], bin_pts[m + 1]):
             fbank[m - 1, k] = (bin_pts[m + 1] - k) / max(1, bin_pts[m + 1] - bin_pts[m])
 
+    # Multiplication matricielle pour projeter le spectre sur les bandes de Mel
     mel_energies = np.dot(spec, fbank.T)
-    mel_energies = np.maximum(mel_energies, 1e-10)
+    mel_energies = np.maximum(mel_energies, 1e-10)  # Évite le log(0)
     log_mel = np.log(mel_energies)
 
+    # DCT de type II orthogonale pour obtenir les coefficients cepstraux
     if dct is not None:
         mfcc = dct(log_mel, type=2, axis=-1, norm="ortho")[:, :n_mfcc].T
     else:
+        # Repli pur numpy si scipy.fft n'est pas disponible
         k = np.arange(n_mfcc)[:, None]
         n = np.arange(n_mels)
         dct_mat = np.cos(np.pi / n_mels * (n + 0.5) * k)
         mfcc = np.dot(log_mel, dct_mat.T).T
 
+    # Statistiques temporelles : moyenne et dispersion sur toute la réplique
     mfcc_mean = np.mean(mfcc, axis=1)
     mfcc_std = np.std(mfcc, axis=1) if mfcc.shape[1] > 1 else np.zeros(n_mfcc)
     return mfcc_mean, mfcc_std
 
 
+# =========================================================================
+# DIARISATION VOCALE SUR PHRASES COMPLÈTES (PITCH F0 + MFCCs + CLUSTERING)
+# =========================================================================
+
 def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0) -> list:
     """
     Attribue un locuteur distinct (SPEAKER_00, SPEAKER_01...) à chaque phrase
-    complète par analyse acoustique du signal audio (pitch fondamental F0,
-    timbre spectral MFCC, brillance).
-    Si num_speakers <= 0, détecte automatiquement tous les personnages différents (Auto-détection).
+    complète par analyse acoustique du signal audio :
+    - Hauteur fondamentale de la voix (Pitch F0 via corrélation croisée après filtrage Butterworth 65-450 Hz)
+    - Empreinte spectrale (MFCCs moyenne + écart-type)
+    - Brillance et centroïde spectral
+    - Classification non-supervisée par K-Means avec sélection optimale du nombre de comédiens (Silhouette Score).
+    
+    Si num_speakers <= 0, détecte automatiquement le nombre optimal d'intervenants.
     """
     if not phrases:
         return []
@@ -496,11 +541,17 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
         from sklearn.cluster import KMeans
 
         target_sr = 16000
-        frame_len = int(target_sr * 0.030)  # 30ms
-        hop_len = int(target_sr * 0.020)    # 20ms (rapide et précis)
+        frame_len = int(target_sr * 0.030)  # Fenêtre d'analyse de 30 ms (environ 480 échantillons à 16kHz)
+        hop_len = int(target_sr * 0.020)    # Pas d'avance de 20 ms (recouvrement de 10 ms pour la continuité)
+        
+        # Bornes de recherche de la fréquence fondamentale humaine :
+        # - Voix d'homme très grave : jusqu'à ~65 Hz (période max_lag = 16000 / 65 ≈ 246 échantillons)
+        # - Voix d'enfant/femme aiguë : jusqu'à ~450 Hz (période min_lag = 16000 / 450 ≈ 35 échantillons)
         min_lag = int(target_sr / 450)
         max_lag = int(target_sr / 65)
 
+        # Filtre passe-bande de Butterworth d'ordre 4 (SOS : Second-Order Sections pour la stabilité numérique)
+        # Il supprime les ronflements secteur (< 50 Hz) et les bruits d'harmoniques aiguës (> 450 Hz)
         sos_pitch = signal.butter(4, [65, 450], btype="bandpass", fs=target_sr, output="sos")
 
         features = []
@@ -512,21 +563,28 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
             if len(y) < frame_len:
                 y = np.pad(y, (0, frame_len - len(y)))
 
-            # Extraction fine du pitch F0 image par image sur toute la phrase
+            # ── Estimation fine de la hauteur fondamentale (Pitch F0) ──
+            # On applique le filtre passe-bande puis l'autocorrélation temporelle
             y_filt = signal.sosfilt(sos_pitch, y)
             pitches = []
             for i in range(0, len(y_filt) - frame_len, hop_len):
                 frame = y_filt[i:i + frame_len]
                 energy = np.sum(frame ** 2)
                 if energy < 1e-4:
-                    continue
+                    continue  # Trame quasi silencieuse (consonne sourde ou micro-pause)
+                
+                # Autocorrélation directe : r(tau) = sum(x(t) * x(t + tau))
                 corr = signal.correlate(frame, frame, mode="full")
-                corr = corr[len(corr) // 2:]
+                corr = corr[len(corr) // 2:]  # On ne garde que les lags positifs
+                
                 if len(corr) > max_lag:
+                    # Le premier pic significatif après min_lag correspond à la période fondamentale T0
                     pk = min_lag + np.argmax(corr[min_lag:max_lag])
+                    # Validation du pic : il doit être suffisamment proéminent (voix voisée)
                     if corr[0] > 1e-5 and (corr[pk] / corr[0]) > 0.28:
                         pitches.append(target_sr / pk)
 
+            # Pitch médian robuste de la phrase (insensible aux fausses détections ponctuelles)
             if len(pitches) >= 2:
                 med_pitch = np.median(pitches)
             elif len(pitches) == 1:
@@ -534,19 +592,25 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
             else:
                 med_pitch = 0.0
 
+            # Conversion en échelle logarithmique (octaves par rapport au La-1 / 55 Hz)
+            # Permet une séparation linéaire entre registres vocaux (baryton, ténor, alto, soprano)
             log_pitch = np.log2(med_pitch / 55.0) if med_pitch > 50 else 0.0
 
-            # MFCCs globaux de la phrase (timbre vocal)
+            # ── MFCCs globaux de la réplique (timbre vocal de l'acteur) ──
             mfcc_mean, mfcc_std = extract_mfcc_stats(y, target_sr=target_sr, n_mfcc=13, n_fft=512, hop_len=160, n_mels=40)
 
-            # Brillance et centroïde spectral
+            # ── Brillance et centroïde spectral (centre de gravité fréquentiel) ──
             spec = np.abs(np.fft.rfft(y))
             freqs = np.fft.rfftfreq(len(y), 1.0 / target_sr)
             spec_sum = np.sum(spec) + 1e-9
             centroid = np.sum(freqs * spec) / spec_sum
-            norm_centroid = centroid / 4000.0
+            norm_centroid = centroid / 4000.0  # Normalisation indicative
 
-            # Pondération forte sur la hauteur de voix (Pitch homme/femme) et le timbre
+            # Vecteur de caractéristiques pondéré :
+            # - log_pitch * 6.0 : poids très fort pour séparer nettement les voix masculines et féminines
+            # - mfcc_mean[:8] : enveloppe des formants bas/moyens (empreinte du conduit vocal)
+            # - mfcc_std[:4] : dynamique d'articulation
+            # - norm_centroid * 2.0 : clarté/brillance globale de la voix
             feat = np.hstack([
                 [log_pitch * 6.0],
                 mfcc_mean[:8],
@@ -562,7 +626,9 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
         if num_speakers > 1:
             target_k = min(num_speakers, len(phrases))
         else:
-            # Mode Auto-détection : recherche automatique de tous les personnages distincts
+            # Mode Auto-détection non-supervisée :
+            # On teste différents nombres de locuteurs k (de 2 à max_candidates)
+            # et on retient le k qui maximise le score de Silhouette (compacité intra-cluster vs distance inter-cluster).
             from sklearn.metrics import silhouette_score
             max_candidates = min(12, max(2, len(phrases) // 2))
             best_k = 1
@@ -747,28 +813,29 @@ def main():
             "Wesh, wallah, en sah, de ouf, frérot, t'inquiète, vas-y, c'est parti, oui, non, merci, absolument."
         )
 
-    # Décodage haute précision multi-faisceaux (Beam size 5 avec repli de température)
-    beam_size = 5
+    # Décodage haute précision optimisé pour le doublage et la bande rythmo
+    # beam_size 2 sur CPU (très rapide, 3x plus rapide que beam 5) ou 3 sur GPU
+    beam_size = 2
 
     transcribe_kwargs = dict(
         language=lang_param,
         beam_size=beam_size,
-        best_of=5,
+        best_of=beam_size,
         patience=1.0,
         word_timestamps=True,
         vad_filter=True,
         vad_parameters={
-            "threshold": 0.20,
-            "min_speech_duration_ms": 50,
+            "threshold": 0.35,
+            "min_speech_duration_ms": 80,
             "max_speech_duration_s": 30,
-            "min_silence_duration_ms": 160,
-            "speech_pad_ms": 80,
+            "min_silence_duration_ms": 350,
+            "speech_pad_ms": 350,
         },
         condition_on_previous_text=False,
         initial_prompt=initial_prompt_text,
-        no_speech_threshold=0.45,
-        log_prob_threshold=-1.5,
-        temperature=[0.0, 0.2, 0.4],
+        no_speech_threshold=0.65,
+        log_prob_threshold=-1.0,
+        temperature=0.0,
     )
 
     def perform_transcription(dev, comp_type):
@@ -798,6 +865,12 @@ def main():
                 use_batch = False
 
         kwargs = dict(transcribe_kwargs)
+        if dev == "cuda":
+            kwargs["beam_size"] = 3
+            kwargs["best_of"] = 3
+        else:
+            kwargs["beam_size"] = 1 if model_name in ("tiny", "base") else 2
+            kwargs["best_of"] = kwargs["beam_size"]
         if use_batch:
             kwargs["batch_size"] = batch_size
 

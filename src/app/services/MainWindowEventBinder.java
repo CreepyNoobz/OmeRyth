@@ -14,11 +14,26 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.util.function.Consumer;
 
+/**
+ * Gestionnaire centralisé pour la capture et le routage des événements globaux de l'application.
+ * <p>
+ * Rôles clés :
+ * <ul>
+ *   <li><b>Désactivation de la saisie au clic externe :</b> Écouteur global AWT fermant la boîte d'édition
+ *       textuelle de la timeline dès que l'utilisateur clique en dehors de celle-ci.</li>
+ *   <li><b>Défilement temporel global :</b> Interception de la molette de souris sur la fenêtre principale
+ *       (avec exclusion sélective des ascenseurs de l'historique et des zones de dialogue actives).</li>
+ *   <li><b>Acheminement universel des raccourcis clavier :</b> Enregistre un {@code KeyEventDispatcher}
+ *       sur le {@link KeyboardFocusManager} pour que les touches de transport (Espace, flèches, M, etc.)
+ *       fonctionnent quel que soit le composant ayant le focus dans la fenêtre.</li>
+ *   <li><b>Interception de la fermeture :</b> Déclenche le protocole d'arrêt propre et de confirmation.</li>
+ * </ul>
+ * </p>
+ */
 public class MainWindowEventBinder {
 
     /**
-     * Bind common application-level event handlers: global mouse events, wheel handling
-     * and window close callback using the provided handlers.
+     * Attache les gestionnaires d'événements globaux AWT et Swing à la fenêtre principale.
      */
     public void bind(JFrame frame,
                      TimelinePanel timelinePanel,

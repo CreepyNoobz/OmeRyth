@@ -40,18 +40,34 @@ public class TextManager {
     public boolean isCursorRightSide() { return cursorRightSide; }
     public TextItem getEditingItem() { return selectedText; }
 
-    // ==================== TEXT MANAGEMENT ====================
-    /** Add a new text string at world x on the given band. */
+    // =========================================================================
+    // GESTION DES TEXTES ET RECALAGE TEMPOREL
+    // =========================================================================
+
+    /** Ajoute une nouvelle réplique textuelle à la coordonnée monde X sur la bande spécifiée. */
     public void addText(String text, int x, int band) {
         texts.add(new TextItem(text, x, band));
     }
 
-    /** Add an existing TextItem to the manager. */
+    /** Ajoute une instance existante de TextItem au gestionnaire. */
     public void addTextItem(TextItem item) {
         texts.add(item);
     }
 
-    /** Rescale timeline coordinates around an anchor (used for zoom). */
+    /** Trie l'ensemble des répliques par ordre chronologique croissant de leur coordonnée X. */
+    public void sortTexts() {
+        texts.sort(Comparator.comparingInt(t -> t.x));
+    }
+
+    /**
+     * Recale l'ensemble des coordonnées temporelles autour d'un point d'ancrage fixe (utilisé lors du zoom).
+     * 
+     * Formule de dilatation affine :
+     *   nouvellePos = ancre + (anciennePos - ancre) * ratio
+     * 
+     * Cette transformation préserve scrupuleusement la position relative de chaque mot,
+     * séparateur et repère de plan par rapport au centre de vue de l'utilisateur.
+     */
     public void scaleTimelineX(int anchorX, double ratio) {
         if (ratio <= 0 || Math.abs(ratio - 1.0) < 1e-9) return;
 
@@ -79,7 +95,11 @@ public class TextManager {
         return (int) Math.round(anchor + (value - anchor) * ratio);
     }
 
-    /** Add an INNER separator at x inside or outside the phrase for band. */
+    /**
+     * Ajoute un séparateur syllabique interne (INNER) à la position X.
+     * Si la position est à l'intérieur d'une réplique en cours d'édition,
+     * l'index de découpe (splitIndex) est automatiquement initialisé à la position actuelle du curseur de frappe.
+     */
     public void addSeparator(int band, int x) {
         if (hasSeparatorAt(band, x)) {
             return;
@@ -90,7 +110,7 @@ public class TextManager {
             Integer leftBoundary = getLeftBoundary(band, selectedText.x);
             Integer rightBoundary = getRightBoundary(band, selectedText.x);
 
-            // Si x est à l'intérieur de la phrase en cours d'édition (même sans fin définie !)
+            // Si x est à l'intérieur de la phrase en cours d'édition (même sans fin définie)
             if (leftBoundary != null && x > leftBoundary && (rightBoundary == null || x < rightBoundary)) {
                 int len = currentInput.length();
                 int safeCursor = Math.max(0, Math.min(cursorIndex, len));
@@ -156,17 +176,17 @@ public class TextManager {
         addSeparator(band, x, SeparatorMark.Type.INNER, -1, signType);
     }
 
-    /** Add a separator of the specified type at x on the given band. */
+    /** Ajoute un séparateur du type spécifié (START, END, INNER, LEGACY) à la coordonnée X. */
     public void addSeparator(int band, int x, SeparatorMark.Type type) {
         addSeparator(band, x, type, -1, SeparatorMark.SignType.DEFAULT);
     }
 
-    /** Add a separator with optional split index at x on band. */
+    /** Ajoute un séparateur avec indice de découpe de chaîne spécifié. */
     public void addSeparator(int band, int x, SeparatorMark.Type type, int splitIndex) {
         addSeparator(band, x, type, splitIndex, SeparatorMark.SignType.DEFAULT);
     }
 
-    /** Add a separator with optional split index and sign type at x on band. */
+    /** Ajoute un repère complet avec type de signe labial (FVR, MPB, voyelle ouverte, etc.). */
     public SeparatorMark addSeparator(int band, int x, SeparatorMark.Type type, int splitIndex, SeparatorMark.SignType signType) {
         ArrayList<SeparatorMark> list = bandSeparators.computeIfAbsent(band, k -> new ArrayList<>());
         for (SeparatorMark mark : list) {
@@ -330,7 +350,7 @@ public class TextManager {
         return true;
     }
 
-    /** Begin typing a new text at world x on the specified band. */
+    /** Démarre la saisie libre d'un nouveau texte à la coordonnée monde X sur la bande spécifiée. */
     public void startTyping(int band, int x) {
         this.isEditing = true;
         this.activeBand = band;
@@ -341,30 +361,31 @@ public class TextManager {
     }
 
     /**
-     * Crée un début de phrase : séparateur de début à cursorX,
-     * un nouveau TextItem vide ancré juste après, et entre en édition.
+     * Crée une nouvelle réplique complète :
+     * - Place le repère de début START à la position courante du curseur
+     * - Alloue un nouveau TextItem vide associé au rôle choisi
+     * - Passe immédiatement en mode édition active avec le caret à l'indice 0.
      */
-    /** Create a new phrase (start separator + empty TextItem) and enter edit mode. */
     public void startPhrase(int band, int cursorX, Role role) {
-        // Tant qu'une phrase de la bande n'est pas fermée, on réédite cette phrase
+        // Si une phrase de la bande est déjà ouverte, on redonne le focus à celle-ci
         if (focusOpenPhraseInBand(band)) {
             return;
         }
 
-        // Ne pas créer une nouvelle phrase à l'intérieur d'une phrase existante.
+        // Interdiction de créer une nouvelle phrase chevauchant une phrase existante
         if (hasPhraseAtPosition(band, cursorX)) {
             return;
         }
 
-        // Ne pas superposer un nouveau symbole sur un symbole existant.
+        // Interdiction de superposer un nouveau symbole sur un symbole existant
         if (hasSeparatorAt(band, cursorX)) {
             return;
         }
 
-        // séparateur de début (la colonne curseur sur la timeline)
+        // Repère de début (START)
         addSeparator(band, cursorX, SeparatorMark.Type.START);
 
-        // TextItem positionné juste après le séparateur
+        // TextItem positionné à l'ancre du repère de départ
         TextItem item = new TextItem("", cursorX, band);
         item.role = role;
         texts.add(item);
@@ -378,18 +399,20 @@ public class TextManager {
     }
 
     /**
-     * Crée un séparateur de fin à cursorX, sauvegarde le texte en cours et quitte l'édition.
+     * Clôture la phrase en cours d'édition :
+     * - Place le repère de fin END à la coordonnée X du curseur de lecture
+     * - Sauvegarde définitivement la chaîne saisie dans le TextItem
+     * - Quitte le mode d'édition active.
      */
-    /** Close the current editing phrase by adding an END separator and saving text. */
     public void endPhrase(int cursorX) {
         if (!isEditing) return;
-        // On ne ferme qu'une phrase réelle (ancrée par un début)
+        // On ne ferme qu'une phrase réelle (ayant un repère START valide)
         if (selectedText == null || !hasStartBoundaryAt(activeBand, selectedText.x)) {
             stopTyping();
             return;
         }
 
-        // Phrase déjà fermée: on quitte l'édition sans ajouter un nouveau séparateur de fin.
+        // Si la phrase possède déjà un repère de fin END, on sauvegarde sans en ajouter un second
         if (getRightBoundary(activeBand, selectedText.x) != null) {
             if (selectedText != null) {
                 selectedText.text = currentInput;
@@ -409,7 +432,7 @@ public class TextManager {
         stopTyping();
     }
 
-    /** Begin editing an existing TextItem at the specified cursor index. */
+    /** Ouvre une réplique existante en mode édition et positionne le curseur à l'indice spécifié. */
     public void startEditingExistingText(TextItem text, int cursorIdx) {
         this.selectedText = text;
         this.activeBand = text.band;
@@ -420,13 +443,17 @@ public class TextManager {
         this.cursorRightSide = false;
     }
 
-    /** Insert a character into the current editing buffer (handles enter/backspace). */
+    /**
+     * Traite la frappe d'un caractère au clavier :
+     * - Insère le caractère dans le tampon courant
+     * - Décale vers la droite tous les indices de découpe (splitIndex) des séparateurs internes situés après le curseur
+     * - Répercute instantanément le changement dans l'objet TextItem.
+     */
     public void typeChar(char c) {
         if (!isEditing) return;
 
         if (c == '\n') {
-            // Enter is now handled by endPhrase() called from outside (places end separator)
-            // kept as fallback for simple startTyping mode (no separators)
+            // Touche Entrée : repli en cas d'édition brute hors séparateurs
             if (selectedText == null && !currentInput.isEmpty()) {
                 texts.add(new TextItem(currentInput, textX, activeBand));
             } else if (selectedText != null) {
@@ -455,7 +482,7 @@ public class TextManager {
         }
     }
 
-    /** Stop typing and clear the editing state. */
+    /** Quitte le mode édition et réinitialise l'état de frappe. */
     public void stopTyping() {
         isEditing = false;
         currentInput = "";
@@ -464,7 +491,7 @@ public class TextManager {
         cursorIndex = 0;
     }
 
-    /** Clear all texts and separators, resetting manager state. */
+    /** Efface tous les textes, séparateurs et marqueurs de la timeline. */
     public void clearAll() {
         texts.clear();
         bandSeparators.clear();
@@ -472,7 +499,10 @@ public class TextManager {
         stopTyping();
     }
 
-    /** Move the text cursor by delta positions (supports wrap-around across inner separators). */
+    /**
+     * Déplace le curseur de saisie de delta positions.
+     * Gère avec précision le franchissement des repères internes (bords gauche / droit de la coupure).
+     */
     public void moveCursor(int delta) {
         if (!isEditing || delta == 0) return;
         int len = currentInput.length();
@@ -507,19 +537,19 @@ public class TextManager {
         cursorIndex = clampCursorIndex(cursorIndex + delta);
     }
 
-    /** Move the cursor to the start of the current editing buffer. */
+    /** Déplace le curseur au début de la réplique (indice 0). */
     public void moveCursorToStart() {
         cursorIndex = 0;
         cursorRightSide = false;
     }
 
-    /** Move the cursor to the end of the current editing buffer. */
+    /** Déplace le curseur à la fin de la réplique. */
     public void moveCursorToEnd() {
         cursorIndex = currentInput.length();
         cursorRightSide = true;
     }
 
-    /** Move the cursor one word forward or backward depending on direction. */
+    /** Déplace le curseur d'un mot complet vers la gauche ou vers la droite. */
     public void moveCursorByWord(int direction) {
         if (direction < 0) {
             int i = cursorIndex - 1;
@@ -536,7 +566,10 @@ public class TextManager {
         cursorIndex = clampCursorIndex(cursorIndex);
     }
 
-    /** Delete a single character to the left of the cursor. */
+    /**
+     * Supprime le caractère à gauche du curseur (Backspace) et ajuste
+     * automatiquement les coupures syllabiques des séparateurs internes situés à droite.
+     */
     public void deleteChar() {
         if (!isEditing || cursorIndex == 0) return;
         int deletePos = cursorIndex - 1;
@@ -547,7 +580,7 @@ public class TextManager {
         if (selectedText != null) selectedText.text = currentInput;
     }
 
-    /** Delete the last word to the left of the cursor. */
+    /** Supprime le mot complet à gauche du curseur (Ctrl+Backspace). */
     public void deleteWord() {
         if (!isEditing || cursorIndex == 0) return;
         int i = cursorIndex - 1;
@@ -560,7 +593,7 @@ public class TextManager {
         if (selectedText != null) selectedText.text = currentInput;
     }
 
-    /** Insert a block of text at the current cursor position. */
+    /** Insère un bloc de texte complet au curseur (Collage / Paste). */
     public void insertText(String text) {
         if (!isEditing || text == null || text.isEmpty()) return;
         String normalized = text.replace('\r', ' ').replace('\n', ' ');
@@ -630,6 +663,20 @@ public class TextManager {
         return null;
     }
 
+    /**
+     * Convertit un clic souris (coordonnée écran mouseX) en index précis de caractère (cursorIndex)
+     * au sein d'une réplique déformée élastiquement par des séparateurs internes.
+     * 
+     * Problématique & Algorithme géométrique :
+     * 1. La phrase est divisée en plusieurs sous-intervalles géométriques [segStart, segEnd] par les repères INNER.
+     * 2. Chaque intervalle contient un nombre variable de caractères : segChars = idx - prevIdx.
+     * 3. On identifie dans quel sous-intervalle se trouve la coordonnée monde du clic (worldX = mouseX - offsetX).
+     * 4. On calcule le ratio d'avancement linéaire local :
+     *      rel = (worldX - segStart) / (segEnd - segStart)
+     * 5. L'indice résultant correspond à :
+     *      result = prevIdx + round(rel * segChars)
+     * 6. L'état cursorRightSide est ajusté pour savoir si le caret doit clignoter avant ou après le repère.
+     */
     public int getCursorIndexForClick(TextItem t, int mouseX, int offsetX) {
         int[] bounds = getSegmentBounds(t);
         int segmentStart = bounds[0];
@@ -1093,8 +1140,8 @@ public class TextManager {
     }
 
     /**
-     * Shift an INNER separator by multiple characters (positive -> move right, negative -> left)
-     * Applied in a single operation to reduce UI jank when dragging.
+     * Décale un séparateur interne (INNER) de plusieurs caractères en une seule opération (delta négatif = vers la gauche, positif = vers la droite).
+     * Permet une redistribution élastique ultra-fluide et réactive des lettres lors du glisser-déposer à la souris.
      */
     public void shiftInnerSepTextBy(int band, int x, int delta) {
         if (delta == 0) return;
@@ -1222,6 +1269,10 @@ public class TextManager {
         }
     }
 
+    /**
+     * Décale les indices de coupure syllabique des séparateurs internes lors de l'insertion de nouveaux caractères.
+     * Tout séparateur situé après la position d'insertion voit son splitIndex incrémenté de delta.
+     */
     private void shiftInnerSplitIndicesOnInsert(int atIndex, int delta) {
         if (selectedText == null || delta <= 0) return;
         for (SeparatorMark m : getInnerMarksForSelectedPhrase()) {
@@ -1234,6 +1285,9 @@ public class TextManager {
         }
     }
 
+    /**
+     * Ajuste les indices de coupure syllabique des séparateurs internes lors de la suppression de caractères.
+     */
     private void shiftInnerSplitIndicesOnDelete(int startIndex, int deletedLen) {
         if (selectedText == null || deletedLen <= 0) return;
         int endIndex = startIndex + deletedLen;

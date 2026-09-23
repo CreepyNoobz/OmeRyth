@@ -21,22 +21,48 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Passerelle d'interopérabilité pour le format industriel DETX (Cappella / Chinkel).
+ * 
+ * Le format DETX est le standard XML de référence utilisé dans les studios professionnels
+ * de doublage francophone :
+ * - Gestion des timecodes SMPTE stricts au format "HH:MM:SS:FF" (25 images par seconde).
+ * - Prise en charge du Timecode de base (généralement 01:00:00:00 ou 00:00:00:00 pour les décalages de mire broadcast).
+ * - Découpage récursif en balises <line>, <lipsync type="...">, <text> et <shot> (changements de plan).
+ */
 public class DetxManager {
+
+    /** Cadence d'images standard en télévision/doublage européen (PAL / EBU 25 images par seconde) */
     private static final double FPS = 25.0;
+
+    /** Timecode de base broadcast conventionnel (1 heure = début du premier acte de programme) */
     private static final String BASE_TC = "01:00:00:00";
 
+    /**
+     * Convertit un timecode SMPTE "HH:MM:SS:FF" en secondes relatives de vidéo
+     * par rapport au timecode de base standard.
+     */
     public static double timecodeToSeconds(String timecode) {
         return timecodeToSeconds(timecode, BASE_TC);
     }
 
+    /**
+     * Convertit un timecode SMPTE en secondes relatives par rapport à un timecode de base personnalisé.
+     */
     public static double timecodeToSeconds(String timecode, String baseTimecode) {
         return parseTimecode(timecode) - parseTimecode(baseTimecode != null ? baseTimecode : BASE_TC);
     }
 
+    /**
+     * Convertit un temps en secondes en timecode SMPTE "HH:MM:SS:FF" à 25 images/seconde.
+     */
     public static String secondsToTimecode(double seconds) {
         return secondsToTimecode(seconds, BASE_TC);
     }
 
+    /**
+     * Convertit un temps en secondes en timecode SMPTE à 25 fps avec décalage de base.
+     */
     public static String secondsToTimecode(double seconds, String baseTimecode) {
         double totalSeconds = seconds + parseTimecode(baseTimecode != null ? baseTimecode : BASE_TC);
         int hours = (int) (totalSeconds / 3600);
@@ -50,6 +76,9 @@ public class DetxManager {
         return String.format("%02d:%02d:%02d:%02d", hours, minutes, secs, frames);
     }
 
+    /**
+     * Décode une chaîne timecode "HH:MM:SS:FF" en total absolu de secondes.
+     */
     private static double parseTimecode(String timecode) {
         if (timecode == null) return 0.0;
         String[] parts = timecode.trim().split(":");
@@ -65,6 +94,9 @@ public class DetxManager {
         }
     }
 
+    /**
+     * Charge un fichier XML DETX complet et instancie les données dans OmeRyth.
+     */
     public static LoadedProject loadDetx(File file, TextManager textManager, ArrayList<Role> roles, double pixelsPerSecond) {
         File videoFile = null;
         int maxBand = 0;
@@ -298,6 +330,17 @@ public class DetxManager {
         return new LoadedProject(videoFile, maxBand + 1, pixelsPerSecond, -1);
     }
 
+    /**
+     * Sauvegarde l'ensemble du projet OmeRyth au format XML DETX (Cappella / Chinkel).
+     * 
+     * Architecture du document généré :
+     * - Racine <detx copyright="...">
+     * - En-tête <header> avec version Cappella et référence vers le fichier vidéo d'origine
+     * - Dictionnaire <roles> associant chaque rôle à son identifiant, nom et code couleur hexadécimal
+     * - Corps <body> structuré en pistes <line track="..." role="..."> avec alternance
+     *   de balises labiales <lipsync type="..."> et de fragments de texte <text>
+     * - Repères de plans <shot timecode="..."> ordonnés chronologiquement.
+     */
     public static void saveDetx(File file, File videoFile, TextManager textManager, ArrayList<Role> roles, int bandCount, double pixelsPerSecond) {
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
@@ -309,7 +352,7 @@ public class DetxManager {
             root.setAttribute("copyright", "Chinkel S.A., 2007-2025");
             doc.appendChild(root);
 
-            // Header
+            // En-tête (Header)
             Element header = doc.createElement("header");
             root.appendChild(header);
 
@@ -324,7 +367,7 @@ public class DetxManager {
             }
             header.appendChild(vfile);
 
-            // Roles
+            // Rôles et comédiens
             Element rolesEl = doc.createElement("roles");
             root.appendChild(rolesEl);
             for (Role r : roles) {
@@ -398,7 +441,7 @@ public class DetxManager {
                             currentLine.appendChild(mpb);
                         }
                         
-                        // Find matching END
+                        // Recherche du séparateur de clôture END correspondant
                         int endIdx = -1;
                         for (int j = i + 1; j < sortedSeps.size(); j++) {
                             if (sortedSeps.get(j).type == SeparatorMark.Type.END) {
@@ -449,7 +492,7 @@ public class DetxManager {
                             
                             SeparatorMark endMark = sortedSeps.get(endIdx);
                             
-                            // Check if next phrase is same role
+                            // Vérifie si la réplique suivante appartient au même comédien/rôle
                             boolean nextSameRole = false;
                             if (endIdx + 1 < sortedSeps.size() && sortedSeps.get(endIdx + 1).type == SeparatorMark.Type.START) {
                                 SeparatorMark nextStart = sortedSeps.get(endIdx + 1);

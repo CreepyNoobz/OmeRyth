@@ -38,9 +38,37 @@ import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * Service orchestrateur pour la gestion multimédia, la synchronisation vidéo VLCJ et le pipeline d'export FFmpeg.
+ * <p>
+ * Responsabilités architecturales :
+ * <ul>
+ *   <li><b>Intégration du lecteur vidéo :</b> Pilotage du composant natif VLCJ (EmbeddedMediaPlayerComponent)
+ *       avec gestion asynchrone des métadonnées temporelles et bascule dynamique des panneaux CardLayout.</li>
+ *   <li><b>Navigation temporelle fluide (Seeking) :</b> Défilement par molette de souris ultra-réactif avec filtrage anti-rebond,
+ *       incréments dynamiques par modificateurs clavier (normal 0.1s, Shift 0.5s, Ctrl 1.0s) et reprise automatique
+ *       d'état lorsque la vidéo est arrêtée ou terminée.</li>
+ *   <li><b>Pipeline d'export vidéo sans E/S disque :</b> Rendu vectoriel frame-par-frame en mémoire BGR24,
+ *       injection directe via flux standard (stdin pipe 2 Mo) vers FFmpeg, composition multi-calques par filtres
+ *       complexes et sélection automatique de l'accélération matérielle (NVENC, QSV, AMF).</li>
+ *   <li><b>Séparation vocale IA :</b> Isolation acoustique des dialogues pour karaoké et doublage via Demucs HTDemucs v4
+ *       ou filtrage différentiel stéréo FFmpeg.</li>
+ * </ul>
+ * </p>
+ */
 public class MediaWorkflowService {
 
-    /** Load a video file into the media player component and set timeline duration. */
+    /**
+     * Charge de manière asynchrone un fichier vidéo dans le lecteur multimédia VLCJ et configure l'échelle de la timeline.
+     *
+     * @param owner                 Fenêtre parente pour l'affichage de la boîte de progression.
+     * @param videoFile             Fichier vidéo ou audio sélectionné par l'utilisateur.
+     * @param mediaPlayerComponent  Composant lecteur VLCJ natif.
+     * @param mediaCardLayout       Gestionnaire de disposition pour basculer entre l'état vide et le lecteur actif.
+     * @param mediaContentPanel     Conteneur hébergeant l'affichage vidéo.
+     * @param timer                 Horloge maîtresse de l'application (TimerClass).
+     * @param onLoaded              Action de rappel exécutée avec succès une fois les métadonnées acquises.
+     */
     public void loadVideo(javax.swing.JFrame owner,
                           File videoFile,
                           EmbeddedMediaPlayerComponent mediaPlayerComponent,
@@ -50,7 +78,7 @@ public class MediaWorkflowService {
                           Runnable onLoaded) {
         if (videoFile == null) return;
 
-        JDialog loadingDialog = new JDialog(owner, "Chargement video", false);
+        JDialog loadingDialog = new JDialog(owner, "Chargement de la vidéo", false);
         JProgressBar progress = new JProgressBar();
         progress.setIndeterminate(true);
         loadingDialog.add(progress);
@@ -74,8 +102,8 @@ public class MediaWorkflowService {
                     long dureeMs = get();
                     if (dureeMs <= 0) {
                         JOptionPane.showMessageDialog(owner,
-                                "Video non supportee ou metadonnees illisibles.",
-                                "Chargement video",
+                                "Vidéo non supportée ou métadonnées illisibles.",
+                                "Chargement vidéo",
                                 JOptionPane.ERROR_MESSAGE);
                         mediaCardLayout.show(mediaContentPanel, "EMPTY");
                         return;
@@ -85,8 +113,8 @@ public class MediaWorkflowService {
                     if (onLoaded != null) onLoaded.run();
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(owner,
-                            "Impossible de charger la video: " + ex.getMessage(),
-                            "Chargement video",
+                            "Impossible de charger la vidéo : " + ex.getMessage(),
+                            "Chargement vidéo",
                             JOptionPane.ERROR_MESSAGE);
                     mediaCardLayout.show(mediaContentPanel, "EMPTY");
                 }
@@ -99,14 +127,29 @@ public class MediaWorkflowService {
 
     private long lastWheelTime = 0;
 
-    /** Adjust current time based on mouse wheel input (seeking). */
+    /**
+     * Ajuste la position temporelle courante lors d'un défilement à la molette de souris sur la timeline.
+     * <p>
+     * Implémente un filtre anti-rebond (30 ms) pour éviter l'engorgement de requêtes vers VLCJ,
+     * suspend la lecture en cours pour un positionnement frame-accurate, et adapte le pas de déplacement :
+     * <ul>
+     *   <li>Par défaut : 0.1 seconde (un dixième de seconde, synchronisé avec les graduations).</li>
+     *   <li>Avec la touche Shift : 0.5 seconde.</li>
+     *   <li>Avec la touche Ctrl : 1.0 seconde (saut d'une seconde entière).</li>
+     * </ul>
+     * </p>
+     *
+     * @param event                 Événement de rotation de la molette souris.
+     * @param timer                 Chronomètre maître.
+     * @param mediaPlayerComponent  Composant lecteur vidéo VLCJ.
+     */
     public void adjustTimeByWheel(MouseWheelEvent event,
                                   TimerClass timer,
                                   EmbeddedMediaPlayerComponent mediaPlayerComponent) {
         event.consume();
         long now = System.currentTimeMillis();
         if (now - lastWheelTime < 30) {
-            return; // Ignore duplicate event triggered in rapid succession (<30ms)
+            return; // Ignore les impulsions ultra-rapprochées (<30ms) pour éviter les à-coups
         }
         lastWheelTime = now;
 
@@ -121,7 +164,7 @@ public class MediaWorkflowService {
         }
 
         int modifiers = event.getModifiersEx();
-        double step = 0.1; // 1 marquage entier (0.1s)
+        double step = 0.1; // Pas par défaut : 1 graduation de dixième de seconde (0.1s)
         if ((modifiers & InputEvent.CTRL_DOWN_MASK) != 0) {
             step = 1.0;
         } else if ((modifiers & InputEvent.SHIFT_DOWN_MASK) != 0) {
@@ -162,7 +205,14 @@ public class MediaWorkflowService {
         }
     }
 
-    /** Export the timeline as a video file using frame rendering + ffmpeg. */
+    /**
+     * Déclenche l'exportation complète de la timeline sous forme de vidéo encodée via FFmpeg.
+     * <p>
+     * Propose un dialogue de configuration interactif (sélection de résolution, gabarit de montage,
+     * débit d'images, suppression des voix par IA, flou d'arrière-plan, voile anti-copyright)
+     * puis lance un encodeur haute performance sans écriture de fichiers images intermédiaires.
+     * </p>
+     */
     public void exportVideo(javax.swing.JFrame owner,
                             File fichierSelectionne,
                             EmbeddedMediaPlayerComponent mediaPlayerComponent,

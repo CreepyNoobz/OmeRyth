@@ -6,6 +6,17 @@ import java.io.File;
 import java.util.List;
 import java.util.function.Consumer;
 
+/**
+ * Service gérant le glisser-déposer (Drag & Drop) de fichiers depuis l'explorateur système vers la fenêtre OmeRyth.
+ * <p>
+ * Aiguille automatiquement les fichiers déposés :
+ * <ul>
+ *   <li><b>Fichiers projets :</b> Extensions {@code .rythmo}, {@code .detx}, {@code .xml}, {@code .cappella}, {@code .json}.</li>
+ *   <li><b>Médias audio / vidéo :</b> Extensions {@code .mp4}, {@code .mkv}, {@code .mov}, {@code .avi},
+ *       {@code .mp3}, {@code .wav}, {@code .ogg}, {@code .m4a}, {@code .flac}.</li>
+ * </ul>
+ * </p>
+ */
 public class DropImportService {
 
     private final Consumer<File> onProjectFile;

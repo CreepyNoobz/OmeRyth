@@ -24,11 +24,27 @@ import java.io.File;
 import java.util.ArrayList;
 
 /**
- * Builds the large UI block previously contained in MainFenetre.
- * Returns a container with all created parts so MainFenetre stays small.
+ * Constructeur d'interface graphique assurant l'assemblage modulaire de la fenêtre principale {@link MainFenetre}.
+ * <p>
+ * Responsabilités architecturales :
+ * <ul>
+ *   <li><b>Découplage UI / Contrôleur :</b> Extrait l'instanciation verbeuse des composants Swing hors de {@link MainFenetre}.</li>
+ *   <li><b>Zone Supérieure (Média & Contrôles) :</b>
+ *     <ul>
+ *       <li>À gauche : panneau du chronomètre haute précision, potentiomètre de volume et historique textuel des répliques.</li>
+ *       <li>Au centre/droite : lecteur vidéo haute fidélité VLCJ intégré sur fond personnalisable avec bascule d'état (CardLayout).</li>
+ *     </ul>
+ *   </li>
+ *   <li><b>Zone Inférieure :</b> Bande rythmo défilante interactive ({@link TimelinePanel}).</li>
+ *   <li><b>Synchronisation média/horloge :</b> Liaison des écouteurs de fin de vidéo VLCJ et de pause de l'horloge.</li>
+ * </ul>
+ * </p>
  */
 public class MainWindowBuilder {
 
+    /**
+     * Conteneur d'agrégation regroupant l'ensemble des sous-composants Swing et services instanciés.
+     */
     public static class Parts {
         public JPanel mainPanel;
         public TimelinePanel timelinePanel;

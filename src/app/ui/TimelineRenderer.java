@@ -14,6 +14,18 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Moteur de rendu graphique de la bande rythmo (Timeline).
+ * 
+ * Cette classe est responsable de l'affichage en temps réel (60+ images par seconde) :
+ * - Des pistes horizontales (bandes de doublage pour chaque comédien ou personnage)
+ * - De la forme d'onde audio (waveform) en arrière-plan
+ * - Des graduations temporelles (dixièmes de seconde et secondes entières)
+ * - Des répliques textuelles déformées et étirées élastiquement pour coller au rythme labial
+ * - Des repères et séparateurs de synchro (START, END, INNER, FVR, MPB, etc.)
+ * - Des marqueurs de changement de plan vidéo
+ * - Du curseur rouge de lecture (barre de synchro verticale)
+ */
 public class TimelineRenderer {
 
     private int bandCount;
@@ -38,12 +50,12 @@ public class TimelineRenderer {
         this.customization = new AppCustomization();
     }
 
-    /** Set the number of bands (tracks) the renderer should draw. */
+    /** Définit le nombre de bandes (pistes de comédiens) à dessiner. */
     public void setBandCount(int bandCount) {
         this.bandCount = Math.max(1, bandCount);
     }
 
-    /** Update the cursor X coordinate (in world / screen coordinates) for rendering. */
+    /** Met à jour la position X du curseur rouge (barre de lecture fixe ou mobile). */
     public void setCursorX(int cursorX) {
         this.cursorX = cursorX;
     }
@@ -52,7 +64,7 @@ public class TimelineRenderer {
         return cursorX;
     }
 
-    /** Set customization parameters (colors, fonts, images) used for rendering. */
+    /** Applique les paramètres de personnalisation visuelle (thème sombre, couleurs, polices). */
     public void setCustomization(AppCustomization customization) {
         this.customization = customization != null ? customization : new AppCustomization();
     }
@@ -149,14 +161,14 @@ public class TimelineRenderer {
         if (AppCustomization.BAND_BG_IMAGE_GLOBAL.equals(customization.bandBackgroundMode)) {
             BufferedImage globalImage = getBandImageForIndex(0);
             if (globalImage != null) {
-                // One unique image stretched across the whole band zone.
+                // Une texture unique étirée sur toute la hauteur de la zone des bandes
                 g2.drawImage(globalImage, 0, 0, panelWidth, panelHeight, null);
             } else {
                 g2.setColor(customization.timelineEvenBand);
                 g2.fillRect(0, 0, panelWidth, panelHeight);
             }
 
-            // Keep selected band visible with a translucent overlay.
+            // Bande actuellement sélectionnée : mise en valeur par un voile translucide
             if (selectedBand >= 0 && selectedBand < bandCount) {
                 int y = selectedBand * bandHeight;
                 Color sel = customization.timelineSelectedBand;
@@ -164,6 +176,7 @@ public class TimelineRenderer {
                 g2.fillRect(0, y, panelWidth, bandHeight);
             }
 
+            // Bande en cours d'édition directe de texte : voile sombre d'accentuation
             if (editingBand >= 0 && editingBand < bandCount) {
                 int y = editingBand * bandHeight;
                 g2.setColor(new Color(0, 0, 0, 75));
@@ -285,7 +298,7 @@ public class TimelineRenderer {
 
         g2.setColor(Color.WHITE);
 
-        // Preview for new text while editing.
+        // Prévisualisation interactive en temps réel pendant la frappe au clavier
         if (activeBand != -1 && isEditing && editingItem == null) {
             double drawX = textX + offsetX;
             int drawY = computeBaselineY(activeBand, bandHeight, textTopY, fm, targetTextHeight);
@@ -294,16 +307,9 @@ public class TimelineRenderer {
             g2.setColor(Color.WHITE);
         }
 
-        int firstIdx = Math.max(0, findTextIndex(texts, (int) Math.floor(-offsetX - 500)) - 1);
-        for (int ti = firstIdx; ti < texts.size(); ti++) {
+        for (int ti = 0; ti < texts.size(); ti++) {
             TextItem t = texts.get(ti);
-            if (t.text == null || t.text.isEmpty()) continue;
-
-            // Pré-filtrage ultra-rapide côté droit : si le début est déjà loin après l'écran à droite,
-            // l'élément n'a pas encore atteint l'affichage et tous les suivants non plus.
-            if (t.x + offsetX > panelWidth + 500) {
-                break;
-            }
+            if (t == null || t.text == null || t.text.isEmpty()) continue;
 
             int bandBaselineY = computeBaselineY(t.band, bandHeight, textTopY, fm, targetTextHeight);
 
@@ -315,7 +321,7 @@ public class TimelineRenderer {
 
             if (sepList != null && !sepList.isEmpty()) {
                 int searchIdx = findSepIndex(sepList, t.x);
-                // Recherche vers la gauche du START le plus proche <= t.x
+                // Recherche vers la gauche du repère START le plus proche <= t.x
                 int maxI = Math.min(searchIdx + 1, sepList.size() - 1);
                 for (int i = maxI; i >= 0; i--) {
                     SeparatorMark s = sepList.get(i);
@@ -325,12 +331,12 @@ public class TimelineRenderer {
                         break;
                     }
                     if (s.isEndBoundary()) {
-                        // Un END situé à gauche ou à t.x appartient à une phrase antérieure :
-                        // On ne doit JAMAIS traverser un END vers la gauche pour voler un START précédent !
+                        // Un repère END situé à gauche ou à t.x appartient à une réplique antérieure :
+                        // On ne doit jamais traverser un END vers la gauche pour voler un START antérieur !
                         break;
                     }
                 }
-                // Recherche vers la droite du END le plus proche >= t.x
+                // Recherche vers la droite du repère END le plus proche >= t.x
                 for (int i = Math.max(0, searchIdx - 1); i < sepList.size(); i++) {
                     SeparatorMark s = sepList.get(i);
                     if (s.x < t.x) continue;
@@ -340,7 +346,7 @@ public class TimelineRenderer {
                     }
                     if (s.isStartBoundary() && s.x > t.x) {
                         nextPhraseStartX = s.x;
-                        break; // Nouvelle phrase commence à droite : ne jamais traverser un START !
+                        break; // Une nouvelle réplique commence à droite : ne jamais traverser un START !
                     }
                 }
             }
@@ -372,7 +378,7 @@ public class TimelineRenderer {
                 continue;
             }
 
-            // Collecte des marques internes INNER situées strictement entre segmentStart et segmentEnd
+            // Collecte des repères syllabiques internes (INNER) situés strictement entre START et END
             if (sepList != null && !sepList.isEmpty()) {
                 int startI = findSepIndex(sepList, segmentStart + 1);
                 for (int i = startI; i < sepList.size(); i++) {
@@ -386,7 +392,7 @@ public class TimelineRenderer {
 
             double availableWidth = Math.max(20.0, (double) (segmentEnd - segmentStart));
 
-            // Role label: badge du personnage affiché proprement avant le séparateur de début
+            // Badge du personnage (rôle) : pastille colorée avec le nom du comédien/personnage
             if (t.role != null && t.role.name != null && !t.role.name.isEmpty()) {
                 Color roleColor = (t.role.color != null) ? t.role.color : Color.WHITE;
                 boolean useDarkText = isDarkColor(roleColor);
@@ -430,10 +436,12 @@ public class TimelineRenderer {
             }
 
             if (innerMarks.isEmpty()) {
+                // Pas de séparateurs internes : la phrase entière est étirée d'un seul bloc
                 g2.setColor(roleColor);
                 double drawX = anchoredRight ? segmentEnd + offsetX : segmentStart + offsetX;
                 drawScaledText(g2, fm, t.text, drawX, bandBaselineY, availableWidth, targetTextHeight, anchoredRight);
             } else {
+                // Présence de séparateurs syllabiques : chaque portion est étirée indépendamment
                 int len = t.text.length();
                 int prevX = segmentStart;
                 int prevIdx = 0;
@@ -461,7 +469,7 @@ public class TimelineRenderer {
                 drawTextSegment(g2, fm, t.text.substring(prevIdx), prevX + offsetX, segmentEnd + offsetX, bandBaselineY, targetTextHeight);
             }
 
-            // Draw cursor line for the item currently being edited
+            // Affichage du curseur clignotant d'édition (caret de saisie) sur l'élément en cours de modification
             if (t == editingItem && isEditing && caretVisible) {
                 int safeIdx = Math.max(0, Math.min(cursorIndex, t.text.length()));
                 double cursorScreenX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, safeIdx, cursorRightSide);
@@ -503,12 +511,24 @@ public class TimelineRenderer {
         return cachedTimelineFont;
     }
 
+    /**
+     * Calcule la coordonnée verticale (Y) de la ligne de base (baseline) d'une bande.
+     * 
+     * En typographie numérique, la ligne de base est la ligne imaginaire sur laquelle
+     * reposent les lettres (sans compter les jambages descendants comme pour 'p', 'q', 'y').
+     * En alignant la baseline au centre vertical de la bande avec l'ascension de la police,
+     * le texte reste parfaitement lisible et harmonieux quel que soit le redimensionnement.
+     */
     private int computeBaselineY(int bandIndex, int bandHeight, int textTopY, FontMetrics fm, int targetTextHeight) {
         int bandTop = bandIndex * bandHeight;
         double scaleY = (double) targetTextHeight / Math.max(1, fm.getHeight());
         return bandTop + textTopY + (int) Math.round(fm.getAscent() * scaleY);
     }
 
+    /**
+     * Détermine si une couleur est sombre via la formule de luminance perceptuelle standard (ITU-R BT.709 / sRGB).
+     * Permet d'adapter dynamiquement la couleur du texte (noir ou blanc) pour un contraste WCAG optimal.
+     */
     private boolean isDarkColor(Color color) {
         if (color == null) return false;
         int r = color.getRed();
@@ -518,12 +538,20 @@ public class TimelineRenderer {
         return luminance < 0.55;
     }
 
+    /**
+     * Recherche dichotomique (Binary Search en O(log N)) dans une liste ordonnée de repères de séparation.
+     * 
+     * Étant donné que les repères sont triés par coordonnée temporelle X croissante :
+     * - Au lieu de parcourir séquentiellement des milliers de repères (ce qui ralentirait le rendu 60 FPS),
+     *   on divise l'intervalle par deux à chaque étape.
+     * - Retourne l'index exact ou le point d'insertion du repère le plus proche.
+     */
     public static int findSepIndex(ArrayList<SeparatorMark> list, int targetX) {
         if (list == null || list.isEmpty()) return 0;
         int low = 0;
         int high = list.size() - 1;
         while (low <= high) {
-            int mid = (low + high) >>> 1;
+            int mid = (low + high) >>> 1; // Décalage de bit non signé évitant les dépassements d'entier
             int midVal = list.get(mid).x;
             if (midVal < targetX) {
                 low = mid + 1;
@@ -536,6 +564,10 @@ public class TimelineRenderer {
         return low;
     }
 
+    /**
+     * Recherche dichotomique (Binary Search en O(log N)) pour localiser rapidement un élément de texte
+     * parmi tous les textes triés selon leur coordonnée X.
+     */
     public static int findTextIndex(ArrayList<TextItem> list, int targetX) {
         if (list == null || list.isEmpty()) return 0;
         int low = 0;
@@ -566,6 +598,18 @@ public class TimelineRenderer {
         return cachedBadgeFont;
     }
 
+    /**
+     * Dessine une chaîne de caractères étirée élastiquement via une transformation affine 2D (AffineTransform).
+     * 
+     * Spécificité métier de la bande rythmo :
+     * Le texte n'est pas simplement rendu à taille fixe : il doit occuper précisément
+     * l'intervalle temporel alloué au dialogue ou au mot.
+     * 
+     * - scaleY adapte la hauteur des lettres pour occuper harmonieusement la hauteur de la piste.
+     * - scaleX étire ou compresse la largeur du texte (ratio targetWidth / sourceWidth)
+     *   tout en préservant des limites de sécurité (min 0.05x, max 15x) pour éviter les distorsions extrêmes.
+     * - translate(anchorX, baselineY) positionne l'origine directement sur la ligne de base.
+     */
     private void drawScaledText(Graphics2D g2,
                                 FontMetrics fm,
                                 String text,
@@ -597,6 +641,14 @@ public class TimelineRenderer {
         g2.setTransform(old);
     }
 
+    /**
+     * Calcule la position horizontale précise en pixels à l'écran du curseur de texte (caret d'édition)
+     * en tenant compte des déformations non linéaires introduites par les séparateurs syllabiques internes.
+     * 
+     * Lorsqu'un mot est découpé par plusieurs séparateurs de synchro (ex: "bon-jour"), chaque sous-segment
+     * possède son propre étirement géométrique. Cette méthode détermine dans quel sous-segment se situe
+     * l'indice du curseur et interpole sa position proportionnellement à la largeur cumulée des caractères.
+     */
     private double computeCursorXForSegments(FontMetrics fm,
                                               TextItem t,
                                               double offsetX,
@@ -933,6 +985,20 @@ public class TimelineRenderer {
         return endImage;
     }
 
+    /**
+     * Applique une incrustation couleur (Chroma Keying) pour transformer le fond blanc
+     * d'une icône en transparence Alpha totale (canal Alpha à 0x00).
+     * 
+     * Fonctionnement binaire des pixels ARGB 32 bits (DirectColorModel) :
+     * - bits 24..31 : canal Alpha (opacité de 0 à 255)
+     * - bits 16..23 : canal Rouge
+     * - bits 8..15  : canal Vert
+     * - bits 0..7   : canal Bleu
+     * 
+     * Si les trois composantes R, G, B dépassent le seuil de 235 (blanc quasi pur),
+     * le pixel devient totalement transparent (0x00000000), garantissant une intégration
+     * parfaite sur n'importe quel arrière-plan ou texture personnalisée.
+     */
     private static BufferedImage makeWhiteTransparent(BufferedImage image) {
         if (image == null) return null;
         int width = image.getWidth();

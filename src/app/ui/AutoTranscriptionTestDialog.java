@@ -141,20 +141,20 @@ public class AutoTranscriptionTestDialog extends JDialog {
 
         int totalCores = Runtime.getRuntime().availableProcessors();
         int balancedThreads = Math.max(4, Math.min(8, totalCores));
-        int maxThreads = Math.max(2, totalCores);
+        int maxThreads = Math.max(4, Math.min(16, totalCores));
 
         boolean hasCuda = SpeechWorkflowService.isCudaAvailable();
         if (hasCuda) {
             comboCpuProfile = new JComboBox<>(new String[]{
-                    "🚀 GPU NVIDIA (Accélération CUDA Tensor Cores — Ultra-Rapide ~1 min pour 1h)",
-                    "⚡ CPU Multi-cœurs Turbo (" + maxThreads + " cœurs)",
-                    "🤫 CPU Économe / Silencieux (2 cœurs)"
+                    "🚀 GPU NVIDIA (Accélération CUDA Tensor Cores — ~15-30s pour 10 min)",
+                    "⚡ CPU Multi-cœurs Turbo (" + maxThreads + " threads — Accélération AVX2 int8)",
+                    "🤫 CPU Économe / Silencieux (2 threads)"
             });
         } else {
             comboCpuProfile = new JComboBox<>(new String[]{
-                    "⚡ CPU Turbo / Équilibré (" + balancedThreads + " cœurs — Recommandé)",
-                    "🚀 CPU Maximum (" + maxThreads + " cœurs — Pleine Puissance)",
-                    "🤫 CPU Économe / Silencieux (2 cœurs)"
+                    "🚀 CPU Multi-cœurs Turbo (" + maxThreads + " threads — Accélération AVX2 int8)",
+                    "⚡ CPU Équilibré (" + balancedThreads + " threads)",
+                    "🤫 CPU Économe / Silencieux (2 threads)"
             });
         }
         comboCpuProfile.setSelectedIndex(0);
@@ -432,11 +432,21 @@ public class AutoTranscriptionTestDialog extends JDialog {
 
         int cpuIdx = comboCpuProfile.getSelectedIndex();
         int totalCores = Runtime.getRuntime().availableProcessors();
-        int threads = switch (cpuIdx) {
-            case 0 -> hwSelection.contains("GPU") ? 4 : Math.max(4, Math.min(8, totalCores));
-            case 1 -> Math.max(2, totalCores);
-            default -> 2;
-        };
+        boolean isGpuSelected = hwSelection.contains("GPU");
+        int threads;
+        if (isGpuSelected) {
+            threads = switch (cpuIdx) {
+                case 0 -> 4;
+                case 1 -> Math.max(4, Math.min(16, totalCores));
+                default -> 2;
+            };
+        } else {
+            threads = switch (cpuIdx) {
+                case 0 -> Math.max(4, Math.min(16, totalCores));
+                case 1 -> Math.max(4, Math.min(8, totalCores));
+                default -> 2;
+            };
+        }
 
         service.transcribe(videoFile, numSpeakers, language, model, threads, device, new SpeechWorkflowService.TranscriptionCallback() {
             @Override

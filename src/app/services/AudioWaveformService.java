@@ -8,8 +8,31 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Service de traitement du signal audio (DSP) dédié à la génération de la forme d'onde (waveform).
+ * <p>
+ * Pipeline d'extraction haute performance :
+ * <ul>
+ *   <li><b>Filtrage acoustique vocal :</b> Décodage audio via FFmpeg avec un filtre passe-bande
+ *       (passe-haut à 180 Hz et passe-bas à 3400 Hz) et amplification de volume (x2.0). Ce filtrage supprime
+ *       les grondements de sub-basses et les sifflements aigus parasites afin de faire ressortir avec netteté
+ *       les attaques de consonnes et les voyelles parlées des comédiens.</li>
+ *   <li><b>Streaming binaire direct (Zero Disk I/O) :</b> L'audio est extrait en flux brut PCM 16-bit mono à 16 000 Hz
+ *       via le descripteur de tube standard {@code pipe:1}, évitant l'écriture de fichiers temporaires volumineux.</li>
+ *   <li><b>Décimation et calcul de crête (Peak Pooling) :</b> Le flux d'échantillons est agrégé par fenêtres
+ *       de 160 échantillons (soit exactement 100 crêtes par seconde d'audio à 16 kHz).</li>
+ *   <li><b>Gestion de l'alignement mémoire :</b> Reconstitution 16-bit Little-Endian {@code (b0 | (b1 << 8))}
+ *       avec conservation de l'octet résiduel ({@code leftoverByte}) en cas de coupure de buffer sur un indice impair.</li>
+ *   <li><b>Optimisation mémoire sans garbage collection :</b> Utilisation exclusive de tableaux de types primitifs
+ *       ({@code float[]}) avec redimensionnement géométrique par doublement, éliminant tout boxing d'objets {@link Float}.</li>
+ * </ul>
+ * </p>
+ */
 public class AudioWaveformService {
 
+    /**
+     * Interface de rappel notifiée lorsque l'extraction et la normalisation de la forme d'onde sont terminées.
+     */
     public interface WaveformCallback {
         void onWaveformReady(AudioWaveformData data);
     }
@@ -18,6 +41,13 @@ public class AudioWaveformService {
     private String cachedFilePath;
     private Thread currentWorker;
 
+    /**
+     * Lance l'extraction asynchrone de la forme d'onde dans un fil d'exécution démon d'arrière-plan.
+     * En cas de requêtes successives, interrompt immédiatement le calcul précédent.
+     *
+     * @param mediaFile  Fichier source vidéo ou audio.
+     * @param callback   Rappel exécuté sur le fil d'événements Swing (EDT).
+     */
     public void extractWaveform(File mediaFile, WaveformCallback callback) {
         if (mediaFile == null || !mediaFile.exists()) {
             if (callback != null) {
@@ -55,10 +85,14 @@ public class AudioWaveformService {
         currentWorker.start();
     }
     
+    /**
+     * Décode le flux PCM binaire 16-bit et calcule les amplitudes crêtes normalisées.
+     */
     private AudioWaveformData performExtraction(File mediaFile) {
         String ffmpeg = findFfmpeg();
         if (ffmpeg == null) return null;
 
+        // Décodage PCM 16kHz mono filtré sur la bande vocale (180 Hz - 3400 Hz)
         ProcessBuilder pb = new ProcessBuilder(
                 ffmpeg, "-threads", "0", "-i", mediaFile.getAbsolutePath(),
                 "-vn", "-sn", "-dn", "-ar", "16000", "-ac", "1", "-f", "s16le", "-c:a", "pcm_s16le",
@@ -67,7 +101,7 @@ public class AudioWaveformService {
         );
         pb.redirectError(ProcessBuilder.Redirect.DISCARD);
 
-        float[] peaksBuffer = new float[131072]; // Buffer primitif extensible (zéro boxing de Float)
+        float[] peaksBuffer = new float[131072]; // Tampon primitif extensible (zéro boxing de Float)
         int peakCount = 0;
         try {
             Process p = pb.start();

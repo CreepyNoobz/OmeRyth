@@ -56,7 +56,9 @@ public class ProjectWorkflowService {
         return FileUtils.chooseSaveFile(parent, title, ext);
     }
 
-    /** Apply a freshly created project: clear roles/timeline and set band count. */
+    /**
+     * Initialise un environnement de travail vierge : réinitialise les comédiens, vide la timeline et applique le nombre de pistes.
+     */
     public void applyNewProject(TimelinePanel timeline,
                                 ArrayList<Role> roles,
                                 File videoFile,

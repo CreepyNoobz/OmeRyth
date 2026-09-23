@@ -12,10 +12,25 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Gestionnaire de persistance des projets OmeRyth.
+ * 
+ * Assure la sauvegarde et le rechargement transparent :
+ * - Du format natif JSON moderne (.rythmo, version RHYTHMO_V5)
+ * - Du format XML industriel professionnel DETX (via DetxManager)
+ * - Des anciens formats hérités par délimiteurs tubes ('|', Legacy V1-V4)
+ * 
+ * Embarque un parser JSON récursif descendant 'JsonParser' développé sur-mesure
+ * pour garantir une vitesse maximale et une totale indépendance vis-à-vis de bibliothèques tierces.
+ */
 public class ProjectManager {
 
+    /** Version courante du schéma JSON de projet OmeRyth */
     private static final String JSON_VERSION = "RHYTHMO_V5";
 
+    /**
+     * Conteneur immuable des métadonnées d'un projet chargé avec succès.
+     */
     public static class LoadedProject {
         public final File videoFile;
         public final int bandCount;
@@ -34,6 +49,9 @@ public class ProjectManager {
         }
     }
 
+    /**
+     * Sauvegarde le projet courant vers le fichier cible (détecte automatiquement l'extension .detx ou .rythmo).
+     */
     public static void save(File file, File videoFile, TextManager textManager, ArrayList<Role> roles, int bandCount, double pixelsPerSecond, int zoomLevelIndex) {
         try {
             if (file != null && file.getName().toLowerCase().endsWith(".detx")) {
@@ -79,6 +97,33 @@ public class ProjectManager {
         }
     }
 
+    /**
+     * Sérialise l'état intégral de la session de travail OmeRyth sous forme de document JSON structuré.
+     * <p>
+     * Le schéma sérialisé englobe :
+     * <ul>
+     *   <li>{@code version} : Indique la révision du format de sauvegarde pour les migrations futures.</li>
+     *   <li>{@code video} : Chemin d'accès absolu vers le média source synchronisé (ou null si aucun).</li>
+     *   <li>{@code bandCount} : Nombre de pistes d'acteurs actives sur la timeline (au minimum 1).</li>
+     *   <li>{@code pixelsPerSecond} : Échelle temporelle horizontale (vitesse de défilement).</li>
+     *   <li>{@code zoomLevelIndex} : Indice du palier de zoom sélectionné par l'utilisateur.</li>
+     *   <li>{@code roles} : Liste ordonnée des comédiens/personnages (nom et valeur RGB avec alpha).</li>
+     *   <li>{@code texts} : Ensemble des segments textuels, avec leur position temporelle spatiale {@code x},
+     *       la piste d'assignation {@code band}, et le rôle associé.</li>
+     *   <li>{@code separators} : Points de synchronisation labiale et découpes syllabiques, avec leur type,
+     *       index de split dans le texte, et type de signe d'action/respiration.</li>
+     *   <li>{@code planMarkers} : Repères spatiaux de changements de plan vidéo (cuts caméra).</li>
+     * </ul>
+     * </p>
+     *
+     * @param videoFile        Fichier vidéo lié au projet.
+     * @param textManager      Gestionnaire contenant les textes et séparateurs.
+     * @param roles            Liste des rôles configurés.
+     * @param bandCount        Nombre de pistes.
+     * @param pixelsPerSecond  Vitesse temporelle en pixels par seconde.
+     * @param zoomLevelIndex   Niveau de zoom courant.
+     * @return La chaîne JSON formatée prête pour l'écriture disque.
+     */
     private static String toJson(File videoFile, TextManager textManager, ArrayList<Role> roles, int bandCount, double pixelsPerSecond, int zoomLevelIndex) {
         StringBuilder sb = new StringBuilder(4096);
         sb.append("{\n");
@@ -145,6 +190,25 @@ public class ProjectManager {
         return sb.toString();
     }
 
+    /**
+     * Reconstitue l'environnement de travail à partir d'une chaîne JSON.
+     * <p>
+     * Le parseur décode l'arbre d'objets, réinitialise le {@link TextManager} et la liste des comédiens,
+     * puis instancie fidèlement :
+     * <ul>
+     *   <li>Les rôles avec leurs teintes respectives.</li>
+     *   <li>Les segments textuels rattachés par nom à leur rôle correspondant.</li>
+     *   <li>Les séparateurs de synchronisation et de respiration (avec gestion de repli si le type est inconnu).</li>
+     *   <li>Les marqueurs de changement de plan vidéo.</li>
+     * </ul>
+     * Le nombre de pistes (bandCount) est soit lu directement, soit déduit du maximum observé sur les éléments.
+     * </p>
+     *
+     * @param json         Le contenu textuel JSON du fichier {@code .omeryth}.
+     * @param textManager  Le gestionnaire de timeline cible à réhydrater.
+     * @param roles        La liste des comédiens cible à repeupler.
+     * @return Une instance de {@link LoadedProject} encapsulant les métadonnées de session.
+     */
     @SuppressWarnings("unchecked")
     private static LoadedProject loadFromJson(String json, TextManager textManager, ArrayList<Role> roles) {
         Object parsed = new JsonParser(json).parseValue();
@@ -162,6 +226,7 @@ public class ProjectManager {
         int loadedBandCount = asInt(root.get("bandCount"), -1);
         int maxBandIndex = -1;
 
+        // 1. Décodage de la liste des comédiens / rôles
         Object roleListObj = root.get("roles");
         if (roleListObj instanceof List) {
             for (Object roleObj : (List<?>) roleListObj) {
@@ -173,6 +238,7 @@ public class ProjectManager {
             }
         }
 
+        // 2. Décodage des segments de texte positionnés sur la timeline
         Object textListObj = root.get("texts");
         if (textListObj instanceof List) {
             for (Object textObj : (List<?>) textListObj) {
@@ -190,6 +256,7 @@ public class ProjectManager {
             }
         }
 
+        // 3. Décodage des séparateurs rythmiques et phonétiques
         Object sepListObj = root.get("separators");
         if (sepListObj instanceof List) {
             for (Object sepObj : (List<?>) sepListObj) {
@@ -221,6 +288,7 @@ public class ProjectManager {
             }
         }
 
+        // 4. Décodage des repères de changement de plan vidéo
         Object planListObj = root.get("planMarkers");
         if (planListObj instanceof List) {
             for (Object pm : (List<?>) planListObj) {
@@ -237,6 +305,12 @@ public class ProjectManager {
         return new LoadedProject(videoFile, finalBandCount, loadedPps, loadedZoomIndex);
     }
 
+    /**
+     * Analyseur de secours pour les anciens fichiers projets OmeRyth au format texte délimité par des barres verticales {@code |}.
+     * <p>
+     * Assure la rétrocompatibilité avec les projets créés sur les versions initiales du logiciel.
+     * </p>
+     */
     private static LoadedProject loadLegacy(String raw, TextManager textManager, ArrayList<Role> roles) {
         File videoFile = null;
         int loadedBandCount = -1;
@@ -244,7 +318,7 @@ public class ProjectManager {
         try (BufferedReader reader = new BufferedReader(new java.io.StringReader(raw))) {
             textManager.clearAll();
             roles.clear();
-            reader.readLine(); // version
+            reader.readLine(); // Ignore l'en-tête de version
             String line;
             while ((line = reader.readLine()) != null) {
                 String[] parts = line.split("\\|", -1);
@@ -333,6 +407,20 @@ public class ProjectManager {
         return value == null ? "" : String.valueOf(value);
     }
 
+    /**
+     * Analyseur syntaxique JSON minimaliste et autonome, implémenté selon le patron descendant récursif (LL(1)).
+     * <p>
+     * Conçu pour respecter scrupuleusement la contrainte « zéro dépendance externe » en évitant d'embarquer
+     * Jackson, Gson ou Org.Json. Il gère l'ensemble de la grammaire JSON standard :
+     * <ul>
+     *   <li>Objets {@code { "clé": valeur }} mappés en {@link Map}&lt;String, Object&gt;.</li>
+     *   <li>Tableaux {@code [ valeur1, valeur2 ]} mappés en {@link List}&lt;Object&gt;.</li>
+     *   <li>Chaînes de caractères avec séquences d'échappement ({@code \", \\, \n, \r, \t, unicode}).</li>
+     *   <li>Valeurs numériques (conversions automatiques en {@link Long} ou {@link Double}).</li>
+     *   <li>Booléens ({@code true}, {@code false}) et valeur nulle ({@code null}).</li>
+     * </ul>
+     * </p>
+     */
     private static final class JsonParser {
         private final String src;
         private int i;
@@ -342,6 +430,9 @@ public class ProjectManager {
             this.i = 0;
         }
 
+        /**
+         * Point d'entrée de l'analyseur : aiguille vers la méthode spécialisée selon le premier caractère non-espace.
+         */
         private Object parseValue() {
             skipSpaces();
             if (i >= src.length()) throw new IllegalArgumentException("JSON vide");
@@ -354,6 +445,9 @@ public class ProjectManager {
             return parseNumber();
         }
 
+        /**
+         * Analyse un objet JSON délimité par des accolades {@code { ... }}.
+         */
         private Map<String, Object> parseObject() {
             expect('{');
             Map<String, Object> obj = new HashMap<>();
@@ -378,6 +472,9 @@ public class ProjectManager {
             return obj;
         }
 
+        /**
+         * Analyse un tableau JSON délimité par des crochets {@code [ ... ]}.
+         */
         private List<Object> parseArray() {
             expect('[');
             ArrayList<Object> arr = new ArrayList<>();
@@ -398,6 +495,9 @@ public class ProjectManager {
             return arr;
         }
 
+        /**
+         * Analyse une chaîne littérale JSON entre guillemets doubles, en décodant les séquences d'échappement unicode et standard.
+         */
         private String parseString() {
             expect('"');
             StringBuilder sb = new StringBuilder();
@@ -433,6 +533,9 @@ public class ProjectManager {
             throw new IllegalArgumentException("String JSON invalide");
         }
 
+        /**
+         * Analyse le mot-clé littéral {@code null}.
+         */
         private Object parseNull() {
             if (src.startsWith("null", i)) {
                 i += 4;
@@ -441,6 +544,9 @@ public class ProjectManager {
             throw new IllegalArgumentException("Valeur JSON invalide");
         }
 
+        /**
+         * Analyse les booléens littéraux {@code true} et {@code false}.
+         */
         private Boolean parseBoolean() {
             if (src.startsWith("true", i)) {
                 i += 4;
@@ -453,6 +559,9 @@ public class ProjectManager {
             throw new IllegalArgumentException("Boolean JSON invalide");
         }
 
+        /**
+         * Analyse un nombre entier ou à virgule flottante (supporte le signe négatif).
+         */
         private Number parseNumber() {
             int start = i;
             if (peek('-')) i++;
@@ -470,6 +579,9 @@ public class ProjectManager {
             return isDouble ? Double.parseDouble(token) : Long.parseLong(token);
         }
 
+        /**
+         * Vérifie la présence d'un caractère obligatoire (ex: ':' ou ',') et avance l'index de lecture.
+         */
         private void expect(char c) {
             skipSpaces();
             if (i >= src.length() || src.charAt(i) != c) {
@@ -478,10 +590,16 @@ public class ProjectManager {
             i++;
         }
 
+        /**
+         * Regarde le prochain caractère sans avancer le pointeur de lecture.
+         */
         private boolean peek(char c) {
             return i < src.length() && src.charAt(i) == c;
         }
 
+        /**
+         * Consomme tous les espaces blancs (espaces, retours à la ligne, tabulations).
+         */
         private void skipSpaces() {
             while (i < src.length() && Character.isWhitespace(src.charAt(i))) i++;
         }
