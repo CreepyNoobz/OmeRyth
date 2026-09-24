@@ -1000,7 +1000,7 @@ public class MainFenetre extends JFrame {
             // Déduplication de segments superposés ou identiques et ajustement des bornes
             java.util.List<SpeechWorkflowService.TranscriptionSegment> cleanBandSegments = new ArrayList<>();
             for (SpeechWorkflowService.TranscriptionSegment seg : bandSegments) {
-                if (seg.getText() == null || seg.getText().trim().isEmpty()) continue;
+                if (seg.getText() == null || !SpeechWorkflowService.hasAlphanumeric(seg.getText())) continue;
                 if (!cleanBandSegments.isEmpty()) {
                     SpeechWorkflowService.TranscriptionSegment prevSeg = cleanBandSegments.get(cleanBandSegments.size() - 1);
                     if (Math.abs(seg.getStartSeconds() - prevSeg.getStartSeconds()) < 0.05 &&

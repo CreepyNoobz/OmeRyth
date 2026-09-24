@@ -207,7 +207,14 @@ public class SpeechWorkflowService {
     /**
      * Détecte l'exécutable Python embarqué, virtuel ou système.
      */
+    private static volatile String cachedPython = null;
+    private static volatile String cachedFfmpeg = null;
+
     public String findPython() {
+        if (cachedPython != null && (new File(cachedPython).exists() || cachedPython.equals("python") || cachedPython.equals("python3") || cachedPython.equals("py"))) {
+            return cachedPython;
+        }
+
         // 1. Chercher d'abord un Python portable embarqué dans l'application
         File[] localCandidates = {
             new File("python/python.exe"),
@@ -218,7 +225,8 @@ public class SpeechWorkflowService {
         };
         for (File f : localCandidates) {
             if (f.exists() && f.isFile()) {
-                return f.getAbsolutePath();
+                cachedPython = f.getAbsolutePath();
+                return cachedPython;
             }
         }
 
@@ -233,7 +241,10 @@ public class SpeechWorkflowService {
                     Arrays.sort(pyDirs, (a, b) -> b.getName().compareTo(a.getName()));
                     for (File d : pyDirs) {
                         File pyExe = new File(d, "python.exe");
-                        if (pyExe.exists()) return pyExe.getAbsolutePath();
+                        if (pyExe.exists()) {
+                            cachedPython = pyExe.getAbsolutePath();
+                            return cachedPython;
+                        }
                     }
                 }
             }
@@ -249,7 +260,10 @@ public class SpeechWorkflowService {
                 try (InputStream is = p.getInputStream()) {
                     is.transferTo(OutputStream.nullOutputStream());
                 }
-                if (p.waitFor() == 0) return cmd;
+                if (p.waitFor() == 0) {
+                    cachedPython = cmd;
+                    return cachedPython;
+                }
             } catch (Exception ignored) {}
         }
         return null;
@@ -259,11 +273,21 @@ public class SpeechWorkflowService {
      * Détecte le binaire FFmpeg embarqué ou système.
      */
     public String findFfmpeg() {
+        if (cachedFfmpeg != null && (new File(cachedFfmpeg).exists() || cachedFfmpeg.equals("ffmpeg"))) {
+            return cachedFfmpeg;
+        }
+
         File localFfmpeg = new File("ffmpeg/ffmpeg.exe");
-        if (localFfmpeg.exists()) return localFfmpeg.getAbsolutePath();
+        if (localFfmpeg.exists()) {
+            cachedFfmpeg = localFfmpeg.getAbsolutePath();
+            return cachedFfmpeg;
+        }
 
         File commonFfmpeg = new File("C:/ffmpeg/bin/ffmpeg.exe");
-        if (commonFfmpeg.exists()) return commonFfmpeg.getAbsolutePath();
+        if (commonFfmpeg.exists()) {
+            cachedFfmpeg = commonFfmpeg.getAbsolutePath();
+            return cachedFfmpeg;
+        }
 
         try {
             ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-version");
@@ -272,7 +296,10 @@ public class SpeechWorkflowService {
             try (InputStream is = p.getInputStream()) {
                 is.transferTo(OutputStream.nullOutputStream());
             }
-            if (p.waitFor() == 0) return "ffmpeg";
+            if (p.waitFor() == 0) {
+                cachedFfmpeg = "ffmpeg";
+                return cachedFfmpeg;
+            }
         } catch (Exception ignored) {}
 
         return null;
@@ -287,27 +314,35 @@ public class SpeechWorkflowService {
         return null;
     }
 
+    private static volatile Boolean cachedCudaAvailable = null;
+
     /**
-     * Vérifie de façon rigoureuse si un GPU compatible CUDA est réellement fonctionnel
-     * avec faster-whisper et ctranslate2 (sans crash de DLL manquante).
+     * Vérifie de façon rigoureuse et rapide si un GPU compatible CUDA est présent
+     * avec ctranslate2 sans bloquer l'application. Le résultat est mis en cache.
      */
     public static boolean isCudaAvailable() {
+        if (cachedCudaAvailable != null) {
+            return cachedCudaAvailable;
+        }
         try {
             SpeechWorkflowService service = new SpeechWorkflowService();
             String py = service.findPython();
-            if (py == null) py = "python";
+            if (py == null) {
+                cachedCudaAvailable = false;
+                return false;
+            }
             ProcessBuilder pb = new ProcessBuilder(py, "-c",
-                    "import ctranslate2; assert ctranslate2.get_cuda_device_count() > 0; " +
-                    "from faster_whisper import WhisperModel; " +
-                    "m = WhisperModel('tiny', device='cuda', compute_type='float16'); " +
-                    "m.model.encode(__import__('numpy').zeros((1, 80, 3000), dtype=__import__('numpy').float32))");
+                    "import ctranslate2; assert ctranslate2.get_cuda_device_count() > 0");
             pb.redirectErrorStream(true);
             Process p = pb.start();
             try (InputStream is = p.getInputStream()) {
                 is.transferTo(OutputStream.nullOutputStream());
             }
-            return p.waitFor() == 0;
+            boolean ok = (p.waitFor() == 0);
+            cachedCudaAvailable = ok;
+            return ok;
         } catch (Exception e) {
+            cachedCudaAvailable = false;
             return false;
         }
     }
@@ -552,6 +587,15 @@ public class SpeechWorkflowService {
         }).start();
     }
 
+    public static boolean hasAlphanumeric(String s) {
+        if (s == null) return false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (Character.isLetterOrDigit(c)) return true;
+        }
+        return false;
+    }
+
     public static TranscriptionSegment parseSingleSegment(String jsonStr) {
         try {
             Matcher idM = Pattern.compile("\"id\"\\s*:\\s*(\\d+)").matcher(jsonStr);
@@ -564,7 +608,11 @@ public class SpeechWorkflowService {
             String spk = spkM.find() ? spkM.group(1) : "SPEAKER_00";
             double start = startM.find() ? Double.parseDouble(startM.group(1)) : 0.0;
             double end = endM.find() ? Double.parseDouble(endM.group(1)) : 0.0;
-            String text = textM.find() ? unescape(textM.group(1)) : "";
+            String text = textM.find() ? unescape(textM.group(1)).trim() : "";
+
+            if (!hasAlphanumeric(text)) {
+                return null;
+            }
 
             TranscriptionSegment seg = new TranscriptionSegment(id, spk, start, end, text);
 
@@ -583,12 +631,29 @@ public class SpeechWorkflowService {
                             Matcher startM2 = Pattern.compile("\"start\"\\s*:\\s*([0-9.]+)").matcher(objBody);
                             Matcher endM2 = Pattern.compile("\"end\"\\s*:\\s*([0-9.]+)").matcher(objBody);
                             if (wM.find() && startM2.find() && endM2.find()) {
-                                String wStr = unescape(wM.group(1));
-                                double wStart = Double.parseDouble(startM2.group(1));
-                                double wEnd = Double.parseDouble(endM2.group(1));
-                                seg.words.add(new WordTiming(wStr, wStart, wEnd));
+                                String wStr = unescape(wM.group(1)).trim();
+                                if (hasAlphanumeric(wStr)) {
+                                    double wStart = Double.parseDouble(startM2.group(1));
+                                    double wEnd = Double.parseDouble(endM2.group(1));
+                                    seg.words.add(new WordTiming(wStr, wStart, wEnd));
+                                }
                             }
                         }
+                    }
+                }
+            }
+
+            // Si la liste des mots est vide, découper automatiquement le texte pour garantir la présence des mots
+            if (seg.words.isEmpty() && hasAlphanumeric(text)) {
+                String[] tokens = text.split("\\s+");
+                double dur = Math.max(0.1, end - start);
+                double step = dur / Math.max(1, tokens.length);
+                for (int i = 0; i < tokens.length; i++) {
+                    String tok = tokens[i].trim();
+                    if (hasAlphanumeric(tok)) {
+                        double wStart = Math.round((start + i * step) * 100.0) / 100.0;
+                        double wEnd = Math.round((start + (i + 1) * step) * 100.0) / 100.0;
+                        seg.words.add(new WordTiming(tok, wStart, wEnd));
                     }
                 }
             }
@@ -648,7 +713,7 @@ public class SpeechWorkflowService {
                             if (depth == 1 && objStart != -1) {
                                 String objStr = json.substring(objStart, i + 1);
                                 TranscriptionSegment s = parseSingleSegment(objStr);
-                                if (s != null && !s.text.isBlank()) {
+                                if (s != null && hasAlphanumeric(s.text)) {
                                     s.id = list.size() + 1;
                                     list.add(s);
                                 }

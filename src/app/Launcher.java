@@ -26,7 +26,6 @@ public class Launcher {
 
         // Accélération matérielle Direct3D sous Windows pour un défilement ultra-fluide 60+ FPS sans saccades
         System.setProperty("sun.java2d.d3d", "true");
-        System.setProperty("sun.java2d.ddforcevram", "true");
         // Configuration des chemins LibVLC (embarqué pour .exe et distribution)
         try {
             java.io.File vlcDir = new java.io.File("vlc").getAbsoluteFile();

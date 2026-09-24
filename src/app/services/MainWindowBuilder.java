@@ -110,10 +110,8 @@ public class MainWindowBuilder {
         java.util.ArrayList<String> vlcArgs = new java.util.ArrayList<>();
         vlcArgs.add("--quiet");
         vlcArgs.add("--verbose=-1");
-        vlcArgs.add("--no-plugins-cache");
         vlcArgs.add("--no-media-library");
-        // Note: --plugin-path and --reset-plugins-cache are not valid in newer VLC versions
-        // so we intentionally omit them to avoid warnings
+        // Note: LibVLC réutilise plugins.dat pour un démarrage quasi-instantané (<50ms)
         p.mediaPlayerFactory = new MediaPlayerFactory(vlcArgs.toArray(new String[0]));
         p.mediaPlayerComponent = MediaPlayerSpecs.embeddedMediaPlayerSpec()
                 .withFactory(p.mediaPlayerFactory)

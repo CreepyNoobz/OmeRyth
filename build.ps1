@@ -76,6 +76,10 @@ if (Test-Path $launch4jc) {
     <bundledJreAsFallback>false</bundledJreAsFallback>
     <minVersion>1.8.0</minVersion>
     <runtimeBits>64/32</runtimeBits>
+    <opt>-XX:+UseG1GC</opt>
+    <opt>-Xms64m</opt>
+    <opt>-Xmx1024m</opt>
+    <opt>-Dfile.encoding=UTF-8</opt>
   </jre>
 </launch4jConfig>
 "@

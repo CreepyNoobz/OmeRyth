@@ -1014,6 +1014,20 @@ public class MediaWorkflowService {
                         "GPU NVIDIA NVENC");
             }
         }
+        if ("amf".equalsIgnoreCase(preference)) {
+            if (testEncoder(ffmpegPath, "h264_amf", java.util.List.of("-quality", "speed"))) {
+                return new EncoderSettings("h264_amf",
+                        java.util.List.of("-quality", "speed"),
+                        "GPU AMD AMF");
+            }
+        }
+        if ("qsv".equalsIgnoreCase(preference)) {
+            if (testEncoder(ffmpegPath, "h264_qsv", java.util.List.of("-preset", "veryfast"))) {
+                return new EncoderSettings("h264_qsv",
+                        java.util.List.of("-preset", "veryfast"),
+                        "GPU Intel QSV");
+            }
+        }
         if (cachedEncoderSettings != null && ("auto".equalsIgnoreCase(preference) || preference == null)) {
             return cachedEncoderSettings;
         }

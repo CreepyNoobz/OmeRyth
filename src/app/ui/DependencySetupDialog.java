@@ -203,10 +203,10 @@ public class DependencySetupDialog extends JDialog {
                         progressLabel.setText("Configuration du module d'IA (faster-whisper)...");
                     });
 
-                    // Si python est présent sans faster-whisper, on installe via pip
+                    // Si python est présent sans faster-whisper, on installe via pip (support universel CPU/GPU)
                     String pyCmd = new app.services.SpeechWorkflowService().findPython();
                     if (pyCmd != null) {
-                        ProcessBuilder pb = new ProcessBuilder(pyCmd, "-m", "pip", "install", "faster-whisper", "nvidia-cublas-cu12", "nvidia-cudnn-cu12");
+                        ProcessBuilder pb = new ProcessBuilder(pyCmd, "-m", "pip", "install", "--upgrade", "faster-whisper");
                         pb.redirectErrorStream(true);
                         Process p = pb.start();
                         p.waitFor();

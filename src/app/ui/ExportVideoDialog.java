@@ -279,9 +279,11 @@ public class ExportVideoDialog extends JDialog {
         formPanel.add(lblEnc, gbc);
         gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 0.7;
         comboEncoder = new JComboBox<>(new String[]{
-                "🚀 Auto (GPU Détecté / Recommandé)",
-                "⚡ NVIDIA NVENC (Ultra-Rapide)",
-                "💻 CPU Multi-cœurs (x264 Rapide)"
+                "🚀 Auto (Matériel Détecté / Recommandé)",
+                "⚡ GPU NVIDIA NVENC (NVIDIA GeForce/RTX)",
+                "⚡ GPU AMD AMF (AMD Radeon)",
+                "⚡ GPU Intel QSV (Intel Core & Intel Arc)",
+                "💻 CPU Multi-cœurs (Universel — x264 Rapide)"
         });
         comboEncoder.setSelectedIndex(0);
         formPanel.add(comboEncoder, gbc);
@@ -749,9 +751,11 @@ public class ExportVideoDialog extends JDialog {
         JPanel encRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         encRow.add(new JLabel("Accélération :"));
         comboMontageEncoder = new JComboBox<>(new String[]{
-                "🚀 Auto (GPU Détecté / Recommandé)",
-                "⚡ NVIDIA NVENC (Ultra-Rapide)",
-                "💻 CPU Multi-cœurs (x264 Rapide)"
+                "🚀 Auto (Matériel Détecté / Recommandé)",
+                "⚡ GPU NVIDIA NVENC (NVIDIA GeForce/RTX)",
+                "⚡ GPU AMD AMF (AMD Radeon)",
+                "⚡ GPU Intel QSV (Intel Core & Intel Arc)",
+                "💻 CPU Multi-cœurs (Universel — x264 Rapide)"
         });
         comboMontageEncoder.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         comboMontageEncoder.setSelectedIndex(0);
@@ -914,7 +918,9 @@ public class ExportVideoDialog extends JDialog {
                     : 20;
             config.encoder = switch (comboMontageEncoder.getSelectedIndex()) {
                 case 1 -> "nvenc";
-                case 2 -> "cpu";
+                case 2 -> "amf";
+                case 3 -> "qsv";
+                case 4 -> "cpu";
                 default -> "auto";
             };
             config.blurBackgroundVideo = (checkBlurBackground != null && checkBlurBackground.isSelected());
@@ -945,7 +951,9 @@ public class ExportVideoDialog extends JDialog {
             config.antiCopyrightOpacity = 0;
             config.encoder = switch (comboEncoder.getSelectedIndex()) {
                 case 1 -> "nvenc";
-                case 2 -> "cpu";
+                case 2 -> "amf";
+                case 3 -> "qsv";
+                case 4 -> "cpu";
                 default -> "auto";
             };
         }

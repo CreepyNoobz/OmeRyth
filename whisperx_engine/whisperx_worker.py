@@ -219,12 +219,19 @@ def clean_text(raw: str, lang: str = "fr") -> str:
     # 6. Guillemets
     text = text.replace('"', "« ").replace('"', " »").replace('"', "« ")
 
-    # 7. Première lettre en majuscule
+    # 7. Suppression des symboles musicaux ou de bruit isolés (♪, ♫, *, _, #)
+    text = re.sub(r"[♪♫\*_~#\^]+", " ", text)
+
+    # 8. Première lettre en majuscule
     if text and text[0].islower():
         text = text[0].upper() + text[1:]
 
-    # 8. Nettoyer les espaces résiduels
+    # 9. Nettoyer les espaces résiduels
     text = _MULTI_SPACE_RE.sub(" ", text).strip()
+
+    # 10. Si le texte ne contient aucune lettre ni aucun chiffre, ce n'est pas une phrase valable
+    if not any(c.isalnum() for c in text):
+        return ""
 
     return text
 
@@ -363,25 +370,40 @@ def segment_words_into_clean_phrases(words: list, silence_intervals: list = None
             phrase_end = prev_end
             raw_text = " ".join(cw.get("word", "").strip() for cw in current_words)
             cleaned = clean_text(raw_text, lang)
-            if cleaned:
+            if cleaned and any(c.isalnum() for c in cleaned):
                 start_sec = round(phrase_start, 2)
                 end_sec = round(max(phrase_start + 0.25, phrase_end), 2)
                 if end_sec <= start_sec:
                     end_sec = round(start_sec + 0.25, 2)
 
-                phrases.append({
-                    "start": start_sec,
-                    "end": end_sec,
-                    "text": cleaned,
-                    "words": [
-                        {
-                            "word": cw.get("word", "").strip(),
-                            "start": round(float(cw.get("start", 0.0)), 2),
-                            "end": round(float(cw.get("end", 0.0)), 2),
-                        }
-                        for cw in current_words
-                    ],
-                })
+                phrase_words = [
+                    {
+                        "word": cw.get("word", "").strip(),
+                        "start": round(float(cw.get("start", 0.0)), 2),
+                        "end": round(float(cw.get("end", 0.0)), 2),
+                    }
+                    for cw in current_words
+                    if cw.get("word", "").strip() and any(c.isalnum() for c in cw.get("word", ""))
+                ]
+                if not phrase_words:
+                    tokens = [t for t in cleaned.split() if any(c.isalnum() for c in t)]
+                    if tokens:
+                        dur = max(0.1, end_sec - start_sec)
+                        step = dur / len(tokens)
+                        for ti, tok in enumerate(tokens):
+                            phrase_words.append({
+                                "word": tok,
+                                "start": round(start_sec + ti * step, 2),
+                                "end": round(start_sec + (ti + 1) * step, 2),
+                            })
+
+                if phrase_words:
+                    phrases.append({
+                        "start": start_sec,
+                        "end": end_sec,
+                        "text": cleaned,
+                        "words": phrase_words,
+                    })
             current_words = [w]
             phrase_start = w_start
         else:
@@ -392,25 +414,40 @@ def segment_words_into_clean_phrases(words: list, silence_intervals: list = None
         phrase_end = float(current_words[-1].get("end", 0.0))
         raw_text = " ".join(cw.get("word", "").strip() for cw in current_words)
         cleaned = clean_text(raw_text, lang)
-        if cleaned:
+        if cleaned and any(c.isalnum() for c in cleaned):
             start_sec = round(phrase_start, 2)
             end_sec = round(max(phrase_start + 0.25, phrase_end), 2)
             if end_sec <= start_sec:
                 end_sec = round(start_sec + 0.25, 2)
 
-            phrases.append({
-                "start": start_sec,
-                "end": end_sec,
-                "text": cleaned,
-                "words": [
-                    {
-                        "word": cw.get("word", "").strip(),
-                        "start": round(float(cw.get("start", 0.0)), 2),
-                        "end": round(float(cw.get("end", 0.0)), 2),
-                    }
-                    for cw in current_words
-                ],
-            })
+            phrase_words = [
+                {
+                    "word": cw.get("word", "").strip(),
+                    "start": round(float(cw.get("start", 0.0)), 2),
+                    "end": round(float(cw.get("end", 0.0)), 2),
+                }
+                for cw in current_words
+                if cw.get("word", "").strip() and any(c.isalnum() for c in cw.get("word", ""))
+            ]
+            if not phrase_words:
+                tokens = [t for t in cleaned.split() if any(c.isalnum() for c in t)]
+                if tokens:
+                    dur = max(0.1, end_sec - start_sec)
+                    step = dur / len(tokens)
+                    for ti, tok in enumerate(tokens):
+                        phrase_words.append({
+                            "word": tok,
+                            "start": round(start_sec + ti * step, 2),
+                            "end": round(start_sec + (ti + 1) * step, 2),
+                        })
+
+            if phrase_words:
+                phrases.append({
+                    "start": start_sec,
+                    "end": end_sec,
+                    "text": cleaned,
+                    "words": phrase_words,
+                })
 
     return phrases
 
@@ -825,11 +862,11 @@ def main():
         word_timestamps=True,
         vad_filter=True,
         vad_parameters={
-            "threshold": 0.35,
-            "min_speech_duration_ms": 80,
+            "threshold": 0.50,
+            "min_speech_duration_ms": 200,
             "max_speech_duration_s": 30,
-            "min_silence_duration_ms": 350,
-            "speech_pad_ms": 350,
+            "min_silence_duration_ms": 400,
+            "speech_pad_ms": 200,
         },
         condition_on_previous_text=False,
         initial_prompt=initial_prompt_text,
@@ -887,7 +924,7 @@ def main():
         for segment in seg_iter:
             raw_count += 1
             seg_text = segment.text.strip() if segment.text else ""
-            if not seg_text:
+            if not seg_text or not any(c.isalnum() for c in seg_text):
                 continue
 
             if tot_dur > 0:
@@ -903,7 +940,7 @@ def main():
             if segment.words and len(segment.words) > 0:
                 for w in segment.words:
                     w_str = w.word.strip() if w.word else ""
-                    if w_str:
+                    if w_str and any(c.isalnum() for c in w_str):
                         w_start = float(w.start) if w.start is not None else float(segment.start)
                         w_end = float(w.end) if w.end is not None else float(segment.end)
                         seg_words.append({
@@ -911,8 +948,10 @@ def main():
                             "start": w_start,
                             "end": w_end,
                         })
-            else:
-                tokens = seg_text.split()
+
+            # Repli systématique si segment.words n'a donné aucun mot valide : découper seg_text
+            if not seg_words and seg_text and any(c.isalnum() for c in seg_text):
+                tokens = [t for t in seg_text.split() if any(c.isalnum() for c in t)]
                 if tokens:
                     seg_dur = max(0.1, float(segment.end) - float(segment.start))
                     step = seg_dur / len(tokens)
@@ -922,6 +961,9 @@ def main():
                             "start": float(segment.start) + i * step,
                             "end": float(segment.start) + (i + 1) * step,
                         })
+
+            if not seg_words:
+                continue
 
             collected_words.extend(seg_words)
 
@@ -940,6 +982,7 @@ def main():
                     "start": lp["start"],
                     "end": lp["end"],
                     "text": lp["text"],
+                    "words": lp.get("words", []),
                 })
 
         return collected_words, det_lang, raw_count
@@ -1014,6 +1057,28 @@ def main():
     else:
         for p in phrases:
             p["speaker"] = "SPEAKER_00"
+
+    # Filtrer rigoureusement toute réplique vide ou ne contenant aucun caractère alphanumérique
+    phrases = [p for p in phrases if p.get("text") and any(c.isalnum() for c in p["text"])]
+    for p in phrases:
+        p_words = [w for w in p.get("words", []) if w.get("word") and any(c.isalnum() for c in w["word"])]
+        if not p_words:
+            toks = [t for t in p["text"].split() if any(c.isalnum() for c in t)]
+            if toks:
+                dur = max(0.1, p["end"] - p["start"])
+                step = dur / len(toks)
+                p_words = [
+                    {
+                        "word": t,
+                        "start": round(p["start"] + i * step, 2),
+                        "end": round(p["start"] + (i + 1) * step, 2)
+                    }
+                    for i, t in enumerate(toks)
+                ]
+        p["words"] = p_words
+
+    # Éliminer les éventuelles répliques sans mots après validation
+    phrases = [p for p in phrases if p.get("words")]
 
     # ── 4. Construction des segments finaux et streaming direct ──
     print_progress(90, 100, "Génération des repères et envoi vers OmeRyth...")

@@ -32,14 +32,12 @@ public class OnboardingManager {
     }
 
     public static void showOnboardingIfNeeded(MainFenetre parent) {
-        // 1. Si des composants essentiels sont manquants, afficher le dialogue d'installation
-        if (!app.services.DependencyManagerService.hasAllEssentialComponents()) {
-            DependencySetupDialog setupDialog = new DependencySetupDialog(parent);
-            setupDialog.setVisible(true);
-        }
-
-        // 2. Afficher le tutoriel interactif si nécessaire
+        // Le contrôle d'onboarding et des composants ne s'exécute qu'au tout premier lancement
         if (shouldShowOnboarding()) {
+            if (!app.services.DependencyManagerService.hasAllEssentialComponents()) {
+                DependencySetupDialog setupDialog = new DependencySetupDialog(parent);
+                setupDialog.setVisible(true);
+            }
             EnhancedTutorialDialog tutorial = new EnhancedTutorialDialog(parent);
             tutorial.setVisible(true);
             markOnboardingDone();

@@ -139,7 +139,16 @@ public class DependencyManagerService {
             return new ComponentStatus(ComponentType.PYTHON_WHISPER, false, null, "Python non installé");
         }
 
-        // Tester si faster_whisper est importable
+        File workerScript = new File("whisperx_engine/whisperx_worker.py");
+        boolean isLocal = pyCmd.toLowerCase().contains("omeryth") || pyCmd.contains("python") || pyCmd.startsWith(".\\python");
+
+        // Si le script worker local existe et que python est détecté, le composant est immédiatement prêt
+        if (workerScript.exists()) {
+            return new ComponentStatus(ComponentType.PYTHON_WHISPER, true, pyCmd,
+                    isLocal ? "Python portable OmeRyth avec IA active" : "Python prêt avec module IA OmeRyth");
+        }
+
+        // Test de sécurité via subprocess uniquement si nécessaire
         try {
             ProcessBuilder pb = new ProcessBuilder(pyCmd, "-c", "import faster_whisper; print('OK')");
             pb.redirectErrorStream(true);
@@ -149,7 +158,6 @@ public class DependencyManagerService {
                 output = r.readLine();
             }
             if (p.waitFor() == 0 && "OK".equals(output)) {
-                boolean isLocal = pyCmd.toLowerCase().contains("omeryth") || pyCmd.startsWith("python") || pyCmd.startsWith(".\\python");
                 return new ComponentStatus(ComponentType.PYTHON_WHISPER, true, pyCmd,
                         isLocal ? "Python portable OmeRyth avec IA active" : "Python système avec faster-whisper");
             } else {

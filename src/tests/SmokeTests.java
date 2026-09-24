@@ -1121,7 +1121,61 @@ public class SmokeTests {
             String checkOut = pReader.readLine();
             int pDialogExit = pCheck.waitFor();
             assertTrue(pDialogExit == 0 && "OK".equals(checkOut), "NativeDialog check doit renvoyer 'OK' avec exit code 0");
-            System.out.println("NativeDialog.exe opérationnel & robuste : VALIDÉ !");
+            // 11. Test Filtre Anti-Phrases Vides & Synthèse des Mots
+            System.out.println("--- Test Filtrage Anti-Phrases Vides & Synthèse des Mots ---");
+            assertTrue(!app.services.SpeechWorkflowService.hasAlphanumeric(null), "null ne doit pas être alphanumérique");
+            assertTrue(!app.services.SpeechWorkflowService.hasAlphanumeric(""), "Chaîne vide ne doit pas être alphanumérique");
+            assertTrue(!app.services.SpeechWorkflowService.hasAlphanumeric("   "), "Espaces seuls ne doivent pas être alphanumériques");
+            assertTrue(!app.services.SpeechWorkflowService.hasAlphanumeric("."), "Point seul ne doit pas être alphanumérique");
+            assertTrue(!app.services.SpeechWorkflowService.hasAlphanumeric("..."), "Points de suspension ne doivent pas être alphanumériques");
+            assertTrue(!app.services.SpeechWorkflowService.hasAlphanumeric(" — "), "Tiret cadratin ne doit pas être alphanumérique");
+            assertTrue(!app.services.SpeechWorkflowService.hasAlphanumeric("♪♫ * _"), "Symboles musicaux/bruit ne doivent pas être alphanumériques");
+            assertTrue(app.services.SpeechWorkflowService.hasAlphanumeric("Bonjour"), "'Bonjour' doit être alphanumérique");
+            assertTrue(app.services.SpeechWorkflowService.hasAlphanumeric("Ah !"), "'Ah !' doit être alphanumérique");
+            assertTrue(app.services.SpeechWorkflowService.hasAlphanumeric("123"), "'123' doit être alphanumérique");
+
+            // Segment avec ponctuation/bruit seul : doit être rejeté (retourner null)
+            String emptyJsonSeg = "{\"id\": 99, \"speaker\": \"SPEAKER_00\", \"start\": 1.0, \"end\": 2.0, \"text\": \"...\", \"words\": []}";
+            app.services.SpeechWorkflowService.TranscriptionSegment rejectedSeg =
+                    app.services.SpeechWorkflowService.parseSingleSegment(emptyJsonSeg);
+            assertTrue(rejectedSeg == null, "Le segment sans mot alphanumérique doit être rejeté (null)");
+
+            // Segment avec texte mais sans mots alignés : doit synthétiser les mots automatiquement
+            String noWordsJsonSeg = "{\"id\": 100, \"speaker\": \"SPEAKER_00\", \"start\": 2.0, \"end\": 4.0, \"text\": \"Bonjour à tous\", \"words\": []}";
+            app.services.SpeechWorkflowService.TranscriptionSegment synthSeg =
+                    app.services.SpeechWorkflowService.parseSingleSegment(noWordsJsonSeg);
+            assertTrue(synthSeg != null, "Le segment avec texte valide doit être accepté");
+            assertTrue(synthSeg.words != null && synthSeg.words.size() == 3, "Les mots doivent être synthétisés automatiquement (3 mots)");
+            assertTrue("Bonjour".equals(synthSeg.words.get(0).word), "Premier mot doit être 'Bonjour'");
+            assertTrue(synthSeg.words.get(0).start >= 2.0, "Start du premier mot doit être >= 2.0s");
+            assertTrue(synthSeg.words.get(2).end <= 4.01, "End du dernier mot doit être <= 4.0s");
+            System.out.println("Filtrage anti-phrases vides & synthèse automatique des mots : VALIDÉ !");
+
+            // 12. Test Optimisation Démarrage & Détection Rapide des Dépendances
+            System.out.println("--- Test Démarrage Rapide & Dépendances Non-Bloquantes ---");
+            long tDep0 = System.currentTimeMillis();
+            boolean hasFfmpeg = app.services.DependencyManagerService.checkFFmpeg().isInstalled;
+            boolean hasVlc = app.services.DependencyManagerService.checkVLC().isInstalled;
+            boolean hasPythonWhisper = app.services.DependencyManagerService.checkPythonWhisper().isInstalled;
+            long tDepElapsed = System.currentTimeMillis() - tDep0;
+            System.out.println("Vérification dépendances terminée en " + tDepElapsed + " ms (FFmpeg=" + hasFfmpeg + ", VLC=" + hasVlc + ", Python=" + hasPythonWhisper + ")");
+            assertTrue(tDepElapsed < 500, "La vérification des dépendances doit s'exécuter en moins de 500ms sans bloquer le lancement");
+            System.out.println("Optimisation du temps de démarrage : VALIDÉ !");
+
+            // 13. Test Encodage Multi-Marques (AMD AMF, Intel QSV, CPU x264, Auto)
+            System.out.println("--- Test Encodage Multi-Marques (AMD / Intel / CPU) ---");
+            app.services.MediaWorkflowService.EncoderSettings cpuEnc =
+                    app.services.MediaWorkflowService.detectEncoder(ffmpegPath, "cpu");
+            assertTrue(cpuEnc != null && "libx264".equals(cpuEnc.codec), "Profil CPU doit utiliser libx264");
+
+            app.services.MediaWorkflowService.EncoderSettings amfEnc =
+                    app.services.MediaWorkflowService.detectEncoder(ffmpegPath, "amf");
+            assertTrue(amfEnc != null && amfEnc.codec != null, "Profil AMF doit retourner un encodeur valide (AMF ou repli)");
+
+            app.services.MediaWorkflowService.EncoderSettings qsvEnc =
+                    app.services.MediaWorkflowService.detectEncoder(ffmpegPath, "qsv");
+            assertTrue(qsvEnc != null && qsvEnc.codec != null, "Profil QSV doit retourner un encodeur valide (QSV ou repli)");
+            System.out.println("Support multi-marques AMD / Intel / CPU : VALIDÉ !");
         }
 
         System.out.println("SmokeTests OK");

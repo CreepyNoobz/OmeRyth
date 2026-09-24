@@ -140,23 +140,14 @@ public class AutoTranscriptionTestDialog extends JDialog {
         comboModel.setSelectedIndex(1); // Small sélectionné par défaut
 
         int totalCores = Runtime.getRuntime().availableProcessors();
-        int balancedThreads = Math.max(4, Math.min(8, totalCores));
         int maxThreads = Math.max(4, Math.min(16, totalCores));
 
-        boolean hasCuda = SpeechWorkflowService.isCudaAvailable();
-        if (hasCuda) {
-            comboCpuProfile = new JComboBox<>(new String[]{
-                    "🚀 GPU NVIDIA (Accélération CUDA Tensor Cores — ~15-30s pour 10 min)",
-                    "⚡ CPU Multi-cœurs Turbo (" + maxThreads + " threads — Accélération AVX2 int8)",
-                    "🤫 CPU Économe / Silencieux (2 threads)"
-            });
-        } else {
-            comboCpuProfile = new JComboBox<>(new String[]{
-                    "🚀 CPU Multi-cœurs Turbo (" + maxThreads + " threads — Accélération AVX2 int8)",
-                    "⚡ CPU Équilibré (" + balancedThreads + " threads)",
-                    "🤫 CPU Économe / Silencieux (2 threads)"
-            });
-        }
+        comboCpuProfile = new JComboBox<>(new String[]{
+                "🚀 Détection Automatique (Recommandé — GPU si disponible, sinon CPU Multi-cœurs)",
+                "⚡ CPU Multi-cœurs Universel (" + maxThreads + " threads — Compatible tous PC Intel/AMD)",
+                "🎮 GPU NVIDIA CUDA (Si carte graphique NVIDIA dédiée disponible)",
+                "🤫 CPU Économe / Silencieux (2 threads)"
+        });
         comboCpuProfile.setSelectedIndex(0);
 
         // Destination band selector
@@ -427,25 +418,29 @@ public class AutoTranscriptionTestDialog extends JDialog {
                        modelDisplay.contains("small") ? "small" :
                        modelDisplay.contains("tiny") ? "tiny" : "base";
 
-        String hwSelection = comboCpuProfile.getSelectedItem().toString();
-        String device = hwSelection.contains("GPU") ? "cuda" : "cpu";
-
         int cpuIdx = comboCpuProfile.getSelectedIndex();
         int totalCores = Runtime.getRuntime().availableProcessors();
-        boolean isGpuSelected = hwSelection.contains("GPU");
+        int maxThreads = Math.max(4, Math.min(16, totalCores));
+
+        String device;
         int threads;
-        if (isGpuSelected) {
-            threads = switch (cpuIdx) {
-                case 0 -> 4;
-                case 1 -> Math.max(4, Math.min(16, totalCores));
-                default -> 2;
-            };
-        } else {
-            threads = switch (cpuIdx) {
-                case 0 -> Math.max(4, Math.min(16, totalCores));
-                case 1 -> Math.max(4, Math.min(8, totalCores));
-                default -> 2;
-            };
+        switch (cpuIdx) {
+            case 0 -> {
+                device = "auto";
+                threads = maxThreads;
+            }
+            case 1 -> {
+                device = "cpu";
+                threads = maxThreads;
+            }
+            case 2 -> {
+                device = "cuda";
+                threads = 4;
+            }
+            default -> {
+                device = "cpu";
+                threads = 2;
+            }
         }
 
         service.transcribe(videoFile, numSpeakers, language, model, threads, device, new SpeechWorkflowService.TranscriptionCallback() {
@@ -462,6 +457,9 @@ public class AutoTranscriptionTestDialog extends JDialog {
 
             @Override
             public void onSegmentFound(SpeechWorkflowService.TranscriptionSegment segment) {
+                if (segment == null || !SpeechWorkflowService.hasAlphanumeric(segment.getText())) {
+                    return;
+                }
                 liveSegments.add(segment);
                 SwingUtilities.invokeLater(() -> {
                     String durationStr = String.format("%.2f", segment.getDuration());
@@ -779,6 +777,9 @@ public class AutoTranscriptionTestDialog extends JDialog {
             int baseBand = comboBandTarget.getSelectedIndex();
             boolean multiBand = checkMultiBandPerSpeaker.isSelected();
             for (SpeechWorkflowService.TranscriptionSegment seg : segments) {
+                if (seg == null || !SpeechWorkflowService.hasAlphanumeric(seg.getText())) {
+                    continue;
+                }
                 String durationStr = String.format("%.2f", seg.getDuration());
                 int targetBand = multiBand ? (baseBand + seg.getSpeakerIndex()) : baseBand;
                 String speakerDisp = seg.getSpeakerDisplayName();
