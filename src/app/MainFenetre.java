@@ -986,10 +986,10 @@ public class MainFenetre extends JFrame {
             segmentsByBand.computeIfAbsent(band, k -> new ArrayList<>()).add(seg);
         }
 
-        // Seuil de pause (en secondes) pour couper la réplique avec des séparateurs Début/Fin indépendants
-        // Dès qu'une personne s'arrête de parler (temps mort >= 0.22s, et a fortiori les pauses de 0.5s),
-        // on coupe la réplique avec un séparateur END, laissant un espace vide, et on remet un START dès qu'elle reparle.
-        final double MAX_PAUSE_GAP_SEC = 0.22;
+        // Seuil de silence (en secondes) pour isoler deux phrases complètement indépendantes chez le MÊME locuteur
+        // Si le même personnage enchaîne ses répliques (temps mort < 1.20s), elles restent groupées
+        // dans la même phrase rythmo et sont séparées par des séparateurs internes (INNER).
+        final double MAX_SAME_SPEAKER_GAP_SEC = 1.20;
         int minStep = Math.max(10, (int) Math.round(pps * 0.1));
 
         for (Map.Entry<Integer, java.util.List<SpeechWorkflowService.TranscriptionSegment>> entry : segmentsByBand.entrySet()) {
@@ -1023,7 +1023,10 @@ public class MainFenetre extends JFrame {
             }
             bandSegments = cleanBandSegments;
 
-            // Découper en phrases rythmo naturelles et indépendantes
+            // Regrouper les répliques consécutives du même locuteur dans la même phrase :
+            // La séparation entre répliques successives du même locuteur se fait via des séparateurs internes (INNER).
+            // On ne coupe une phrase indépendante (nouveau START/END) que lors d'un long silence (gap >= 1.20s)
+            // ou si la phrase cumulée dépasse 15 secondes.
             java.util.List<java.util.List<SpeechWorkflowService.TranscriptionSegment>> phraseGroups = new ArrayList<>();
             java.util.List<SpeechWorkflowService.TranscriptionSegment> currentGroup = new ArrayList<>();
 
@@ -1033,17 +1036,9 @@ public class MainFenetre extends JFrame {
                 } else {
                     SpeechWorkflowService.TranscriptionSegment prev = currentGroup.get(currentGroup.size() - 1);
                     double gap = seg.getStartSeconds() - prev.getEndSeconds();
-                    String prevTxt = prev.getText() != null ? prev.getText().trim() : "";
-                    boolean prevHasPunct = prevTxt.endsWith(".") || prevTxt.endsWith("!") ||
-                                           prevTxt.endsWith("?") || prevTxt.endsWith("…") ||
-                                           prevTxt.endsWith(":");
                     double groupDur = prev.getEndSeconds() - currentGroup.get(0).getStartSeconds();
 
-                    // Séparer en répliques distinctes si :
-                    // 1) Il y a un temps mort (gap >= 0.22s, notamment toute pause de 0.5s)
-                    // 2) La réplique précédente se termine par une ponctuation forte et gap >= 0.15s
-                    // 3) La réplique en cours dépasse 5.0 secondes
-                    if (gap >= MAX_PAUSE_GAP_SEC || (prevHasPunct && gap >= 0.15) || groupDur >= 5.0) {
+                    if (gap >= MAX_SAME_SPEAKER_GAP_SEC || groupDur >= 15.0) {
                         phraseGroups.add(currentGroup);
                         currentGroup = new ArrayList<>();
                     }
@@ -1105,9 +1100,17 @@ public class MainFenetre extends JFrame {
 
                     // Séparateur Début (vert ▶) et Fin (rouge ◀)
                     textManager.addSeparator(band, segStartX, SeparatorMark.Type.START);
+                    if (seg.getSeparators() != null) {
+                        for (SpeechWorkflowService.RhythmicSeparator rsep : seg.getSeparators()) {
+                            int rsepX = timelinePanel.snapWorldXToTenth((int) Math.round(rsep.getTime() * pps));
+                            if (rsepX > segStartX + 4 && rsepX < segEndX - 4) {
+                                textManager.addSeparator(band, rsepX, SeparatorMark.Type.INNER, rsep.getSplitIndex());
+                            }
+                        }
+                    }
                     textManager.addSeparator(band, segEndX, SeparatorMark.Type.END);
                 } else {
-                    // Micro-enchaînement (gap < 0.22s) : relié par des séparateurs internes
+                    // Multi-répliques du même locuteur : réunies en une seule phrase et séparées par des séparateurs internes (INNER)
                     double groupStartSec = Math.round(group.get(0).startSeconds * 100.0) / 100.0;
                     int groupStartX = timelinePanel.snapWorldXToTenth((int) Math.round(groupStartSec * pps));
                     if (groupStartX < lastCommittedEndX + 4) {
@@ -1143,7 +1146,9 @@ public class MainFenetre extends JFrame {
                             segEndX = segStartX + minStep;
                         }
 
+                        int segTextStartOffset;
                         if (i == 0) {
+                            segTextStartOffset = 0;
                             fullText.append(txt);
                             curSplit = fullText.length();
                             lastEndX = Math.max(groupStartX + minStep, segEndX);
@@ -1152,13 +1157,26 @@ public class MainFenetre extends JFrame {
                             curSplit = fullText.length();
                             int sepX = Math.max(lastEndX, segStartX);
                             inners.add(new SepInfo(sepX, curSplit));
+                            segTextStartOffset = curSplit;
                             fullText.append(txt);
                             curSplit = fullText.length();
                             lastEndX = Math.max(sepX + minStep, segEndX);
                         }
+
+                        if (seg.getSeparators() != null) {
+                            for (SpeechWorkflowService.RhythmicSeparator rsep : seg.getSeparators()) {
+                                int rsepX = timelinePanel.snapWorldXToTenth((int) Math.round(rsep.getTime() * pps));
+                                int rsplit = segTextStartOffset + rsep.getSplitIndex();
+                                if (rsepX > segStartX + 4 && rsepX < segEndX - 4 && rsplit < fullText.length()) {
+                                    inners.add(new SepInfo(rsepX, rsplit));
+                                }
+                            }
+                        }
                     }
 
                     if (fullText.length() == 0) continue;
+
+                    inners.sort(Comparator.comparingInt((SepInfo s) -> s.x).thenComparingInt(s -> s.splitIndex));
 
                     int curX = groupStartX;
                     for (SepInfo sep : inners) {

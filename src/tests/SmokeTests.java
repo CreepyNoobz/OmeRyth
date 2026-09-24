@@ -756,17 +756,18 @@ public class SmokeTests {
                 assertTrue(shDuration < 500, "Le rendu sur timeline de 7h doit être instantané (< 500ms)");
                 System.out.println("Test de fluidité et non-disparition sur timeline 7 HEURES : VALIDÉ !");
 
-                // Test d'importation de transcription avec temps mort de 0.5s
+                // Test d'importation de transcription : même locuteur enchaîné (INNER) vs temps mort long (>= 1.20s)
                 java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> testSegments = new ArrayList<>();
                 testSegments.add(new app.services.SpeechWorkflowService.TranscriptionSegment(1, "SPEAKER_00", 1.0, 2.0, "T'as oublié que"));
-                testSegments.add(new app.services.SpeechWorkflowService.TranscriptionSegment(2, "SPEAKER_00", 2.5, 3.5, "je suis ta mère !")); // 0.5s de silence entre 2.0s et 2.5s !
+                testSegments.add(new app.services.SpeechWorkflowService.TranscriptionSegment(2, "SPEAKER_00", 2.3, 3.5, "je suis ta mère !")); // 0.3s d'intervalle -> même locuteur, séparateur INNER
+                testSegments.add(new app.services.SpeechWorkflowService.TranscriptionSegment(3, "SPEAKER_00", 5.0, 6.0, "Et tu recommences.")); // 1.5s de silence -> nouvelle phrase (START/END)
 
                 // Simuler la logique d'importation de MainFenetre
                 TimelinePanel importTimeline = new TimelinePanel();
                 importTimeline.setSize(1200, 300);
                 app.ui.TextManager itTM = importTimeline.getTextManager();
                 double itPps = importTimeline.getPixelsPerSecond();
-                final double TEST_MAX_PAUSE_GAP = 0.38;
+                final double TEST_MAX_SAME_SPEAKER_GAP = 1.20;
 
                 java.util.List<java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment>> testGroups = new ArrayList<>();
                 java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> curGrp = new ArrayList<>();
@@ -775,7 +776,7 @@ public class SmokeTests {
                         curGrp.add(seg);
                     } else {
                         double gap = seg.getStartSeconds() - curGrp.get(curGrp.size() - 1).getEndSeconds();
-                        if (gap >= TEST_MAX_PAUSE_GAP) {
+                        if (gap >= TEST_MAX_SAME_SPEAKER_GAP) {
                             testGroups.add(curGrp);
                             curGrp = new ArrayList<>();
                         }
@@ -784,26 +785,39 @@ public class SmokeTests {
                 }
                 if (!curGrp.isEmpty()) testGroups.add(curGrp);
 
-                assertTrue(testGroups.size() == 2, "Les 2 répliques avec 0.5s de temps mort doivent former 2 groupes séparés (trouvé " + testGroups.size() + ")");
+                assertTrue(testGroups.size() == 2, "Les segments 1 et 2 doivent être groupés ensemble, et le segment 3 après long silence (1.5s) doit former un 2e groupe (trouvé " + testGroups.size() + ")");
+                assertTrue(testGroups.get(0).size() == 2, "Le 1er groupe doit contenir les 2 répliques enchaînées");
+                assertTrue(testGroups.get(1).size() == 1, "Le 2e groupe doit contenir la réplique après long silence");
 
-                for (java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> grp : testGroups) {
-                    app.services.SpeechWorkflowService.TranscriptionSegment s = grp.get(0);
-                    int sX = importTimeline.snapWorldXToTenth((int) Math.round(s.startSeconds * itPps));
-                    int eX = importTimeline.snapWorldXToTenth((int) Math.round(s.endSeconds * itPps));
-                    itTM.addTextItem(new app.ui.TextItem(s.text, sX, 0));
-                    itTM.addSeparator(0, sX, SeparatorMark.Type.START);
-                    itTM.addSeparator(0, eX, SeparatorMark.Type.END);
-                }
+                // Groupe 1 (2 répliques enchaînées avec INNER)
+                java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> grp1 = testGroups.get(0);
+                String fullTxt = grp1.get(0).text + " " + grp1.get(1).text;
+                int grp1StartX = importTimeline.snapWorldXToTenth((int) Math.round(grp1.get(0).startSeconds * itPps));
+                int grp1InnerX = importTimeline.snapWorldXToTenth((int) Math.round(grp1.get(1).startSeconds * itPps));
+                int grp1EndX = importTimeline.snapWorldXToTenth((int) Math.round(grp1.get(1).endSeconds * itPps));
+                itTM.addTextItem(new app.ui.TextItem(fullTxt, grp1StartX, 0));
+                itTM.addSeparator(0, grp1StartX, SeparatorMark.Type.START);
+                itTM.addSeparator(0, grp1InnerX, SeparatorMark.Type.INNER, grp1.get(0).text.length() + 1);
+                itTM.addSeparator(0, grp1EndX, SeparatorMark.Type.END);
 
-                assertTrue(itTM.getTexts().size() == 2, "La timeline doit contenir 2 TextItem distincts pour chaque réplique");
+                // Groupe 2 (après long silence >= 1.20s)
+                java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> grp2 = testGroups.get(1);
+                int grp2StartX = importTimeline.snapWorldXToTenth((int) Math.round(grp2.get(0).startSeconds * itPps));
+                int grp2EndX = importTimeline.snapWorldXToTenth((int) Math.round(grp2.get(0).endSeconds * itPps));
+                itTM.addTextItem(new app.ui.TextItem(grp2.get(0).text, grp2StartX, 0));
+                itTM.addSeparator(0, grp2StartX, SeparatorMark.Type.START);
+                itTM.addSeparator(0, grp2EndX, SeparatorMark.Type.END);
+
+                assertTrue(itTM.getTexts().size() == 2, "La timeline doit contenir 2 TextItem distincts (1 pour les répliques enchaînées avec INNER, 1 après long silence)");
                 ArrayList<SeparatorMark> sepsBand0 = itTM.getBandSeparators().get(0);
-                assertTrue(sepsBand0 != null && sepsBand0.size() == 4, "La timeline doit contenir 4 séparateurs (START, END, START, END)");
+                assertTrue(sepsBand0 != null && sepsBand0.size() == 5, "La timeline doit contenir 5 séparateurs (START, INNER, END, START, END)");
                 assertTrue(sepsBand0.get(0).type == SeparatorMark.Type.START, "Séparateur 1 doit être START");
-                assertTrue(sepsBand0.get(1).type == SeparatorMark.Type.END, "Séparateur 2 doit être END");
-                assertTrue(sepsBand0.get(2).type == SeparatorMark.Type.START, "Séparateur 3 doit être START");
-                assertTrue(sepsBand0.get(3).type == SeparatorMark.Type.END, "Séparateur 4 doit être END");
-                assertTrue(sepsBand0.get(2).x > sepsBand0.get(1).x, "Il doit y avoir un espace vide entre le END de la phrase 1 et le START de la phrase 2");
-                System.out.println("Test de séparation des phrases avec temps mort de 0.5s (START, END indépendants) : VALIDÉ !");
+                assertTrue(sepsBand0.get(1).type == SeparatorMark.Type.INNER, "Séparateur 2 doit être INNER pour séparer les 2 répliques du même locuteur");
+                assertTrue(sepsBand0.get(2).type == SeparatorMark.Type.END, "Séparateur 3 doit être END");
+                assertTrue(sepsBand0.get(3).type == SeparatorMark.Type.START, "Séparateur 4 doit être START après long silence");
+                assertTrue(sepsBand0.get(4).type == SeparatorMark.Type.END, "Séparateur 5 doit être END");
+                assertTrue(sepsBand0.get(3).x > sepsBand0.get(2).x, "Il doit y avoir un espace vide entre le END de la phrase 1 et le START de la phrase 2");
+                System.out.println("Test de regroupement des répliques même locuteur (séparateur INNER) et découpe sur long silence : VALIDÉ !");
 
                 // Test Rhythmic Separators & Prolonged Word Stretching (ex: "je suis" 1.3s / "ce petit quiproquo" 0.7s)
                 System.out.println("--- Test Séparateurs Rythmiques & Stretching des Mots Rallongés ---");

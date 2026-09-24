@@ -120,7 +120,10 @@ def format_timecode(seconds: float) -> str:
 
 # Patterns for Whisper hallucination artefacts
 _BRACKET_RE = re.compile(r"\[.*?\]|\(.*?\)")
-_REPEATED_PHRASE_RE = re.compile(r"\b(\w{3,}(?:\s+\w+){0,4})\b(?:\s+\1\b)+", re.IGNORECASE)
+# Ne cible QUE les boucles d'hallucinations dégénérées (>= 4 mots identiques ou >= 3 phrases répétées)
+# Préserve intégralement les répétitions naturelles en doublage ("oui oui", "non non", "attends attends", "très très", etc.)
+_REPEATED_WORD_LOOP_RE = re.compile(r"\b(\w{3,})\b(?:\s+\1\b){3,}", re.IGNORECASE)
+_REPEATED_PHRASE_LOOP_RE = re.compile(r"\b(\w{2,}(?:\s+\w+){1,4})\b(?:\s+\1\b){2,}", re.IGNORECASE)
 _MULTI_SPACE_RE = re.compile(r"  +")
 
 FRENCH_PHONETIC_CORRECTIONS = [
@@ -196,8 +199,9 @@ def clean_text(raw: str, lang: str = "fr") -> str:
     # 1. Supprimer les annotations parasites entre crochets/parenthèses [Musique], (Rires), etc.
     text = _BRACKET_RE.sub("", text)
 
-    # 2. Supprimer les répétitions consécutives (hallucinations Whisper)
-    text = _REPEATED_PHRASE_RE.sub(r"\1", text)
+    # 2. Supprimer uniquement les boucles d'hallucination réelles Whisper (>= 4 mots ou >= 3 phrases)
+    text = _REPEATED_WORD_LOOP_RE.sub(r"\1 \1", text)
+    text = _REPEATED_PHRASE_LOOP_RE.sub(r"\1", text)
 
     # 3. Normaliser les espaces multiples
     text = _MULTI_SPACE_RE.sub(" ", text).strip()
@@ -271,9 +275,9 @@ def load_audio(audio_path: str):
         return np.zeros(16000, dtype=np.float32), 16000
 
 
-def detect_silence_intervals(audio, sr: int = 16000, min_silence_sec: float = 0.48, frame_ms: int = 25) -> list:
+def detect_silence_intervals(audio, sr: int = 16000, min_silence_sec: float = 0.10, frame_ms: int = 20) -> list:
     """
-    Vérifie le signal audio pour détecter toutes les fenêtres d'au moins 0.48s (~0.5s)
+    Vérifie le signal audio pour détecter toutes les fenêtres de silence (dès 0.10s)
     où la personne s'arrête de parler (énergie RMS en dessous du seuil de voix).
     Retourne les intervalles de silence [(start_sec, end_sec), ...] avec haute précision.
     """
@@ -315,13 +319,83 @@ def detect_silence_intervals(audio, sr: int = 16000, min_silence_sec: float = 0.
     return silence_ranges
 
 
-def segment_words_into_clean_phrases(words: list, silence_intervals: list = None, pause_threshold: float = 0.48, lang: str = "fr") -> list:
+DIALOGUE_STARTERS = {
+    "mais", "oui", "non", "ouais", "nan", "ah", "oh", "bah", "ben", "hein",
+    "attends", "regarde", "écoute", "pourquoi", "comment", "alors", "donc",
+    "c'est", "ce", "tu", "je", "il", "elle", "on", "nous", "vous", "ils", "elles",
+    "d'accord", "exactement", "absolument", "jamais", "toujours", "bien", "voilà",
+    "merci", "pardon", "s'il", "salut", "bonjour", "bonsoir"
+}
+
+def extract_local_pitch(audio_data, start_sec: float, end_sec: float, sr: int = 16000) -> float:
+    """Estime rapidement le pitch F0 médian local sur une fenêtre temporelle restreinte."""
+    if audio_data is None or sr <= 0 or end_sec <= start_sec:
+        return 0.0
+    import numpy as np
+    import scipy.signal as signal
+    s_idx = max(0, int(start_sec * sr))
+    e_idx = min(len(audio_data), int(end_sec * sr))
+    if e_idx - s_idx < int(sr * 0.04):
+        return 0.0
+    chunk = audio_data[s_idx:e_idx]
+    try:
+        sos = signal.butter(3, [65, 450], btype="bandpass", fs=sr, output="sos")
+        filt = signal.sosfilt(sos, chunk)
+        min_lag = int(sr / 450)
+        max_lag = int(sr / 65)
+        corr = signal.correlate(filt, filt, mode="full")
+        corr = corr[len(corr) // 2:]
+        if len(corr) > max_lag:
+            pk = min_lag + int(np.argmax(corr[min_lag:max_lag]))
+            if corr[0] > 1e-5 and (corr[pk] / corr[0]) > 0.25:
+                return float(sr / pk)
+    except Exception:
+        pass
+    return 0.0
+
+
+def compute_rhythmic_separators(phrase_text: str, words: list) -> list:
     """
-    Découpe les mots en répliques naturelles et complètes en vérifiant toutes les 0.5s si la personne parle toujours :
-    - Si la personne s'arrête de parler pendant >= 0.48s (~0.5s), on coupe via un séparateur END.
-    - Dès qu'elle reparle, une nouvelle réplique redémarre avec un séparateur START pour espacer le tout.
-    - Détecte également les silences acoustiques directs dans le signal audio.
-    - Coupe proprement après ponctuation forte (?, !, ., …, :) dès qu'il y a un intervalle >= 0.18s.
+    Calcule les séparateurs rythmiques internes (INNER) au sein d'une réplique
+    en détectant les pauses significatives entre mots (gap >= 0.14s) ou les mots étirés (>= 0.85s).
+    """
+    if not words or len(words) < 2 or not phrase_text:
+        return []
+    separators = []
+    search_idx = 0
+    for i in range(len(words) - 1):
+        w_curr = words[i]
+        w_next = words[i + 1]
+        w_curr_start = float(w_curr.get("start", 0.0))
+        w_curr_end = float(w_curr.get("end", 0.0))
+        w_next_start = float(w_next.get("start", 0.0))
+        gap = w_next_start - w_curr_end
+        dur = w_curr_end - w_curr_start
+
+        curr_word_txt = w_curr.get("word", "").strip()
+        pos = phrase_text.find(curr_word_txt, search_idx)
+        if pos != -1:
+            split_idx = pos + len(curr_word_txt)
+            if split_idx < len(phrase_text) and phrase_text[split_idx] == " ":
+                split_idx += 1
+            search_idx = split_idx
+
+            if gap >= 0.14 or dur >= 0.85:
+                sep_time = round((w_curr_end + w_next_start) / 2.0, 3) if gap > 0 else round(w_curr_end, 3)
+                separators.append({
+                    "time": sep_time,
+                    "split_index": split_idx
+                })
+    return separators
+
+
+def segment_words_into_clean_phrases(words: list, silence_intervals: list = None, pause_threshold: float = 0.32, lang: str = "fr", audio_data=None, sr: int = 16000) -> list:
+    """
+    Découpe les mots en répliques naturelles et complètes pour la bande rythmo :
+    - Détecte les alternances de locuteurs (mots d'amorce majuscules, sauts de pitch acoustique F0 entre deux répliques).
+    - Détecte les silences et temps morts >= 0.32s.
+    - Coupe proprement après ponctuation forte (?, !, ., …, :) dès qu'il y a un intervalle >= 0.08s.
+    - Évite scrupuleusement de fusionner deux personnages distincts qui se répondent du tac au tac.
     """
     if not words:
         return []
@@ -348,23 +422,63 @@ def segment_words_into_clean_phrases(words: list, silence_intervals: list = None
         phrase_duration = prev_end - phrase_start
         prev_word_text = current_words[-1].get("word", "").strip()
 
-        is_punct = any(prev_word_text.endswith(p) for p in ["?", "!", ".", "…", "...", "—", ":"])
+        # 1. Seuil de pause conversationnel (>= 0.32s est une vraie pause de réplique)
+        is_pause = (gap >= pause_threshold)
 
-        # Check acoustique : vérifier si un temps mort de silence de >= 0.48s est présent entre les mots
+        # 2. Ponctuation forte (?, !, ., …, ..., :, —) avec micro-pause (>= 0.08s)
+        is_strong_punct = any(prev_word_text.endswith(p) for p in ["?", "!", ".", "…", "...", "—", ":"])
+        split_strong_punct = is_strong_punct and (gap >= 0.08)
+
+        # 3. Ponctuation faible (,, ;) avec pause moyenne (>= 0.16s)
+        is_weak_punct = any(prev_word_text.endswith(p) for p in [",", ";"])
+        split_weak_punct = is_weak_punct and (gap >= 0.16)
+
+        # 4. Changement de réplique / Début d'intervention (mot avec Majuscule après un silence >= 0.10s)
+        # Ex: "...tu crois que tu pourras Mais oui, évidemment." -> 'Mais' débute la réplique suivante
+        w_clean = re.sub(r"^[^\w]+", "", w_text)
+        split_turn_taking = False
+        if w_clean and w_clean[0].isupper() and not prev_word_text.endswith("."):
+            w_lower = w_clean.lower()
+            if w_lower in DIALOGUE_STARTERS and gap >= 0.10:
+                split_turn_taking = True
+            elif gap >= 0.14:
+                split_turn_taking = True
+
+        # 5. Détection acoustique de changement de locuteur (saut de pitch F0 entre répliques)
+        has_acoustic_pitch_jump = False
+        if audio_data is not None and gap >= 0.10 and sr > 0:
+            try:
+                p_prev = extract_local_pitch(audio_data, max(0.0, prev_end - 0.40), prev_end, sr)
+                p_curr = extract_local_pitch(audio_data, w_start, min(len(audio_data) / sr, w_start + 0.40), sr)
+                if p_prev > 50 and p_curr > 50:
+                    delta_f0 = abs(p_prev - p_curr)
+                    ratio_f0 = max(p_prev, p_curr) / min(p_prev, p_curr)
+                    if delta_f0 >= 26.0 or ratio_f0 >= 1.22:
+                        has_acoustic_pitch_jump = True
+            except Exception:
+                pass
+
+        # 6. Check acoustique : vérifier si un temps mort de silence de >= 0.10s est présent entre les mots
         has_acoustic_silence = False
         if silence_intervals:
             for s_start, s_end in silence_intervals:
-                if s_end > (prev_end - 0.05) and s_start < (w_start + 0.05):
+                if s_end > (prev_end - 0.04) and s_start < (w_start + 0.04):
                     overlap = min(w_start, s_end) - max(prev_end, s_start)
-                    if overlap >= 0.38 or (s_end - s_start) >= 0.48:
+                    if overlap >= 0.07 or (s_end - s_start) >= 0.10:
                         has_acoustic_silence = True
                         break
 
-        should_split = (gap >= pause_threshold) or \
+        # 7. Limites de durée de phrase pour le doublage
+        split_long_phrase = (phrase_duration >= 4.0 and (is_weak_punct or gap >= 0.18)) or \
+                            (phrase_duration >= 5.5 and gap >= 0.14)
+
+        should_split = is_pause or \
                        has_acoustic_silence or \
-                       (is_punct and gap >= 0.18) or \
-                       (phrase_duration >= 4.5 and any(prev_word_text.endswith(p) for p in [",", ";"]) and gap >= 0.20) or \
-                       (phrase_duration >= 5.5 and gap >= 0.22)
+                       split_strong_punct or \
+                       split_weak_punct or \
+                       split_turn_taking or \
+                       has_acoustic_pitch_jump or \
+                       split_long_phrase
 
         if should_split:
             phrase_end = prev_end
@@ -592,7 +706,10 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
         sos_pitch = signal.butter(4, [65, 450], btype="bandpass", fs=target_sr, output="sos")
 
         features = []
+        raw_phrase_pitches = []
+        all_voiced_pitches = []
 
+        # Premier passage : extraction fine du pitch F0 et collecte des hauteurs de voix
         for p in phrases:
             s_idx = max(0, int(p["start"] * sr))
             e_idx = min(len(audio_data), int(p["end"] * sr))
@@ -600,59 +717,86 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
             if len(y) < frame_len:
                 y = np.pad(y, (0, frame_len - len(y)))
 
-            # ── Estimation fine de la hauteur fondamentale (Pitch F0) ──
-            # On applique le filtre passe-bande puis l'autocorrélation temporelle
             y_filt = signal.sosfilt(sos_pitch, y)
             pitches = []
             for i in range(0, len(y_filt) - frame_len, hop_len):
                 frame = y_filt[i:i + frame_len]
                 energy = np.sum(frame ** 2)
                 if energy < 1e-4:
-                    continue  # Trame quasi silencieuse (consonne sourde ou micro-pause)
-                
-                # Autocorrélation directe : r(tau) = sum(x(t) * x(t + tau))
+                    continue
+
                 corr = signal.correlate(frame, frame, mode="full")
-                corr = corr[len(corr) // 2:]  # On ne garde que les lags positifs
-                
+                corr = corr[len(corr) // 2:]
+
                 if len(corr) > max_lag:
-                    # Le premier pic significatif après min_lag correspond à la période fondamentale T0
-                    pk = min_lag + np.argmax(corr[min_lag:max_lag])
-                    # Validation du pic : il doit être suffisamment proéminent (voix voisée)
+                    pk = min_lag + int(np.argmax(corr[min_lag:max_lag]))
                     if corr[0] > 1e-5 and (corr[pk] / corr[0]) > 0.28:
-                        pitches.append(target_sr / pk)
+                        # Interpolation parabolique fine sub-échantillon
+                        if 0 < pk < len(corr) - 1:
+                            y0, y1, y2 = corr[pk - 1], corr[pk], corr[pk + 1]
+                            denom = y0 - 2 * y1 + y2
+                            pk_fine = pk if abs(denom) < 1e-12 else pk + 0.5 * (y0 - y2) / denom
+                        else:
+                            pk_fine = float(pk)
+                        f0 = target_sr / max(1.0, pk_fine)
+                        if 65 <= f0 <= 450:
+                            pitches.append(f0)
+                            all_voiced_pitches.append(f0)
 
-            # Pitch médian robuste de la phrase (insensible aux fausses détections ponctuelles)
+            raw_phrase_pitches.append(pitches)
+
+        # Médiane vocale globale de l'audio pour imputer sans biais les phrases courtes/sourdes
+        global_median_pitch = float(np.median(all_voiced_pitches)) if all_voiced_pitches else 150.0
+
+        p_med_list = []
+        has_pitch_list = []
+
+        # Deuxième passage : construction du vecteur de caractéristiques acoustiques
+        for idx, p in enumerate(phrases):
+            s_idx = max(0, int(p["start"] * sr))
+            e_idx = min(len(audio_data), int(p["end"] * sr))
+            y = audio_data[s_idx:e_idx] if e_idx > s_idx else np.zeros(frame_len, dtype=np.float32)
+            if len(y) < frame_len:
+                y = np.pad(y, (0, frame_len - len(y)))
+
+            pitches = raw_phrase_pitches[idx]
             if len(pitches) >= 2:
-                med_pitch = np.median(pitches)
+                med_pitch = float(np.median(pitches))
+                iqr_pitch = float(np.percentile(pitches, 75) - np.percentile(pitches, 25))
+                has_voiced = 1.0
             elif len(pitches) == 1:
-                med_pitch = pitches[0]
+                med_pitch = float(pitches[0])
+                iqr_pitch = 5.0
+                has_voiced = 1.0
             else:
-                med_pitch = 0.0
+                # Phrase sourde ou trop courte : imputation sur la médiane globale pour éviter
+                # la création d'un cluster parasite avec pitch = 0.0 !
+                med_pitch = global_median_pitch
+                iqr_pitch = 0.0
+                has_voiced = 0.0
 
-            # Conversion en échelle logarithmique (octaves par rapport au La-1 / 55 Hz)
-            # Permet une séparation linéaire entre registres vocaux (baryton, ténor, alto, soprano)
-            log_pitch = np.log2(med_pitch / 55.0) if med_pitch > 50 else 0.0
+            p_med_list.append(med_pitch)
+            has_pitch_list.append(has_voiced)
 
-            # ── MFCCs globaux de la réplique (timbre vocal de l'acteur) ──
+            log_pitch = np.log2(max(50.0, med_pitch) / 55.0)
+            log_iqr = np.log2(max(1.0, iqr_pitch) / 10.0)
+
+            # MFCCs globaux (timbre et conduit vocal)
             mfcc_mean, mfcc_std = extract_mfcc_stats(y, target_sr=target_sr, n_mfcc=13, n_fft=512, hop_len=160, n_mels=40)
 
-            # ── Brillance et centroïde spectral (centre de gravité fréquentiel) ──
+            # Brillance et centroïde spectral
             spec = np.abs(np.fft.rfft(y))
             freqs = np.fft.rfftfreq(len(y), 1.0 / target_sr)
             spec_sum = np.sum(spec) + 1e-9
             centroid = np.sum(freqs * spec) / spec_sum
-            norm_centroid = centroid / 4000.0  # Normalisation indicative
+            norm_centroid = centroid / 4000.0
 
-            # Vecteur de caractéristiques pondéré :
-            # - log_pitch * 6.0 : poids très fort pour séparer nettement les voix masculines et féminines
-            # - mfcc_mean[:8] : enveloppe des formants bas/moyens (empreinte du conduit vocal)
-            # - mfcc_std[:4] : dynamique d'articulation
-            # - norm_centroid * 2.0 : clarté/brillance globale de la voix
             feat = np.hstack([
-                [log_pitch * 6.0],
+                [log_pitch],
+                [log_iqr],
+                [norm_centroid],
                 mfcc_mean[:8],
-                mfcc_std[:4],
-                [norm_centroid * 2.0]
+                mfcc_std[:4]
             ])
             features.append(feat)
 
@@ -660,44 +804,84 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
         scaler = StandardScaler()
         X_norm = scaler.fit_transform(X)
 
+        # Pondération appliquée APRÈS StandardScaler pour que le pitch et le timbre dominent
+        # et que les variations de phonèmes (voyelles différentes d'une phrase à l'autre) soient atténuées :
+        # - col 0 (log_pitch): 3.5
+        # - col 1 (log_iqr): 1.5
+        # - col 2 (norm_centroid): 1.5
+        # - col 3-6 (mfcc_mean 0-3): 1.2 chacun (enveloppe du conduit vocal)
+        # - col 7-10 (mfcc_mean 4-7): 0.4 chacun (phonèmes atténués)
+        # - col 11-14 (mfcc_std): 0.3 chacun
+        weights = np.array([3.5, 1.5, 1.5] + [1.2] * 4 + [0.4] * 4 + [0.3] * 4)
+        X_weighted = X_norm * weights
+
         if num_speakers > 1:
             target_k = min(num_speakers, len(phrases))
         else:
-            # Mode Auto-détection non-supervisée :
-            # On teste différents nombres de locuteurs k (de 2 à max_candidates)
-            # et on retient le k qui maximise le score de Silhouette (compacité intra-cluster vs distance inter-cluster).
+            # Mode Auto-détection : sélection optimale et robuste du nombre de personnages
             from sklearn.metrics import silhouette_score
-            max_candidates = min(12, max(2, len(phrases) // 2))
+            max_candidates = min(8, max(2, len(phrases) // 2))
             best_k = 1
             best_score = -1.0
+            best_labels = None
 
             for k in range(2, max_candidates + 1):
                 try:
-                    cl = KMeans(n_clusters=k, random_state=42, n_init=10)
-                    labels = cl.fit_predict(X_norm)
-                    score = float(silhouette_score(X_norm, labels))
+                    cl = KMeans(n_clusters=k, random_state=42, n_init=15)
+                    labels = cl.fit_predict(X_weighted)
+
+                    # Validation des tailles de cluster : un vrai personnage a au moins 2 répliques
+                    # et au moins 8% des interventions du fichier
+                    unique, counts = np.unique(labels, return_counts=True)
+                    if min(counts) < 2 or (min(counts) / len(phrases)) < 0.08:
+                        continue
+
+                    score = float(silhouette_score(X_weighted, labels))
                     if score > best_score:
                         best_score = score
                         best_k = k
+                        best_labels = labels
                 except Exception:
                     pass
 
-            if best_score < 0.12 or best_k < 2:
-                target_k = 1
-            else:
-                target_k = best_k
+            # Validation stricte du seuil de séparation multi-locuteurs :
+            # Un score < 0.32 correspond à un locuteur unique avec intonation naturelle.
+            if best_k >= 2 and best_score >= 0.32 and best_labels is not None:
+                # Vérification de l'écart acoustique réel entre les deux principaux groupes
+                cl0_p = [p_med_list[i] for i in range(len(phrases)) if best_labels[i] == 0 and has_pitch_list[i] > 0]
+                cl1_p = [p_med_list[i] for i in range(len(phrases)) if best_labels[i] == 1 and has_pitch_list[i] > 0]
 
-            print_info(f"Auto-détection vocale : {target_k} personnage(s) distinct(s) identifié(s) (indice de séparation: {best_score:.2f})")
+                med_p0 = float(np.median(cl0_p)) if cl0_p else global_median_pitch
+                med_p1 = float(np.median(cl1_p)) if cl1_p else global_median_pitch
+                delta_pitch = abs(med_p0 - med_p1)
+
+                c0 = np.mean(X_weighted[best_labels == 0], axis=0)
+                c1 = np.mean(X_weighted[best_labels == 1], axis=0)
+                centroid_dist = float(np.linalg.norm(c0 - c1))
+
+                # Pour confirmer 2+ locuteurs en mode automatique :
+                # Une même personne module naturellement sa voix de 5 à 12 Hz.
+                # Deux personnes distinctes présentent :
+                # - Soit un écart net de hauteur vocale (delta_pitch >= 20.0 Hz avec indice >= 0.32)
+                # - Soit une différence de pitch modérée (delta_pitch >= 12.0 Hz) couplée à une séparation spectrale marquée (indice >= 0.45)
+                if (delta_pitch >= 20.0 and best_score >= 0.32) or (delta_pitch >= 12.0 and best_score >= 0.45 and centroid_dist >= 4.0):
+                    target_k = best_k
+                else:
+                    target_k = 1
+            else:
+                target_k = 1
+
+            print_info(f"Auto-détection vocale : {target_k} personnage(s) identifié(s) (indice de séparation: {max(0.0, best_score):.2f})")
 
         if target_k <= 1:
             for p in phrases:
                 p["speaker"] = "SPEAKER_00"
             return phrases
 
-        clusterer = KMeans(n_clusters=target_k, random_state=42, n_init=15)
-        raw_labels = clusterer.fit_predict(X_norm)
+        clusterer = KMeans(n_clusters=target_k, random_state=42, n_init=20)
+        raw_labels = clusterer.fit_predict(X_weighted)
 
-        # Réassignation chronologique (premier intervenant = SPEAKER_00)
+        # Réassignation chronologique (premier intervenant entendu = SPEAKER_00)
         label_map = {}
         next_speaker_id = 0
         for lbl in raw_labels:
@@ -801,11 +985,11 @@ def main():
         print_error(f"Fichier audio introuvable : {args.audio}")
         sys.exit(1)
 
-    # ── Analyse acoustique des pauses de 0.5s dans le signal audio ──
+    # ── Analyse acoustique des pauses et silences (>= 0.10s) dans le signal audio ──
     audio_data, audio_sr = load_audio(args.audio)
-    silence_intervals = detect_silence_intervals(audio_data, sr=audio_sr, min_silence_sec=0.48)
+    silence_intervals = detect_silence_intervals(audio_data, sr=audio_sr, min_silence_sec=0.10)
     if silence_intervals:
-        print_info(f"Analyse vocale : {len(silence_intervals)} temps morts/silences (>= 0.5s) détectés pour découpage.")
+        print_info(f"Analyse vocale : {len(silence_intervals)} temps morts/silences (>= 0.10s) détectés pour découpage.")
 
     # ── Détection automatique de l'accélération GPU NVIDIA CUDA ──
     req_device = args.device.lower().strip()
@@ -839,15 +1023,23 @@ def main():
     # ── Inférence & transcription haute résilience avec repli automatique CPU ──
     batch_size = max(1, min(args.batch_size, 32))
 
-    # Prompt initial riche en français pour orienter le modèle sur le vocabulaire et les accents
+    # Prompt initial riche en français orienté sur le vocabulaire, les accents,
+    # les mots parasites/hésitations ("euh", "et", "hum", "bah") et les répétitions naturelles ("oui oui", "attends attends")
     initial_prompt_text = None
     if lang_param == "fr" or lang_param is None:
         initial_prompt_text = (
-            "Transcription française fidèle, rythmée et parfaitement ponctuée pour le doublage et la bande rythmo : "
-            "T'as oublié que je suis ta mère ? Mais qu'est-ce que tu racontes ! Attends... Regarde-moi. "
-            "Pourquoi tu fais ça ? C'est pas possible ! D'accord, je comprends, mais s'il te plaît, écoute-moi. "
+            "Euh, attends, attends... Et, euh, ouais, en fait... Hum, non, non, c'est pas ça ! "
+            "Bah, tu vois, euhh, oui, oui, d'accord ! T'as oublié que je suis ta mère ? "
+            "Mais qu'est-ce que tu racontes ! Attends... Regarde-moi. Pourquoi tu fais ça ? "
+            "C'est pas possible ! D'accord, je comprends, mais s'il te plaît, écoute-moi. "
             "Yo les gens, salut à tous, salam aleykoum, frères et sœurs, la tête de oim, la tête de oit, j'ai juré. "
             "Wesh, wallah, en sah, de ouf, frérot, t'inquiète, vas-y, c'est parti, oui, non, merci, absolument."
+        )
+    elif lang_param == "en":
+        initial_prompt_text = (
+            "Um, wait, wait... And, uh, yeah, actually... Hmm, no, no, that's not it. "
+            "Well, you see, uh, yes, yes, okay! What are you talking about? Look at me. "
+            "Why are you doing this? It's not possible! Please listen to me. Yeah, absolutely."
         )
 
     # Décodage haute précision optimisé pour le doublage et la bande rythmo
@@ -862,11 +1054,11 @@ def main():
         word_timestamps=True,
         vad_filter=True,
         vad_parameters={
-            "threshold": 0.50,
-            "min_speech_duration_ms": 200,
+            "threshold": 0.38,
+            "min_speech_duration_ms": 100,
             "max_speech_duration_s": 30,
             "min_silence_duration_ms": 400,
-            "speech_pad_ms": 200,
+            "speech_pad_ms": 300,
         },
         condition_on_previous_text=False,
         initial_prompt=initial_prompt_text,
@@ -967,12 +1159,14 @@ def main():
 
             collected_words.extend(seg_words)
 
-            # Découpage direct en phrases nettes selon le check de silence de 0.5s
+            # Découpage direct en phrases nettes avec détection des alternances de répliques
             live_phrases = segment_words_into_clean_phrases(
                 seg_words,
                 silence_intervals=silence_intervals,
-                pause_threshold=0.48,
-                lang=det_lang
+                pause_threshold=0.32,
+                lang=det_lang,
+                audio_data=audio_data,
+                sr=audio_sr
             )
             for lp in live_phrases:
                 raw_count += 1
@@ -1035,14 +1229,16 @@ def main():
             }, f, ensure_ascii=False, indent=2)
         sys.exit(0)
 
-    # ── 1. Découpage en répliques naturelles et complètes (sans hachage) ──
+    # ── 1. Découpage en répliques naturelles et complètes avec détection des dialogues ──
     print_progress(70, 100, "Découpage en phrases naturelles pour la bande rythmo...")
 
     phrases = segment_words_into_clean_phrases(
         all_words,
         silence_intervals=silence_intervals,
-        pause_threshold=0.48,
-        lang=detected_lang
+        pause_threshold=0.32,
+        lang=detected_lang,
+        audio_data=audio_data,
+        sr=audio_sr
     )
 
     # ── 2. Diarisation vocale haute précision sur phrases complètes (Pitch F0 + MFCCs) ──
@@ -1095,6 +1291,7 @@ def main():
             "duration": round(max(0.1, phrase["end"] - phrase["start"]), 3),
             "text": phrase["text"],
             "words": phrase.get("words", []),
+            "separators": compute_rhythmic_separators(phrase["text"], phrase.get("words", [])),
         }
         final_segments.append(seg_data)
 
