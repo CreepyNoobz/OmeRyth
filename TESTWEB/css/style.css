@@ -103,6 +103,72 @@ body {
   letter-spacing: 0.5px;
 }
 
+/* --- Bouton Stylisé OmeWeb --- */
+.btn-omeweb {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: linear-gradient(135deg, rgba(36, 202, 68, 0.16), rgba(78, 205, 196, 0.12));
+  border: 1px solid rgba(78, 205, 196, 0.45);
+  color: #d1fae5;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  text-decoration: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  user-select: none;
+}
+
+.btn-omeweb:hover {
+  background: linear-gradient(135deg, rgba(36, 202, 68, 0.32), rgba(78, 205, 196, 0.25));
+  border-color: #24ca44;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(36, 202, 68, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.btn-omeweb:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(36, 202, 68, 0.2);
+}
+
+.btn-omeweb .omeweb-icon {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.btn-omeweb .omeweb-text {
+  font-weight: 700;
+}
+
+.btn-omeweb .omeweb-arrow {
+  font-size: 10px;
+  opacity: 0.75;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.btn-omeweb:hover .omeweb-arrow {
+  opacity: 1;
+  transform: translate(2px, -2px);
+}
+
+.omeweb-drawer-link {
+  text-decoration: none;
+  background: rgba(36, 202, 68, 0.08) !important;
+  border-left: 3px solid #24ca44 !important;
+  color: #e6f7ec !important;
+  font-weight: 600;
+}
+
+.omeweb-drawer-link:hover {
+  background: rgba(36, 202, 68, 0.16) !important;
+  color: #ffffff !important;
+}
+
 .toolbar-group {
   display: flex;
   align-items: center;
@@ -216,6 +282,8 @@ body {
   outline: none;
   display: none;
   background-color: #000;
+  will-change: transform;
+  transform: translateZ(0);
 }
 
 .video-placeholder {
@@ -269,6 +337,7 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  contain: layout size style;
 }
 
 #timelineCanvas {
@@ -276,6 +345,9 @@ body {
   height: 100%;
   touch-action: none; /* Désactive les gestes natifs du navigateur sur le canvas */
   cursor: crosshair;
+  contain: strict;
+  will-change: transform;
+  transform: translateZ(0);
 }
 
 /* --- Bouton Toggle Mode de Saisie (PC / Mobile) --- */
@@ -950,3 +1022,81 @@ kbd {
   border-color: #00b4d8;
   font-weight: 700;
 }
+
+/* --- Popup Bannière Cookies & Sauvegarde Locale --- */
+.cookie-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(17, 21, 32, 0.98);
+  border-top: 1px solid var(--accent-green);
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.75), 0 0 15px rgba(36, 202, 68, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 4000;
+  padding: 14px 20px calc(14px + env(safe-area-inset-bottom, 0px)) 20px;
+  animation: cookieSlideUp 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes cookieSlideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.cookie-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.cookie-text {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+}
+
+.cookie-icon {
+  font-size: 32px;
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
+}
+
+.cookie-desc strong {
+  display: block;
+  font-size: 14px;
+  color: var(--text-main);
+  margin-bottom: 3px;
+  font-weight: 700;
+}
+
+.cookie-desc p {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.cookie-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.cookie-actions .btn {
+  padding: 8px 16px;
+  font-size: 13px;
+  min-height: 38px;
+}
+

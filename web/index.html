@@ -1,372 +1,899 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OmeRyth — Studio Professionnel de Bande Rythmo & Doublage</title>
-  <meta name="description" content="OmeRyth est un logiciel open-source de création de bandes rythmo pour le doublage et la post-synchronisation. Export vidéo ultra-rapide, format mobile et séparation vocale IA.">
-  <link rel="icon" type="image/x-icon" href="images/logo.ico">
-  <link rel="stylesheet" href="style.css">
+  <title>OmeRyth — Logiciel Professionnel de Bande Rythmo & Doublage</title>
+  <meta name="description" content="OmeRyth est un logiciel professionnel de création et synchronisation de bandes rythmo pour le doublage, la post-synchronisation et le karaoké. Boosté par l'IA Demucs et WhisperX.">
+  <link rel="icon" type="image/png" href="assets/images/favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Ambient background lighting effects -->
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
 
-  <!-- Background Ambient Glows -->
-  <div class="glow-bg glow-1"></div>
-  <div class="glow-bg glow-2"></div>
-  <div class="glow-bg glow-3"></div>
-
-  <!-- Navigation Bar -->
-  <header class="navbar">
-    <div class="nav-container">
-      <a href="#" class="brand">
-        <img src="images/logo.png" alt="OmeRyth Logo" class="brand-logo">
-        <span class="brand-name">OmeRyth</span>
-        <span class="brand-badge">v1.2</span>
+  <!-- Header / Navbar -->
+  <header class="navbar-wrapper">
+    <nav class="navbar container">
+      <a href="#" class="brand-link" aria-label="OmeRyth Home">
+        <img id="nav-logo" class="brand-logo" src="assets/images/logo-dark.png" alt="OmeRyth Logo">
+        <span class="brand-text">Ome<span class="text-accent">Ryth</span></span>
       </a>
 
-      <nav class="nav-links">
-        <a href="#features">Fonctionnalités</a>
-        <a href="#interactive-demo">Démo Rythmo</a>
-        <a href="#ai-engine">IA & Performance</a>
-        <a href="#specs">Spécifications</a>
-      </nav>
+      <div class="nav-links">
+        <a href="#features" class="nav-link" data-i18n="nav_features">Fonctionnalités</a>
+        <a href="#showcase" class="nav-link" data-i18n="nav_showcase">Démos Vidéo</a>
+        <a href="#specs" class="nav-link" data-i18n="nav_specs">Spécifications</a>
+        <a href="#faq" class="nav-link" data-i18n="nav_faq">FAQ</a>
+        <a href="#contact" class="nav-link" data-i18n="nav_contact">Contact</a>
+      </div>
 
       <div class="nav-actions">
-        <button class="btn-download-trigger btn-nav">
-          <svg class="icon-win" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.901-1.8"/>
+        <!-- Language Switcher -->
+        <button id="lang-toggle" class="btn-icon" aria-label="Changer de langue / Switch language" title="FR / EN">
+          <span class="lang-pill" id="lang-display">FR</span>
+        </button>
+        
+        <a href="https://ometitnoobz.github.io/OmeWeb" class="btn-icon" aria-label="Ouvrir OmeWeb" title="OmeWeb">
+          <span class="lang-pill">OmeWeb</span>
+        </a>
+        <!-- Theme Switcher -->
+        <button id="theme-toggle" class="btn-icon" aria-label="Basculer de thème" title="Thème Sombre / Clair">
+          <!-- Moon Icon (Dark Mode active) -->
+          <svg class="theme-icon moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
           </svg>
-          <span>Télécharger v1.2</span>
+          <!-- Sun Icon (Light Mode active) -->
+          <svg class="theme-icon sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+        </button>
+
+        <!-- Download Action Button -->
+        <a href="https://github.com/OmetitNoobz/Web/releases/download/v1.2/OmeRyth_Setup_v1.2.exe" download="OmeRyth_Setup_v1.2.exe" class="btn btn-primary download-btn" id="nav-download-btn">
+          <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span data-i18n="nav_download">Télécharger</span>
+          <span class="btn-tag">v1.2</span>
+        </a>
+
+        <!-- Mobile Menu Toggle Button -->
+        <button id="mobile-menu-toggle" class="btn-icon mobile-menu-toggle" aria-label="Menu" aria-expanded="false" aria-controls="mobile-nav-drawer">
+          <svg class="menu-icon-bars" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+          <svg class="menu-icon-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
         </button>
       </div>
-    </div>
+    </nav>
   </header>
 
-  <!-- Hero Section -->
+  <!-- Mobile Navigation Drawer -->
+  <div id="mobile-nav-drawer" class="mobile-nav-drawer" aria-hidden="true">
+    <div class="mobile-nav-backdrop" id="mobile-nav-backdrop"></div>
+    <div class="mobile-nav-panel">
+      <div class="mobile-nav-header">
+        <a href="#" class="brand-link" aria-label="OmeRyth Home">
+          <img class="brand-logo mobile-logo" src="assets/images/logo-dark.png" alt="OmeRyth Logo">
+          <span class="brand-text">Ome<span class="text-accent">Ryth</span></span>
+        </a>
+        <button id="mobile-nav-close-btn" class="btn-icon mobile-close-btn" aria-label="Fermer le menu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <div class="mobile-nav-links">
+        <a href="#features" class="mobile-nav-link" data-i18n="nav_features">Fonctionnalités</a>
+        <a href="#showcase" class="mobile-nav-link" data-i18n="nav_showcase">Démos Vidéo</a>
+        <a href="#specs" class="mobile-nav-link" data-i18n="nav_specs">Spécifications</a>
+        <a href="#faq" class="mobile-nav-link" data-i18n="nav_faq">FAQ</a>
+        <a href="#contact" class="mobile-nav-link" data-i18n="nav_contact">Contact</a>
+      </div>
+
+      <div class="mobile-nav-actions">
+        <a href="https://github.com/OmetitNoobz/Web/releases/download/v1.2/OmeRyth_Setup_v1.2.exe" download="OmeRyth_Setup_v1.2.exe" class="btn btn-primary btn-large download-btn mobile-drawer-download" id="mobile-drawer-download-btn">
+          <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span data-i18n="nav_download">Télécharger</span>
+          <span class="btn-tag">v1.2</span>
+        </a>
+      </div>
+    </div>
+  </div>
+
   <main>
-    <section class="hero-section">
-      <div class="hero-container">
-        <div class="hero-tag">
-          <span class="pulse-dot"></span>
-          <span>Version 1.2 disponible pour Windows</span>
-        </div>
+    <!-- Hero Section -->
+    <section class="hero-section container">
+      <div class="hero-badge">
+        <span class="badge-dot"></span>
+        <span data-i18n="hero_badge">Version 1.2 — Export Vidéo Ultra-Rapide & Format 9:16</span>
+      </div>
 
-        <h1 class="hero-title">
-          Le studio de bande rythmo <br>
-          <span class="text-gradient">conçu pour le doublage moderne.</span>
-        </h1>
+      <h1 class="hero-title">
+        <span data-i18n="hero_title_p1">La Bande Rythmo</span>
+        <span class="gradient-text" data-i18n="hero_title_accent">Nouvelle Génération</span>
+        <span data-i18n="hero_title_p2">pour Doublage & Post-Synchro</span>
+      </h1>
 
-        <p class="hero-description">
-          OmeRyth réinvente la création et la synchronisation de bandes rythmo. Export vidéo ultra-rapide sans latence disque, isolation vocale IA par Demucs, format mobile 9:16 pour les réseaux et compatibilité cinéma Cappella DETX.
+      <p class="hero-subtitle" data-i18n="hero_subtitle">
+        Concevez, synchronisez et exportez vos bandes rythmo avec une fluidité absolue. Intègre l'isolation vocale par IA Demucs, l'alignement automatique WhisperX et le rendu streaming direct GPU.
+      </p>
+
+      <div class="hero-cta-group">
+        <a href="https://github.com/OmetitNoobz/Web/releases/download/v1.2/OmeRyth_Setup_v1.2.exe" download="OmeRyth_Setup_v1.2.exe" class="btn btn-primary btn-large download-btn" id="hero-download-btn">
+          <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span data-i18n="hero_cta_download">Télécharger pour Windows</span>
+          <span class="cta-badge">64-bit • v1.2</span>
+        </a>
+
+        <a href="#showcase" class="btn btn-secondary btn-large">
+          <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          <span data-i18n="hero_cta_demo">Voir les démos en action</span>
+        </a>
+      </div>
+
+      <div class="hero-trust-bar">
+        <button class="trust-item trust-btn" data-switch-tab="rythmo" title="Voir la démo Bande Rythmo">
+          <span class="trust-icon">SYN</span>
+          <span data-i18n="trust_speed">Rendu RAM Direct (NVENC/AMF/QSV)</span>
+        </button>
+        <button class="trust-item trust-btn" data-switch-tab="demucs" title="Voir la démo IA Demucs">
+          <span class="trust-icon">VOX</span>
+          <span data-i18n="trust_demucs">Séparation Vocale HTDemucs</span>
+        </button>
+        <button class="trust-item trust-btn" data-switch-tab="mobile" title="Voir la démo Format 9:16">
+          <span class="trust-icon">9:16</span>
+          <span data-i18n="trust_mobile">Format Vertical 9:16 Mobile</span>
+        </button>
+        <button class="trust-item trust-btn" data-switch-tab="waveform" title="Voir la démo Waveform & WhisperX">
+          <span class="trust-icon">WAV</span>
+          <span data-i18n="trust_waveform_btn">Waveform & WhisperX IA</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Showcase Windows Section -->
+    <section id="showcase" class="showcase-section container">
+      <div class="section-header text-center">
+        <span class="section-tag" data-i18n="showcase_tag">Démonstrations En Direct</span>
+        <h2 class="section-title" data-i18n="showcase_title">Voyez OmeRyth en Pleine Action</h2>
+        <p class="section-subtitle" data-i18n="showcase_subtitle">
+          Découvrez la puissance et la réactivité d'OmeRyth à travers ces aperçus interactifs en boucle.
         </p>
+      </div>
 
-        <div class="hero-cta-group">
-          <button class="btn-download-trigger btn-primary-hero">
-            <svg class="icon-win" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.901-1.8"/>
+      <!-- Feature Tabs Selector -->
+      <div class="showcase-tabs" role="tablist">
+        <button class="showcase-tab active" data-tab="rythmo" role="tab" aria-selected="true">
+          <span class="tab-icon">SYN</span>
+          <span class="tab-label" data-i18n="tab_rythmo">Bande Rythmo & Sync</span>
+        </button>
+        <button class="showcase-tab" data-tab="demucs" role="tab" aria-selected="false">
+          <span class="tab-icon">VOX</span>
+          <span class="tab-label" data-i18n="tab_demucs">Séparation IA Demucs</span>
+        </button>
+        <button class="showcase-tab" data-tab="mobile" role="tab" aria-selected="false">
+          <span class="tab-icon">9:16</span>
+          <span class="tab-label" data-i18n="tab_mobile">Format Mobile 9:16</span>
+        </button>
+        <button class="showcase-tab" data-tab="waveform" role="tab" aria-selected="false">
+          <span class="tab-icon">WAV</span>
+          <span class="tab-label" data-i18n="tab_waveform">Waveform & WhisperX</span>
+        </button>
+      </div>
+
+      <!-- Application Window Frame Container -->
+      <div class="app-window-frame">
+        <!-- Window Titlebar -->
+        <div class="window-titlebar">
+          <div class="window-controls">
+            <span class="control-dot dot-close"></span>
+            <span class="control-dot dot-minimize"></span>
+            <span class="control-dot dot-expand"></span>
+          </div>
+          <div class="window-title">
+            <span class="window-icon-indicator"></span>
+            <span id="active-window-title">OmeRyth v1.2 — Projet : Ryusei_Shidou_Dub.rythmo</span>
+          </div>
+          <div class="window-status-badge">
+            <span class="status-live-dot"></span>
+            <span data-i18n="window_status_loop">EN BOUCLE</span>
+          </div>
+        </div>
+
+        <!-- Window Viewport Content -->
+        <div class="window-viewport">
+
+          <!-- 1. RYTHMO TAB VIEW -->
+          <div class="showcase-view active" id="view-rythmo">
+            <div class="view-layout">
+              <div class="video-container">
+                <video class="showcase-video" autoplay loop muted playsinline preload="auto">
+                  <source src="assets/videos/demo-rythmo.mp4" type="video/mp4">
+                  Votre navigateur ne supporte pas la balise vidéo.
+                </video>
+                
+                <!-- Simulated Overlaid Rythmo Band HUD -->
+                <div class="rythmo-band-hud">
+                  <div class="sync-line"></div>
+                  <div class="rythmo-track">
+                    <div class="rythmo-character-badge">SHIDOU (VF)</div>
+                    <div class="rythmo-text-stream">
+                      <span class="syllable">C'EST</span>
+                      <span class="syllable highlight">L'HEURE</span>
+                      <span class="syllable">DE</span>
+                      <span class="syllable highlight">FAIRE</span>
+                      <span class="syllable">EXPLOSER</span>
+                      <span class="syllable highlight">LE</span>
+                      <span class="syllable">TERRAIN !</span>
+                    </div>
+                  </div>
+                  <div class="waveform-mini-display">
+                    <div class="wave-bar" style="height: 40%"></div>
+                    <div class="wave-bar" style="height: 70%"></div>
+                    <div class="wave-bar" style="height: 95%"></div>
+                    <div class="wave-bar" style="height: 60%"></div>
+                    <div class="wave-bar" style="height: 80%"></div>
+                    <div class="wave-bar" style="height: 100%"></div>
+                    <div class="wave-bar" style="height: 50%"></div>
+                    <div class="wave-bar" style="height: 85%"></div>
+                    <div class="wave-bar" style="height: 65%"></div>
+                    <div class="wave-bar" style="height: 30%"></div>
+                  </div>
+                </div>
+
+                <div class="video-badges-overlay">
+                  <span class="badge-pill">30 FPS • 1080p</span>
+                  <span class="badge-pill accent">Lipsync FVR/MPB</span>
+                </div>
+              </div>
+
+              <!-- Sidebar Info Card -->
+              <div class="showcase-info-panel">
+                <h3 class="panel-title" data-i18n="rythmo_title">Synchronisation Image & Bande Rythmo</h3>
+                <p class="panel-desc" data-i18n="rythmo_desc">
+                  Défilement régulier et ultra-fluide synchronisé avec le moteur libvlc 64-bit. Les syllabes et signes labiaux (FVR, MPB, voyelles ouvertes) sont calibrés à la milliseconde près pour le confort optimal du comédien au micro.
+                </p>
+                <div class="panel-features">
+                  <div class="panel-feature-item">
+                    <span class="check-icon">✓</span>
+                    <span data-i18n="rythmo_feat_1">Scrubbing audio fluide sans saccade</span>
+                  </div>
+                  <div class="panel-feature-item">
+                    <span class="check-icon">✓</span>
+                    <span data-i18n="rythmo_feat_2">Affichage direct des signes de lipsync</span>
+                  </div>
+                  <div class="panel-feature-item">
+                    <span class="check-icon">✓</span>
+                    <span data-i18n="rythmo_feat_3">Gestion multi-rôles et couleurs d'acteurs</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. DEMUCS TAB VIEW -->
+          <div class="showcase-view" id="view-demucs">
+            <div class="view-layout">
+              <div class="video-container">
+                <video class="showcase-video" loop muted playsinline preload="metadata">
+                  <source src="assets/videos/demo-demucs.mp4" type="video/mp4">
+                  Votre navigateur ne supporte pas la balise vidéo.
+                </video>
+
+                <!-- Interactive Stem Isolation Visualizer HUD -->
+                <div class="stem-isolation-hud">
+                  <div class="stem-status-badge">
+                    <span class="stem-dot"></span>
+                    <span data-i18n="stem_active_label">IA HTDemucs : Dialogue Original Atténué (-∞ dB)</span>
+                  </div>
+                  <div class="stem-sliders">
+                    <div class="stem-row active">
+                      <span class="stem-name" data-i18n="stem_bg">Musique & Bruitages (Bande M&E)</span>
+                      <div class="stem-meter"><div class="stem-meter-fill fill-green" style="width: 88%"></div></div>
+                      <span class="stem-db">0 dB</span>
+                    </div>
+                    <div class="stem-row muted">
+                      <span class="stem-name" data-i18n="stem_vox">Voix Originale (Dialogue Supprimé)</span>
+                      <div class="stem-meter"><div class="stem-meter-fill fill-muted" style="width: 5%"></div></div>
+                      <span class="stem-db" data-i18n="stem_muted_txt">MUET</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="video-badges-overlay">
+                  <span class="badge-pill accent">HTDemucs v4</span>
+                  <span class="badge-pill">PyTorch CUDA</span>
+                </div>
+              </div>
+
+              <!-- Sidebar Info Card -->
+              <div class="showcase-info-panel">
+                <h3 class="panel-title" data-i18n="demucs_title">Suppression Vocale Chirurgicale IA</h3>
+                <p class="panel-desc" data-i18n="demucs_desc">
+                  Isoler la bande sonore pour enregistrer un doublage n'a jamais été aussi simple. Le modèle HTDemucs extrait automatiquement les voix étrangères tout en préservant intacts l'ambiance sonore, les bruitages et la bande originale.
+                </p>
+                <div class="panel-features">
+                  <div class="panel-feature-item">
+                    <span class="check-icon">✓</span>
+                    <span data-i18n="demucs_feat_1">Zéro artefact sur les basses et percussions</span>
+                  </div>
+                  <div class="panel-feature-item">
+                    <span class="check-icon">✓</span>
+                    <span data-i18n="demucs_feat_2">Génération instantanée de bande témoin M&E</span>
+                  </div>
+                  <div class="panel-feature-item">
+                    <span class="check-icon">✓</span>
+                    <span data-i18n="demucs_feat_3">Gestionnaire autonome de modèles IA</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. MOBILE 9:16 TAB VIEW -->
+          <div class="showcase-view" id="view-mobile">
+            <div class="view-layout mobile-layout">
+              <div class="mobile-device-mockup">
+                <div class="mobile-speaker"></div>
+                <div class="mobile-screen">
+                  <video class="showcase-video vertical-video" loop muted playsinline preload="metadata">
+                    <source src="assets/videos/demo-mobile.mp4" type="video/mp4">
+                    Votre navigateur ne supporte pas la balise vidéo.
+                  </video>
+                  <div class="mobile-overlay-hud">
+                    <div class="mobile-tag">OmeRyth 9:16 Direct</div>
+                    <div class="mobile-dub-preview">
+                      <span class="mobile-role">SHIDOU :</span> "C'EST MON MOMENT !"
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Sidebar Info Card -->
+              <div class="showcase-info-panel">
+                <h3 class="panel-title" data-i18n="mobile_title">Format Vertical 9:16 pour Réseaux Sociaux</h3>
+                <p class="panel-desc" data-i18n="mobile_desc">
+                  Partagez vos doublages et extraits directement sur **TikTok, Instagram Reels et YouTube Shorts**. Un clic suffit pour formater la vidéo en 1080×1920 avec la bande rythmo judicieusement placée sous la scène.
+                </p>
+                <div class="panel-features">
+                  <div class="panel-feature-item">
+                    <span class="check-icon">✓</span>
+                    <span data-i18n="mobile_feat_1">Rendu optimisé 1080×1920 en direct</span>
+                  </div>
+                  <div class="panel-feature-item">
+                    <span class="check-icon">✓</span>
+                    <span data-i18n="mobile_feat_2">Cadrage intelligent 16:9 centré avec sous-titrage</span>
+                  </div>
+                  <div class="panel-feature-item">
+                    <span class="check-icon">✓</span>
+                    <span data-i18n="mobile_feat_3">Export GPU ultra-rapide en quelques secondes</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. WAVEFORM & WHISPERX TAB VIEW -->
+          <div class="showcase-view" id="view-waveform">
+            <div class="view-layout">
+              <div class="video-container">
+                <video class="showcase-video" loop muted playsinline preload="metadata">
+                  <source src="assets/videos/demo-waveform.mp4" type="video/mp4">
+                  Votre navigateur ne supporte pas la balise vidéo.
+                </video>
+
+                <!-- Live Audio Waveform & Speech Alignment HUD -->
+                <div class="waveform-hud">
+                  <div class="waveform-canvas-wrap">
+                    <div class="waveform-canvas-bars">
+                      <span style="height: 35%"></span><span style="height: 60%"></span>
+                      <span style="height: 90%"></span><span style="height: 75%"></span>
+                      <span style="height: 40%"></span><span style="height: 85%"></span>
+                      <span style="height: 100%"></span><span style="height: 70%"></span>
+                      <span style="height: 50%"></span><span style="height: 95%"></span>
+                      <span style="height: 60%"></span><span style="height: 40%"></span>
+                      <span style="height: 80%"></span><span style="height: 90%"></span>
+                      <span style="height: 65%"></span><span style="height: 30%"></span>
+                    </div>
+                  </div>
+                  <div class="waveform-labels">
+                    <span class="label-key"><kbd>Ctrl</kbd> + <kbd>W</kbd> Onde Vocale Interactive</span>
+                    <span class="label-tech">Alignement WhisperX Syllabique</span>
+                  </div>
+                </div>
+
+                <div class="video-badges-overlay">
+                  <span class="badge-pill">WhisperX Audio-to-Text</span>
+                  <span class="badge-pill accent">Précision Milliseconde</span>
+                </div>
+              </div>
+
+              <!-- Sidebar Info Card -->
+              <div class="showcase-info-panel">
+                <h3 class="panel-title" data-i18n="waveform_title">Transcription WhisperX & Visualisation d'Onde</h3>
+                <p class="panel-desc" data-i18n="waveform_desc">
+                  Accélérez la détection des répliques. La transcription automatique par IA positionne le texte directement sous les pics vocaux visualisés en temps réel via la forme d'onde audio haute résolution.
+                </p>
+                <div class="panel-features">
+                  <div class="panel-feature-item">
+                    <span class="check-icon">✓</span>
+                    <span data-i18n="waveform_feat_1">Affichage instantané de la waveform (`Ctrl+W`)</span>
+                  </div>
+                  <div class="panel-feature-item">
+                    <span class="check-icon">✓</span>
+                    <span data-i18n="waveform_feat_2">Alignement automatique phonème par phonème</span>
+                  </div>
+                  <div class="panel-feature-item">
+                    <span class="check-icon">✓</span>
+                    <span data-i18n="waveform_feat_3">Compatible projets bilingues français & anglais</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- Core Features Grid -->
+    <section id="features" class="features-section container">
+      <div class="section-header text-center">
+        <span class="section-tag" data-i18n="feat_tag">Fonctionnalités Clés</span>
+        <h2 class="section-title" data-i18n="feat_title">Conçu Pour les Professionnels du Son</h2>
+        <p class="section-subtitle" data-i18n="feat_subtitle">
+          Chaque détail d'OmeRyth est pensé pour maximiser la vitesse d'écriture, l'ergonomie et le confort d'enregistrement en studio.
+        </p>
+      </div>
+
+      <div class="features-grid">
+        <!-- Feature 1 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
             </svg>
-            <div class="btn-text-block">
-              <span class="btn-title">Télécharger pour Windows</span>
-              <span class="btn-subtitle">Gratuit & Open Source • 64-bit (Portable ou Exe)</span>
-            </div>
-          </button>
+          </div>
+          <h3 class="feature-card-title" data-i18n="f1_title">Export Vidéo Streaming Direct</h3>
+          <p class="feature-card-desc" data-i18n="f1_desc">
+            Le moteur vidéo n'écrit aucun fichier temporaire sur disque. Les frames transitent en direct par pipe RAM vers FFmpeg avec accélération matérielle NVENC, AMF ou QSV. Un export de 8 minutes passe de ~30 min à quelques secondes !
+          </p>
+        </div>
 
-          <a href="#interactive-demo" class="btn-secondary-hero">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-play">
-              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        <!-- Feature 2 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <line x1="12" y1="19" x2="12" y2="23"></line>
+              <line x1="8" y1="23" x2="16" y2="23"></line>
             </svg>
-            <span>Tester la bande interactive</span>
-          </a>
+          </div>
+          <h3 class="feature-card-title" data-i18n="f2_title">Isolation Vocale IA Demucs</h3>
+          <p class="feature-card-desc" data-i18n="f2_desc">
+            Suppression propre des voix des acteurs d'origine tout en préservant intacts les effets sonores (SFX), la musique et l'ambiance grâce au modèle officiel HTDemucs de Facebook Research.
+          </p>
         </div>
 
-        <div class="hero-meta">
-          <span>✓ Windows 10 & 11 (64-bit)</span>
-          <span>•</span>
-          <span>✓ Accélération GPU NVIDIA / AMD / Intel</span>
-          <span>•</span>
-          <span>✓ Sans installation obligatoire</span>
+        <!-- Feature 3 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+              <line x1="12" y1="18" x2="12.01" y2="18"></line>
+            </svg>
+          </div>
+          <h3 class="feature-card-title" data-i18n="f3_title">Format Mobile 9:16 en 1 Clic</h3>
+          <p class="feature-card-desc" data-i18n="f3_desc">
+            Basculez d'un clic en format 1080×1920 pour TikTok, Reels et YouTube Shorts avec cadrage intelligent de la vidéo 16:9 au centre et bande rythmo parfaitement calibrée en dessous.
+          </p>
         </div>
-      </div>
 
-      <!-- Interactive Band Preview -->
-      <section id="interactive-demo" class="demo-section">
-        <div class="demo-card">
-          <div class="demo-header">
-            <div class="demo-header-left">
-              <span class="window-dot red"></span>
-              <span class="window-dot yellow"></span>
-              <span class="window-dot green"></span>
-              <span class="demo-filename">projet_demo_synchro.rythmo</span>
-            </div>
-            <div class="demo-header-right">
-              <span class="timecode-display" id="timecodeDisplay">00:01:24.400</span>
-              <div class="demo-controls">
-                <button id="btnPlayPause" class="btn-demo-ctrl" title="Lecture / Pause (Espace)">
-                  <span id="playIcon">▶</span>
-                </button>
-                <button id="btnReset" class="btn-demo-ctrl" title="Retour au début (R)">⏮</button>
-              </div>
-            </div>
+        <!-- Feature 4 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
           </div>
-
-          <!-- The Canvas / Visualizer -->
-          <div class="rythmo-viewport" id="rythmoViewport">
-            <!-- Vertical Red Line (Playhead / Barre rouge) -->
-            <div class="red-line"></div>
-            
-            <!-- Scrolling Band Content -->
-            <div class="rythmo-track" id="rythmoTrack">
-              <!-- Text phrases & markers placed dynamically -->
-              <div class="phrase phrase-narrateur" style="left: 200px;">
-                <span class="role-tag" style="background:#2aa198;">Narrateur</span>
-                <span class="phrase-text">Bienvenue dans l'univers d'OmeRyth.</span>
-              </div>
-
-              <div class="phrase phrase-alex" style="left: 720px;">
-                <span class="role-tag" style="background:#e11d48;">Alex</span>
-                <span class="phrase-text">La synchronisation labiale est enfin fluide et naturelle !</span>
-              </div>
-
-              <div class="phrase phrase-sophie" style="left: 1420px;">
-                <span class="role-tag" style="background:#3b82f6;">Sophie</span>
-                <span class="phrase-text">Et l'export vidéo mobile se fait en quelques secondes.</span>
-              </div>
-            </div>
-
-            <!-- Waveform preview underneath -->
-            <div class="waveform-container">
-              <div class="waveform-wave" id="waveformWave"></div>
-            </div>
-          </div>
-
-          <div class="demo-footer">
-            <div class="demo-tip">
-              💡 <em>Astuce :</em> Dans OmeRyth, appuyez sur <kbd>Espace</kbd> pour lancer la lecture, <kbd>←</kbd> <kbd>→</kbd> pour naviguer et <kbd>Ctrl+W</kbd> pour afficher l'onde audio.
-            </div>
-            <div class="demo-status">
-              <span class="status-indicator"></span> Moteur audio & lipsync 60 FPS
-            </div>
-          </div>
+          <h3 class="feature-card-title" data-i18n="f4_title">Compatibilité DETX (Cappella)</h3>
+          <p class="feature-card-desc" data-i18n="f4_desc">
+            Importation et exportation sans faille des fichiers de doublage professionnels de cinéma/TV avec détection et conservation intégrale des signes de synchronisation labiale.
+          </p>
         </div>
-      </section>
-    </section>
 
-    <!-- Key Features Grid -->
-    <section id="features" class="features-section">
-      <div class="section-container">
-        <div class="section-badge">Performances & Fonctionnalités</div>
-        <h2 class="section-title">Tout ce dont un studio a besoin, sans superflu.</h2>
-        <p class="section-subtitle">Développé par des passionnés pour offrir un confort maximal aux comédiens, directeurs artistiques et monteurs.</p>
-
-        <div class="features-grid">
-          <!-- Card 1 -->
-          <div class="feature-card">
-            <div class="feature-icon bg-cyan">⚡</div>
-            <h3>Export Vidéo Streaming (RAM Pipe)</h3>
-            <p>Fini les dizaines de milliers de fichiers temporaires sur votre SSD. Les images sont streamées directement en mémoire vive vers FFmpeg avec accélération matérielle GPU (NVENC, AMF, QSV).</p>
+        <!-- Feature 5 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+              <line x1="4" y1="22" x2="4" y2="15"></line>
+            </svg>
           </div>
+          <h3 class="feature-card-title" data-i18n="f5_title">Association Windows & Fichiers .rythmo</h3>
+          <p class="feature-card-desc" data-i18n="f5_desc">
+            Double-cliquez directement sur vos projets `.rythmo` dans l'Explorateur Windows pour les ouvrir instantanément avec le logo officiel OmeRyth et sans latence via NativeDialog.
+          </p>
+        </div>
 
-          <!-- Card 2 -->
-          <div class="feature-card">
-            <div class="feature-icon bg-pink">📱</div>
-            <h3>Format Mobile 9:16 en 1 Clic</h3>
-            <p>Basculez instantanément votre montage au format vertical 1080×1920 calibré pour TikTok, Instagram Reels et YouTube Shorts, avec vidéo centrée et bandeau synchronisé.</p>
+        <!-- Feature 6 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polygon points="10 8 16 12 10 16 10 8"></polygon>
+            </svg>
           </div>
-
-          <!-- Card 3 -->
-          <div class="feature-card">
-            <div class="feature-icon bg-purple">🧠</div>
-            <h3>Séparation Vocale IA (Demucs)</h3>
-            <p>Intègre le modèle neuronal de pointe <strong>HTDemucs</strong> de Facebook Research. Isolez les voix pour le doublage tout en conservant intacts la musique et les bruitages originaux.</p>
-          </div>
-
-          <!-- Card 4 -->
-          <div class="feature-card">
-            <div class="feature-icon bg-blue">📜</div>
-            <h3>Compatibilité Cinéma DETX (Cappella)</h3>
-            <p>Importation et exportation bidirectionnelle avec les standards de l'industrie (fichiers Cappella .detx). Prise en charge des signes de synchronisation labiale (FVR, MPB, voyelles ouvertes, neutres).</p>
-          </div>
-
-          <!-- Card 5 -->
-          <div class="feature-card">
-            <div class="feature-icon bg-emerald">🌊</div>
-            <h3>Waveform Audio Intégrée</h3>
-            <p>Affichez instantanément la courbe sonore sous votre texte en appuyant sur <kbd>Ctrl+W</kbd>. Calez vos répliques au millième de seconde en visualisant les attaques de voix.</p>
-          </div>
-
-          <!-- Card 6 -->
-          <div class="feature-card">
-            <div class="feature-icon bg-amber">🏷️</div>
-            <h3>Intégration Windows Complète</h3>
-            <p>Les fichiers <code>.rythmo</code> s'ouvrent au double-clic avec le logo officiel dans l'Explorateur Windows. Gestion d'instance unique pour éviter tout doublon de fenêtre.</p>
-          </div>
+          <h3 class="feature-card-title" data-i18n="f6_title">Lecteur Intégré libvlc 64-bit</h3>
+          <p class="feature-card-desc" data-i18n="f6_desc">
+            Compatibilité avec tous les codecs vidéo modernes (H.264, HEVC, ProRes, AV1) sans installation de packs de codecs tiers. Scrubbing précis à la milliseconde.
+          </p>
         </div>
       </div>
     </section>
 
-    <!-- Deep Dive: AI & Performance -->
-    <section id="ai-engine" class="deepdive-section">
-      <div class="section-container">
-        <div class="deepdive-box">
-          <div class="deepdive-content">
-            <span class="deepdive-tag">Moteur Dédié</span>
-            <h2>Une vitesse d'export multipliée par 30</h2>
-            <p>Dans les versions antérieures, un export vidéo de 8 minutes prenait jusqu'à 30 minutes à cause de la saturation du disque. Grâce à l'architecture de flux mémoire BGR24 introduite dans la v1.2, votre vidéo est rendue et encodée en quelques secondes seulement.</p>
-            <ul class="check-list">
-              <li>Zero-Disk I/O : zéro écriture de fichiers PNG temporaires</li>
-              <li>Rendu offscreen direct sans instanciation mémoire lourde</li>
-              <li>Pipeline multithreadé optimisé pour processeurs récents</li>
-            </ul>
+    <!-- Technical Specs & Engine Section -->
+    <section id="specs" class="specs-section container">
+      <div class="specs-container">
+        <div class="specs-info">
+          <span class="section-tag" data-i18n="specs_tag">Architecture & Spécifications</span>
+          <h2 class="specs-title" data-i18n="specs_title">Une Base Technique Solide et Optimisée</h2>
+          <p class="specs-desc" data-i18n="specs_desc">
+            Développé pour répondre aux exigences des studios et créateurs indépendants : réactivité, indépendance vis-à-vis du cloud, et respect strict de votre matériel.
+          </p>
+
+          <div class="specs-list">
+            <div class="specs-item">
+              <span class="spec-label" data-i18n="spec_os_lbl">Système d'exploitation</span>
+              <span class="spec-val">Windows 10 / 11 (64-bit)</span>
+            </div>
+            <div class="specs-item">
+              <span class="spec-label" data-i18n="spec_runtime_lbl">Environnement d'exécution</span>
+              <span class="spec-val">Java 17+ (JRE portable inclus)</span>
+            </div>
+            <div class="specs-item">
+              <span class="spec-label" data-i18n="spec_gpu_lbl">Accélération Matérielle</span>
+              <span class="spec-val">NVIDIA NVENC, AMD AMF, Intel QSV</span>
+            </div>
+            <div class="specs-item">
+              <span class="spec-label" data-i18n="spec_ai_lbl">Modèles IA Intégrés</span>
+              <span class="spec-val">Demucs HTDemucs v4 • WhisperX Speech</span>
+            </div>
+            <div class="specs-item">
+              <span class="spec-label" data-i18n="spec_formats_lbl">Formats & Protocoles</span>
+              <span class="spec-val">.rythmo, DETX Cappella, MP4, MKV, WAV</span>
+            </div>
           </div>
-          <div class="deepdive-graphic">
-            <div class="benchmark-card">
-              <div class="benchmark-header">Temps d'export (Vidéo 8 minutes @ 60 FPS)</div>
-              
-              <div class="benchmark-bar-wrapper">
-                <div class="benchmark-label">
-                  <span>Ancienne version (Écriture PNG sur disque)</span>
-                  <span class="benchmark-time time-old">~26 min</span>
-                </div>
-                <div class="bar-container">
-                  <div class="bar bar-old" style="width: 100%;"></div>
-                </div>
-              </div>
+        </div>
 
-              <div class="benchmark-bar-wrapper">
-                <div class="benchmark-label">
-                  <span>OmeRyth v1.2 (Streaming Pipe Direct)</span>
-                  <span class="benchmark-time time-new">&lt; 1 min ⚡</span>
-                </div>
-                <div class="bar-container">
-                  <div class="bar bar-new" style="width: 7%;"></div>
-                </div>
+        <div class="specs-card-preview">
+          <div class="specs-badge-box">
+            <div class="specs-badge-num">100%</div>
+            <div class="specs-badge-txt" data-i18n="specs_local_txt">Traitement Local & Hors-Ligne (Aucune donnée envoyée dans le cloud)</div>
+          </div>
+          <div class="specs-highlight-box">
+            <h4 data-i18n="specs_gpu_box_title">Boost de Vitesse en Chiffres</h4>
+            <div class="speed-bar-wrapper">
+              <div class="speed-row">
+                <span class="speed-name" data-i18n="speed_old">Export classique disque</span>
+                <span class="speed-time">~30 min</span>
               </div>
-
-              <div class="benchmark-badge">Rendu jusqu'à 300+ FPS sur GPU dédié</div>
+              <div class="bar-container"><div class="bar-fill bar-slow" style="width: 90%"></div></div>
+            </div>
+            <div class="speed-bar-wrapper">
+              <div class="speed-row">
+                <span class="speed-name" data-i18n="speed_new">OmeRyth v1.2 Direct RAM</span>
+                <span class="speed-time text-accent">~45 sec</span>
+              </div>
+              <div class="bar-container"><div class="bar-fill bar-fast" style="width: 15%"></div></div>
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Technical Specs & Shortcuts -->
-    <section id="specs" class="specs-section">
-      <div class="section-container">
-        <div class="specs-grid">
-          <div class="specs-col">
-            <h3>Raccourcis Clavier Essentiels</h3>
-            <div class="shortcuts-list">
-              <div class="shortcut-item">
-                <kbd>Espace</kbd>
-                <span>Lecture / Arrêt de la vidéo</span>
-              </div>
-              <div class="shortcut-item">
-                <kbd>←</kbd> <kbd>→</kbd>
-                <span>Reculer / Avancer (0.5s ou personnalisé)</span>
-              </div>
-              <div class="shortcut-item">
-                <kbd>R</kbd>
-                <span>Retour immédiat au début</span>
-              </div>
-              <div class="shortcut-item">
-                <kbd>M</kbd>
-                <span>Placer un séparateur de réplique</span>
-              </div>
-              <div class="shortcut-item">
-                <kbd>Ctrl</kbd> + <kbd>W</kbd>
-                <span>Masquer / Afficher la Waveform audio</span>
-              </div>
-              <div class="shortcut-item">
-                <kbd>Ctrl</kbd> + <kbd>Z</kbd> / <kbd>Y</kbd>
-                <span>Annuler / Rétablir avec historique complet</span>
-              </div>
-            </div>
-          </div>
+    <!-- Download CTA Banner -->
+    <section id="download" class="download-banner container">
+      <div class="banner-card">
+        <div class="banner-content">
+          <h2 class="banner-title" data-i18n="banner_title">Prêt à créer des bandes rythmo parfaites ?</h2>
+          <p class="banner-desc" data-i18n="banner_desc">
+            Téléchargez OmeRyth pour Windows et découvrez la nouvelle référence du doublage assisté par ordinateur.
+          </p>
 
-          <div class="specs-col">
-            <h3>Formats Pris en Charge</h3>
-            <ul class="format-list">
-              <li>
-                <strong>Bandes Rythmo :</strong>
-                <span>Projets <code>.rythmo</code> (format natif), <code>.detx</code> (Cappella Doublage).</span>
-              </li>
-              <li>
-                <strong>Fichiers Vidéo :</strong>
-                <span>MP4, MKV, AVI, MOV, WebM, FLV (moteur VLC haute compatibilité).</span>
-              </li>
-              <li>
-                <strong>Fichiers Audio :</strong>
-                <span>WAV, MP3, AAC, FLAC, OGG.</span>
-              </li>
-              <li>
-                <strong>Résolutions d'Export :</strong>
-                <span>Paysage 16:9 (1080p, 4K), Vertical 9:16 (TikTok/Shorts 1080×1920), Bandeau seul transparent.</span>
-              </li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Download Section (Call To Action) -->
-    <section class="download-section">
-      <div class="section-container">
-        <div class="download-card">
-          <img src="images/logo.png" alt="Logo OmeRyth" class="download-card-logo">
-          <h2>Prêt à donner vie à vos dialogues ?</h2>
-          <p>Téléchargez gratuitement la version 1.2 d'OmeRyth pour Windows et créez vos premières bandes rythmo dès aujourd'hui.</p>
-          
-          <div class="download-action-wrap">
-            <button class="btn-download-trigger btn-download-big">
-              <svg class="icon-win-lg" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.901-1.8"/>
+          <div class="banner-actions">
+            <a href="https://github.com/OmetitNoobz/Web/releases/download/v1.2/OmeRyth_Setup_v1.2.exe" download="OmeRyth_Setup_v1.2.exe" class="btn btn-primary btn-large download-btn" id="banner-download-btn">
+              <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
               </svg>
-              <span>Télécharger OmeRyth v1.2 (Windows 64-bit)</span>
-            </button>
+              <span data-i18n="banner_btn">Télécharger OmeRyth v1.2</span>
+              <span class="btn-tag">Dernière version</span>
+            </a>
           </div>
 
-          <div class="download-specs-note">
-            <span>Version 1.2</span> • <span>Taille : ~200 Mo (Portable)</span> • <span>Système : Windows 10/11</span> • <span>Licence Open Source</span>
+          <div class="banner-versions">
+            <details class="version-accordion">
+              <summary class="version-summary">
+                <span class="version-summary-text" data-i18n="banner_versions_title">Versions disponibles de l'application</span>
+                <span class="version-icon">+</span>
+              </summary>
+              <div class="version-details-body">
+                <div class="version-list">
+                  <div class="version-item">
+                    <a href="https://github.com/OmetitNoobz/Web/releases/download/v1.2/OmeRyth_Setup_v1.2.exe" class="version-download-link" download="OmeRyth_Setup_v1.2.exe">
+                      <div class="version-link-left">
+                        <svg class="version-download-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                          <polyline points="7 10 12 15 17 10"></polyline>
+                          <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        <span class="version-filename">OmeRyth_Setup_v1.2.exe</span>
+                      </div>
+                      <div class="version-link-right">
+                        <span class="version-badge">v1.2 • Windows 64-bit</span>
+                      </div>
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </details>
           </div>
+
+          <p class="banner-note" data-i18n="banner_note">Compatible Windows 10 & 11 • Version autonome portable disponible</p>
         </div>
+      </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section id="faq" class="faq-section container">
+      <div class="section-header text-center">
+        <span class="section-tag" data-i18n="faq_tag">Questions Fréquentes</span>
+        <h2 class="section-title" data-i18n="faq_title">Tout ce que vous devez savoir</h2>
+      </div>
+
+      <div class="faq-accordion">
+        <details class="faq-item" open>
+          <summary class="faq-question">
+            <span data-i18n="q1_title">Qu'est-ce qu'une bande rythmo et à quoi sert OmeRyth ?</span>
+            <span class="faq-icon">+</span>
+          </summary>
+          <div class="faq-answer">
+            <p data-i18n="q1_desc">
+              Une bande rythmo est une bande texte défilante synchronisée à l'image utilisée dans les studios de doublage pour permettre au comédien de synchroniser précisément ses répliques et ses lèvres sur le mouvement des lèvres de l'acteur à l'écran. OmeRyth simplifie et accélère la création de ces bandes grâce à des assistants intelligents et des outils IA.
+            </p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary class="faq-question">
+            <span data-i18n="q2_title">Comment fonctionne l'isolation vocale Demucs ?</span>
+            <span class="faq-icon">+</span>
+          </summary>
+          <div class="faq-answer">
+            <p data-i18n="q2_desc">
+              OmeRyth utilise le modèle de réseaux de neurones HTDemucs développé par Facebook Research. Il analyse les fréquences audio et sépare chirurgicalement la piste voix des autres instruments, bruits d'ambiance et effets sonores, le tout directement sur votre processeur ou votre carte graphique sans connexion internet requise.
+            </p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary class="faq-question">
+            <span data-i18n="q3_title">Les fichiers créés avec OmeRyth sont-ils compatibles avec les studios ?</span>
+            <span class="faq-icon">+</span>
+          </summary>
+          <div class="faq-answer">
+            <p data-i18n="q3_desc">
+              Oui, OmeRyth supporte pleinement le standard professionnel DETX (Cappella) en import et export, vous permettant d'échanger vos projets avec les studios de doublage sans perte de synchronisation ou de métadonnées.
+            </p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary class="faq-question">
+            <span data-i18n="q4_title">Puis-je exporter directement pour TikTok, YouTube Shorts ou Instagram ?</span>
+            <span class="faq-icon">+</span>
+          </summary>
+          <div class="faq-answer">
+            <p data-i18n="q4_desc">
+              Absolument ! Depuis la version 1.2, un préréglage 1080×1920 (9:16 vertical) permet de générer des clips prêts à publier avec la vidéo centrée et la bande rythmo défilante sous la scène.
+            </p>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <!-- Contact Section -->
+    <section id="contact" class="contact-section container">
+      <div class="section-header text-center">
+        <span class="section-tag" data-i18n="contact_tag">Contact & Support</span>
+        <h2 class="section-title" data-i18n="contact_title">Une question ? Contactez-nous</h2>
+        <p class="section-subtitle" data-i18n="contact_desc">
+          Une question sur OmeRyth, les licences de doublage studio ou une suggestion ? Écrivez-nous directement.
+        </p>
+      </div>
+
+      <div class="contact-card">
+        <form id="contact-form" action="https://formspree.io/f/xrpbzkkd" method="POST" class="contact-form">
+          <!-- Formspree Anti-Spam Honeypot -->
+          <input type="text" name="_gotcha" style="display:none" tabindex="-1" autocomplete="off">
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="contact-name" class="form-label" data-i18n="contact_name_label">Nom</label>
+              <div class="input-wrapper">
+                <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+                <input
+                  type="text"
+                  id="contact-name"
+                  name="name"
+                  class="form-input"
+                  placeholder="Votre nom complet"
+                  data-i18n-placeholder="contact_name_placeholder"
+                  required
+                  autocomplete="name"
+                >
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="contact-email" class="form-label" data-i18n="contact_email_label">Adresse Email</label>
+              <div class="input-wrapper">
+                <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                  <polyline points="22,6 12,13 2,6"></polyline>
+                </svg>
+                <input
+                  type="email"
+                  id="contact-email"
+                  name="email"
+                  class="form-input"
+                  placeholder="votre@email.com"
+                  data-i18n-placeholder="contact_email_placeholder"
+                  required
+                  autocomplete="email"
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="contact-message" class="form-label" data-i18n="contact_message_label">Commentaire / Message</label>
+            <div class="input-wrapper">
+              <textarea
+                id="contact-message"
+                name="message"
+                class="form-input form-textarea"
+                rows="5"
+                placeholder="Votre message, question ou retour..."
+                data-i18n-placeholder="contact_message_placeholder"
+                required
+              ></textarea>
+            </div>
+          </div>
+
+          <div class="form-footer">
+            <button type="submit" class="btn btn-primary btn-large contact-submit-btn" id="contact-submit-btn">
+              <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+              <span id="contact-btn-text" data-i18n="contact_btn_send">Envoyer le message</span>
+            </button>
+            <p class="form-privacy-note" data-i18n="contact_privacy_note">
+              Vos informations restent strictement confidentielles et ne sont jamais partagées.
+            </p>
+          </div>
+
+          <div id="contact-status" class="form-status" aria-live="polite" style="display: none;"></div>
+        </form>
       </div>
     </section>
   </main>
 
   <!-- Footer -->
-  <footer class="footer">
-    <div class="footer-container">
+  <footer class="footer container">
+    <div class="footer-top">
       <div class="footer-brand">
-        <img src="images/logo.png" alt="OmeRyth" class="footer-logo">
-        <span>OmeRyth</span>
+        <div class="footer-brand-header">
+          <img id="footer-logo" class="brand-logo" src="assets/images/logo-dark.png" alt="OmeRyth Logo">
+          <span class="brand-text">Ome<span class="text-accent">Ryth</span></span>
+        </div>
+        <p class="footer-tagline" data-i18n="footer_tagline">
+          Logiciel professionnel de synchronisation et création de bandes rythmo pour comédiens, adaptateurs et studios.
+        </p>
       </div>
-      <div class="footer-copy">
-        © 2026 OmeRyth Project. Logiciel libre conçu pour les professionnels du doublage et les créateurs.
+
+      <div class="footer-columns">
+        <div class="footer-col">
+          <h5 data-i18n="fcol_nav">Navigation</h5>
+          <a href="#features" data-i18n="nav_features">Fonctionnalités</a>
+          <a href="#showcase" data-i18n="nav_showcase">Démos Vidéo</a>
+          <a href="#specs" data-i18n="nav_specs">Spécifications</a>
+          <a href="#faq" data-i18n="nav_faq">FAQ</a>
+          <a href="#contact" data-i18n="nav_contact">Contact</a>
+        </div>
+        <div class="footer-col">
+          <h5 data-i18n="fcol_tech">Technologies</h5>
+          <span>HTDemucs v4 (Facebook)</span>
+          <span>WhisperX Alignment</span>
+          <span>libvlc 64-bit Engine</span>
+          <span>FFmpeg GPU Acceleration</span>
+        </div>
+        <div class="footer-col">
+          <h5 data-i18n="fcol_compat">Compatibilité</h5>
+          <span>DETX Cappella</span>
+          <span>Format .rythmo</span>
+          <span>Export 9:16 Vertical</span>
+          <span>Windows 10 / 11 64-bit</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-bottom">
+      <p>© 2026 OmeRyth. Tous droits réservés.</p>
+      <div class="footer-legal">
+        <span data-i18n="footer_privacy">Conçu pour les créateurs de doublage</span>
       </div>
     </div>
   </footer>
 
-  <!-- Download Modal / Notification Popup -->
-  <div id="downloadModal" class="modal-overlay">
-    <div class="modal-card">
-      <button class="modal-close" id="modalClose">&times;</button>
-      <div class="modal-icon">📦</div>
-      <h3 class="modal-title">Téléchargement d'OmeRyth</h3>
-      <p class="modal-desc">
-        Le lien de téléchargement direct sera activé dès la mise en ligne des binaires officiels sur le serveur de distribution.
-      </p>
-      <div class="modal-info-box">
-        <div><strong>Version :</strong> 1.2 Stable</div>
-        <div><strong>Plateforme :</strong> Windows 10 & 11 (64-bit)</div>
-        <div><strong>Contenu :</strong> Exécutable <code>OmeRyth.exe</code>, runtime embarqué, dépendances VLC & FFmpeg</div>
-      </div>
-      <button class="btn-modal-ok" id="modalOk">Compris, merci !</button>
+  <!-- Toast Notification Modal for Download Action -->
+  <div id="toast" class="toast-notification" role="status" aria-live="polite">
+    <div class="toast-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+      </svg>
     </div>
+    <div class="toast-body">
+      <div class="toast-title" data-i18n="toast_title">Version 1.2 — Téléchargement lancé</div>
+      <div class="toast-message" data-i18n="toast_msg">Le téléchargement d'OmeRyth_Setup_v1.2.exe a démarré !</div>
+    </div>
+    <button class="toast-close" id="toast-close-btn" aria-label="Fermer notification">&times;</button>
   </div>
 
-  <script src="app.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
