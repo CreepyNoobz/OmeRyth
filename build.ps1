@@ -28,11 +28,24 @@ if ($LASTEXITCODE -ne 0) {
 }
 Remove-Item $srcListFile -Force -ErrorAction SilentlyContinue
 
+# Resolve jar executable (often missing from Oracle javapath symlinks)
+$jarCmd = (Get-Command jar -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source)
+if (-not $jarCmd) {
+    $candidates = @(
+        'C:\Program Files\Java\jdk-23\bin\jar.exe',
+        'C:\Program Files\Java\jdk-25.0.4.1\bin\jar.exe'
+    ) + (Get-ChildItem 'C:\Program Files\Java' -Recurse -Filter 'jar.exe' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+    $jarCmd = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+if (-not $jarCmd) {
+    $jarCmd = 'jar'
+}
+
 # 3. Extract libraries into bin to create a fat JAR
 Write-Host "[2/4] Intégration des librairies dans le paquet..." -ForegroundColor Yellow
 Push-Location 'bin'
 Get-ChildItem '..\libs\*.jar' | ForEach-Object {
-    & jar xf $_.FullName
+    & $jarCmd xf $_.FullName
 }
 Pop-Location
 
@@ -44,7 +57,7 @@ Copy-Item -Path 'src\images\*' -Destination 'bin\images\' -Recurse -Force
 
 # 5. Create OmeRyth.jar
 Write-Host "[3/4] Création du JAR exécutable (OmeRyth.jar)..." -ForegroundColor Yellow
-& jar cfm 'OmeRyth.jar' 'manifest.txt' -C 'bin' .
+& $jarCmd cfm 'OmeRyth.jar' 'manifest.txt' -C 'bin' .
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Erreur lors de la création d'OmeRyth.jar."
     exit 1

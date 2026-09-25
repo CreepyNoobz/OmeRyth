@@ -52,7 +52,25 @@ export class OmeRythApp {
 
     this.shortcuts = new ShortcutsManager(this);
 
+    // Initialisation du mode de saisie (PC = direct sur bande, Mobile = modale)
+    let initialMode = 'pc';
+    try {
+      const savedMode = localStorage.getItem('omeryth_input_mode');
+      if (savedMode === 'pc' || savedMode === 'mobile') {
+        initialMode = savedMode;
+      } else {
+        const isMobile = window.innerWidth <= 768 || ('ontouchstart' in window && !window.matchMedia('(pointer: fine)').matches);
+        initialMode = isMobile ? 'mobile' : 'pc';
+      }
+    } catch (_) {
+      initialMode = 'pc';
+    }
+    this.inputMode = initialMode;
+    this.inlineEditing = null;
+
     this.initUI();
+    this.initLiveBandEditor();
+    this.updateInputModeUI();
     this.initCanvasMouseEvents();
     this.initContextMenu();
     this.initMobileDrawer();
@@ -261,6 +279,11 @@ export class OmeRythApp {
     // Bouton Aide
     document.getElementById('btnHelp')?.addEventListener('click', () => {
       document.getElementById('helpModal').classList.add('active');
+    });
+
+    // Bouton Bascule Mode de Saisie (PC direct / Mobile modale)
+    document.getElementById('btnInputMode')?.addEventListener('click', () => {
+      this.toggleInputMode();
     });
 
     // Boutons de la barre mobile supérieure
@@ -509,15 +532,47 @@ export class OmeRythApp {
       } else if (dragMode === 'separator' && dragTarget !== null) {
         const offsetX = this.renderer.cursorX - (this.videoSync.currentTime * this.pps);
         const newWorldX = this.snapWorldXToTenth(mouseX - offsetX);
-        this.textManager.moveSeparator(dragBand, dragTarget.x, newWorldX);
+        this.textManager.moveSeparator(dragBand, dragTarget.x, newWorldX, this.pps);
         this.render();
       }
     });
 
-    window.addEventListener('mouseup', () => {
-      // Clic simple sur un texte sans glisser : ouverture de la modification dynamique
+    window.addEventListener('mouseup', (e) => {
       if (isMouseDown && !hasMovedSinceDown && clickedTextCandidate && dragMode === 'scrub') {
-        this.openTextEditModal(clickedTextCandidate);
+        const rect = this.canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const offsetX = this.renderer.cursorX - (this.videoSync.currentTime * this.pps);
+        if (this.inputMode === 'pc') {
+          const clickedIdx = this.textManager.getCursorIndexForClick(clickedTextCandidate, mouseX, offsetX);
+          this.startBandTextEditing(clickedTextCandidate, clickedIdx);
+        } else {
+          this.openTextEditModal(clickedTextCandidate);
+        }
+      } else if (isMouseDown && !hasMovedSinceDown && this.textManager.isEditing) {
+        // Clic sur le texte en cours d'édition pour déplacer le curseur, ou clic ailleurs pour valider
+        const rect = this.canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const offsetX = this.renderer.cursorX - (this.videoSync.currentTime * this.pps);
+        const cur = this.textManager.editingText;
+        if (cur) {
+          const bounds = this.textManager.getBoundarySeparators(cur.band, cur.x);
+          const segStart = bounds.leftSep !== null ? bounds.leftSep : cur.x;
+          const segEnd = bounds.rightSep !== null ? bounds.rightSep : segStart + 200;
+          const worldX = mouseX - offsetX;
+          if (worldX >= segStart - 10 && worldX <= segEnd + 10) {
+            const clickedIdx = this.textManager.getCursorIndexForClick(cur, mouseX, offsetX);
+            this.textManager.cursorIndex = clickedIdx;
+            this.textManager.caretVisible = true;
+            const capturer = document.getElementById('canvasKeyboardCapturer');
+            if (capturer) {
+              capturer.setSelectionRange(clickedIdx, clickedIdx);
+              capturer.focus({ preventScroll: true });
+            }
+            this.render();
+          } else {
+            this.commitBandTextEditing();
+          }
+        }
       }
       isMouseDown = false;
       dragMode = null;
@@ -542,9 +597,18 @@ export class OmeRythApp {
         const existingText = this.textManager.findTextAt(bandIdx, worldX, this.pps);
 
         if (existingText) {
-          this.openTextEditModal(existingText);
+          if (this.inputMode === 'pc') {
+            const clickedIdx = this.textManager.getCursorIndexForClick(existingText, mouseX, offsetX);
+            this.startBandTextEditing(existingText, clickedIdx);
+          } else {
+            this.openTextEditModal(existingText);
+          }
         } else {
-          this.openNewTextModal(bandIdx, worldX);
+          if (this.inputMode === 'pc') {
+            this.startNewPhraseOnBand(bandIdx, worldX);
+          } else {
+            this.openNewTextModal(bandIdx, worldX);
+          }
         }
       }
     });
@@ -649,20 +713,63 @@ export class OmeRythApp {
 
   addSeparatorAtCursor(type = 'START') {
     const currentWorldX = this.snapWorldXToTenth(this.videoSync.currentTime * this.pps);
-    this.textManager.addSeparator(this.activeBand, currentWorldX, type);
-    this.render();
+    const bandIdx = this.activeBand;
+
+    // Règle d'ensemble OmeRyth : validation stricte avant ajout
+    const check = this.textManager.canAddSeparator(bandIdx, currentWorldX, type);
+    if (!check.allowed) {
+      this.showToast('⚠️ ' + check.error);
+      this.vibrate([40, 40]);
+      return;
+    }
+
     if (type === 'START' || type === SeparatorType.START) {
-      this.openPromptForStart(this.activeBand, currentWorldX);
-    } else {
-      this.showToast(`Séparateur ${type} ajouté sur la bande ${this.activeBand + 1}`);
+      if (this.inputMode === 'pc') {
+        this.startNewPhraseOnBand(bandIdx, currentWorldX);
+      } else {
+        this.textManager.addSeparator(bandIdx, currentWorldX, SeparatorType.START);
+        this.render();
+        this.openPromptForStart(bandIdx, currentWorldX);
+      }
+      return;
+    }
+
+    if (type === 'END' || type === SeparatorType.END) {
+      // Si une édition est active sur cette piste, commit avec cette fin
+      if (this.textManager.isEditing && this.textManager.editingBand === bandIdx) {
+        this.textManager.addSeparator(bandIdx, currentWorldX, SeparatorType.END);
+        this.commitBandTextEditing();
+        return;
+      }
+      this.textManager.addSeparator(bandIdx, currentWorldX, SeparatorType.END);
+      this.render();
+      this.showToast(`Repère FIN posé à ${this.videoSync.currentTime.toFixed(2)}s`);
+      return;
+    }
+
+    if (type === 'INNER' || type === SeparatorType.INNER) {
+      this.textManager.addSeparator(bandIdx, currentWorldX, SeparatorType.INNER);
+      this.render();
+      this.showToast(`Séparateur interne posé sur la piste ${bandIdx + 1}`);
+      return;
     }
   }
 
   addSignAtCursor(signTypeId) {
     const currentWorldX = this.snapWorldXToTenth(this.videoSync.currentTime * this.pps);
-    this.textManager.addSeparator(this.activeBand, currentWorldX, SeparatorType.INNER, -1, signTypeId);
+    const bandIdx = this.activeBand;
+
+    // Règle OmeRyth : un signe lipsync doit être placé à l'intérieur d'une réplique
+    const check = this.textManager.canAddSeparator(bandIdx, currentWorldX, SeparatorType.INNER);
+    if (!check.allowed) {
+      this.showToast(`⚠️ Le signe ${signTypeId} doit être placé à l'intérieur d'une réplique.`);
+      this.vibrate([30, 30]);
+      return;
+    }
+
+    this.textManager.addSeparator(bandIdx, currentWorldX, SeparatorType.INNER, -1, signTypeId);
     this.render();
-    this.showToast(`Signe ${signTypeId} posé sur la bande ${this.activeBand + 1}`);
+    this.showToast(`Signe ${signTypeId} posé sur la piste ${bandIdx + 1}`);
   }
 
   addPlanMarkerAtCursor() {
@@ -743,11 +850,175 @@ export class OmeRythApp {
     this.videoEl.style.display = 'none';
   }
 
+  // =========================================================================
+  // ÉDITION DYNAMIQUE DIRECTE SUR LA BANDE (MODE PC) & GESTION DES MODES
+  // Reproduction fidèle d'OmeRyth Desktop : saisie directement sur le canvas
+  // =========================================================================
+
+  initLiveBandEditor() {
+    const capturer = document.getElementById('canvasKeyboardCapturer');
+    if (!capturer) return;
+
+    capturer.addEventListener('input', () => {
+      if (!this.textManager.isEditing) return;
+      this.textManager.setEditingTextValue(capturer.value, capturer.selectionStart);
+      this.render();
+    });
+
+    capturer.addEventListener('keydown', (e) => {
+      if (!this.textManager.isEditing) return;
+
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.commitBandTextEditing();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        this.cancelBandTextEditing();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        const role = this.textManager.cycleEditingRole();
+        this.render();
+        if (role) this.showToast(`Personnage : ${role.name}`);
+      }
+    });
+
+    const syncSelection = () => {
+      if (this.textManager.isEditing) {
+        this.textManager.cursorIndex = capturer.selectionStart;
+        this.textManager.caretVisible = true;
+        this.render();
+      }
+    };
+
+    capturer.addEventListener('keyup', syncSelection);
+    capturer.addEventListener('click', syncSelection);
+    capturer.addEventListener('select', syncSelection);
+
+    // Clignotement fluide du curseur (caret) sur la bande (500ms)
+    setInterval(() => {
+      if (this.textManager.isEditing) {
+        this.textManager.caretVisible = !this.textManager.caretVisible;
+        this.render();
+      }
+    }, 500);
+
+    // Clic en dehors du canvas pour valider l'édition en cours
+    window.addEventListener('mousedown', (e) => {
+      if (!this.textManager.isEditing) return;
+      if (e.target === this.canvas) return;
+      if (e.target.closest('#textModal')) return;
+      this.commitBandTextEditing();
+    });
+  }
+
+  startBandTextEditing(textItem, cursorIdx = null) {
+    if (this.videoSync && this.videoSync.isPlaying) {
+      this.videoSync.pause();
+    }
+    this.activeBand = textItem.band;
+    this.textManager.startEditingExistingText(textItem, cursorIdx);
+    const capturer = document.getElementById('canvasKeyboardCapturer');
+    if (capturer) {
+      capturer.value = textItem.text || '';
+      const pos = this.textManager.cursorIndex;
+      capturer.setSelectionRange(pos, pos);
+      capturer.focus({ preventScroll: true });
+    }
+    this.render();
+  }
+
+  startNewPhraseOnBand(bandIdx, worldX) {
+    if (this.videoSync && this.videoSync.isPlaying) {
+      this.videoSync.pause();
+    }
+    this.activeBand = bandIdx;
+    const defaultRole = this.textManager.roles[bandIdx % this.textManager.roles.length] || this.textManager.roles[0];
+    const res = this.textManager.startPhrase(bandIdx, worldX, defaultRole);
+    if (!res.allowed) {
+      this.showToast('⚠️ ' + res.error);
+      this.vibrate([40, 40]);
+      return;
+    }
+    const capturer = document.getElementById('canvasKeyboardCapturer');
+    if (capturer) {
+      capturer.value = '';
+      capturer.setSelectionRange(0, 0);
+      capturer.focus({ preventScroll: true });
+    }
+    this.render();
+    this.showToast('✍️ Saisie directe sur la bande (Entrée pour valider, Tab pour changer de rôle)');
+  }
+
+  commitBandTextEditing() {
+    if (!this.textManager.isEditing) return;
+    const item = this.textManager.editingText;
+    this.textManager.commitEditing(this.pps);
+    const capturer = document.getElementById('canvasKeyboardCapturer');
+    if (capturer) capturer.blur();
+    this.render();
+    if (item && (item.text || '').trim()) {
+      this.showToast(`Réplique enregistrée pour ${item.role?.name || 'Personnage'}`);
+    }
+  }
+
+  cancelBandTextEditing() {
+    if (!this.textManager.isEditing) return;
+    this.textManager.cancelEditing();
+    const capturer = document.getElementById('canvasKeyboardCapturer');
+    if (capturer) capturer.blur();
+    this.render();
+    this.showToast('Saisie annulée');
+  }
+
+  setInputMode(mode) {
+    this.inputMode = mode === 'mobile' ? 'mobile' : 'pc';
+    try {
+      localStorage.setItem('omeryth_input_mode', this.inputMode);
+    } catch (_) {}
+
+    this.updateInputModeUI();
+    this.showToast(this.inputMode === 'pc' 
+      ? '💻 Mode PC actif : Modification directe du texte sur la bande' 
+      : '📱 Mode Mobile actif : Saisie du texte via modale');
+  }
+
+  toggleInputMode() {
+    this.setInputMode(this.inputMode === 'pc' ? 'mobile' : 'pc');
+  }
+
+  updateInputModeUI() {
+    const isPc = this.inputMode === 'pc';
+    const btn = document.getElementById('btnInputMode');
+    if (btn) {
+      btn.innerHTML = isPc ? '💻 Mode PC' : '📱 Mode Mobile';
+      btn.title = isPc 
+        ? 'Mode PC : Saisie directe sur la bande (cliquer pour mode Mobile)' 
+        : 'Mode Mobile : Saisie par modale (cliquer pour mode PC)';
+      btn.classList.toggle('active-mode-pc', isPc);
+      btn.classList.toggle('active-mode-mobile', !isPc);
+    }
+    const mBtn = document.getElementById('mBtnInputMode');
+    if (mBtn) {
+      mBtn.innerHTML = isPc 
+        ? '<span class="drawer-icon">💻</span> Mode : Direct sur bande (PC)' 
+        : '<span class="drawer-icon">📱</span> Mode : Fenêtre modale (Mobile)';
+    }
+  }
+
   openPromptForStart(bandIdx, worldX) {
     // Si un texte existe déjà sous ce repère, on passe en mode modification
     const existing = this.textManager.findTextAt(bandIdx, worldX, this.pps);
     if (existing) {
-      this.openTextEditModal(existing);
+      if (this.inputMode === 'pc') {
+        this.startBandTextEditing(existing);
+      } else {
+        this.openTextEditModal(existing);
+      }
+      return;
+    }
+
+    if (this.inputMode === 'pc') {
+      this.startNewPhraseOnBand(bandIdx, worldX);
       return;
     }
 
@@ -872,13 +1143,29 @@ export class OmeRythApp {
 
   openNewTextModal(bandIdx, worldX) {
     const snappedX = this.snapWorldXToTenth(worldX);
+    const check = this.textManager.canAddSeparator(bandIdx, snappedX, SeparatorType.START);
+    if (!check.allowed) {
+      this.showToast('⚠️ ' + check.error);
+      this.vibrate([30, 30]);
+      return;
+    }
     this.textManager.addSeparator(bandIdx, snappedX, SeparatorType.START);
     this.render();
-    this.openPromptForStart(bandIdx, snappedX);
+    if (this.inputMode === 'pc') {
+      this.startInlineBandEditing(bandIdx, snappedX, null);
+    } else {
+      this.openPromptForStart(bandIdx, snappedX);
+    }
   }
 
   openTextEditModal(textItem) {
     if (!textItem) return;
+
+    if (this.inputMode === 'pc') {
+      this.startInlineBandEditing(textItem.band, textItem.x, textItem);
+      return;
+    }
+
     const textModal = document.getElementById('textModal');
     const input = document.getElementById('modalTextInput');
     const roleSelect = document.getElementById('modalRoleSelect');
@@ -1097,10 +1384,13 @@ export class OmeRythApp {
     });
 
     document.getElementById('cmenuEditText')?.addEventListener('click', () => {
-      if (this.contextTarget?.hitText) {
-        this.openTextEditModal(this.contextTarget.hitText);
-      } else if (this.contextTarget?.phraseInfo?.textItem) {
-        this.openTextEditModal(this.contextTarget.phraseInfo.textItem);
+      const targetText = this.contextTarget?.hitText || this.contextTarget?.phraseInfo?.textItem;
+      if (targetText) {
+        if (this.inputMode === 'pc') {
+          this.startBandTextEditing(targetText);
+        } else {
+          this.openTextEditModal(targetText);
+        }
       }
       this.hideContextMenu();
     });
@@ -1138,18 +1428,44 @@ export class OmeRythApp {
     document.getElementById('cmenuAddStart')?.addEventListener('click', () => {
       if (this.contextTarget && this.contextTarget.bandIdx >= 0) {
         const curX = this.snapWorldXToTenth(this.contextTarget.worldX);
-        this.textManager.addSeparator(this.contextTarget.bandIdx, curX, SeparatorType.START);
-        this.render();
-        this.vibrate(25);
-        this.openPromptForStart(this.contextTarget.bandIdx, curX);
+        const bandIdx = this.contextTarget.bandIdx;
+        const check = this.textManager.canAddSeparator(bandIdx, curX, SeparatorType.START);
+        if (!check.allowed) {
+          this.showToast('⚠️ ' + check.error);
+          this.vibrate([30, 30]);
+          this.hideContextMenu();
+          return;
+        }
+        if (this.inputMode === 'pc') {
+          this.startNewPhraseOnBand(bandIdx, curX);
+        } else {
+          this.textManager.addSeparator(bandIdx, curX, SeparatorType.START);
+          this.render();
+          this.vibrate(25);
+          this.openPromptForStart(bandIdx, curX);
+        }
       }
       this.hideContextMenu();
     });
 
     document.getElementById('cmenuAddEnd')?.addEventListener('click', () => {
       if (this.contextTarget && this.contextTarget.bandIdx >= 0) {
-        const curX = Math.round(this.contextTarget.worldX / (this.pps * 0.1)) * (this.pps * 0.1);
-        this.textManager.addSeparator(this.contextTarget.bandIdx, curX, SeparatorType.END);
+        const curX = this.snapWorldXToTenth(this.contextTarget.worldX);
+        const bandIdx = this.contextTarget.bandIdx;
+        const check = this.textManager.canAddSeparator(bandIdx, curX, SeparatorType.END);
+        if (!check.allowed) {
+          this.showToast('⚠️ ' + check.error);
+          this.vibrate([40, 40]);
+          this.hideContextMenu();
+          return;
+        }
+        if (this.textManager.isEditing && this.textManager.editingBand === bandIdx) {
+          this.textManager.addSeparator(bandIdx, curX, SeparatorType.END);
+          this.commitBandTextEditing();
+          this.hideContextMenu();
+          return;
+        }
+        this.textManager.addSeparator(bandIdx, curX, SeparatorType.END);
         this.render();
         this.vibrate(25);
         this.showToast('Repère Fin (END) posé');
@@ -1159,8 +1475,16 @@ export class OmeRythApp {
 
     document.getElementById('cmenuAddInner')?.addEventListener('click', () => {
       if (this.contextTarget && this.contextTarget.bandIdx >= 0) {
-        const curX = Math.round(this.contextTarget.worldX / (this.pps * 0.1)) * (this.pps * 0.1);
-        this.textManager.addSeparator(this.contextTarget.bandIdx, curX, SeparatorType.INNER);
+        const curX = this.snapWorldXToTenth(this.contextTarget.worldX);
+        const bandIdx = this.contextTarget.bandIdx;
+        const check = this.textManager.canAddSeparator(bandIdx, curX, SeparatorType.INNER);
+        if (!check.allowed) {
+          this.showToast('⚠️ ' + check.error);
+          this.vibrate([30, 30]);
+          this.hideContextMenu();
+          return;
+        }
+        this.textManager.addSeparator(bandIdx, curX, SeparatorType.INNER);
         this.render();
         this.vibrate(25);
         this.showToast('Séparateur interne posé');
@@ -1358,6 +1682,11 @@ export class OmeRythApp {
     document.getElementById('mBtnHelp')?.addEventListener('click', () => {
       closeDrawer();
       document.getElementById('helpModal')?.classList.add('active');
+    });
+
+    document.getElementById('mBtnInputMode')?.addEventListener('click', () => {
+      this.toggleInputMode();
+      closeDrawer();
     });
   }
 

@@ -118,6 +118,7 @@ public class MainFenetre extends JFrame {
             signeRespirationKeyCode = Integer.parseInt(keybinds.getProperty("signeRespirationCode"));
         }
         customization = FileUtils.loadCustomization();
+        app.services.SpellGrammarService.getInstance().setLanguage(customization.appLanguage);
         currentVolume = FileUtils.loadVolume();
 
         // Fenêtre
@@ -781,6 +782,10 @@ public class MainFenetre extends JFrame {
         return fichierSelectionne;
     }
 
+    public AppCustomization getCustomization() {
+        return customization;
+    }
+
     public boolean isWaveformVisible() {
         return customization.showWaveform;
     }
@@ -837,6 +842,7 @@ public class MainFenetre extends JFrame {
             mediaEmptyPanel.setBackgroundStyle(c.mediaBackground, c.mediaImagePath);
         }
         timelinePanel.applyCustomization(c);
+        app.services.SpellGrammarService.getInstance().setLanguage(c.appLanguage);
         revalidate();
         repaint();
     }
@@ -1179,9 +1185,14 @@ public class MainFenetre extends JFrame {
                     inners.sort(Comparator.comparingInt((SepInfo s) -> s.x).thenComparingInt(s -> s.splitIndex));
 
                     int curX = groupStartX;
+                    int lastSplit = 0;
                     for (SepInfo sep : inners) {
                         sep.x = Math.max(curX + minStep, sep.x);
                         curX = sep.x;
+                        if (sep.splitIndex < lastSplit) {
+                            sep.splitIndex = lastSplit;
+                        }
+                        lastSplit = sep.splitIndex;
                     }
                     int finalEndX = Math.max(curX + minStep, lastEndX);
                     if (nextGroupStartX != null && finalEndX > nextGroupStartX - 4) {

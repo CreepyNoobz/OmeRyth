@@ -41,4 +41,5 @@ public class AppCustomization {
     public Color waveformColor = new Color(0, 180, 255, 40);
     
     public String defaultProjectFormat = "rythmo"; // "rythmo" or "detx"
+    public String appLanguage = "fr"; // "fr" (Français) ou "en" (English)
 }

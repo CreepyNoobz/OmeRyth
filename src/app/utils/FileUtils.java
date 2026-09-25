@@ -126,6 +126,7 @@ public class FileUtils {
         c.showWaveform = Boolean.parseBoolean(props.getProperty("showWaveform", String.valueOf(c.showWaveform)));
         c.waveformColor = parseColor(props.getProperty("waveformColor"), c.waveformColor);
         c.defaultProjectFormat = props.getProperty("defaultProjectFormat", c.defaultProjectFormat);
+        c.appLanguage = props.getProperty("appLanguage", c.appLanguage);
         return c;
     }
 
@@ -161,6 +162,7 @@ public class FileUtils {
         props.setProperty("showWaveform", Boolean.toString(c.showWaveform));
         props.setProperty("waveformColor", Integer.toString(c.waveformColor.getRGB()));
         props.setProperty("defaultProjectFormat", safe(c.defaultProjectFormat));
+        props.setProperty("appLanguage", safe(c.appLanguage));
 
         try (FileOutputStream fos = new FileOutputStream(CUSTOMIZATION_FILE)) {
             props.store(fos, "App customization");

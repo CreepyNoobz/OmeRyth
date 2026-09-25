@@ -192,14 +192,16 @@ export class TimelineRenderer {
     ctx.font = `bold ${fontSize}px ${this.fontFamily}`;
 
     for (const t of textManager.texts) {
-      if (!t.text || t.text.trim() === '') continue;
+      const isCurrentlyEditing = (textManager.isEditing && textManager.editingText === t);
+      const textContent = t.text || '';
+      if (!isCurrentlyEditing && textContent.trim() === '') continue;
 
       const bandTop = headerH + t.band * bandH;
       const baselineY = bandTop + bandH - 8;
 
       const bounds = textManager.getBoundarySeparators(t.band, t.x);
       const segmentStart = bounds.leftSep !== null ? bounds.leftSep : t.x;
-      let segmentEnd = bounds.rightSep !== null ? bounds.rightSep : segmentStart + Math.max(100, t.text.length * 20);
+      let segmentEnd = bounds.rightSep !== null ? bounds.rightSep : segmentStart + Math.max(100, Math.max(1, textContent.length) * 20);
 
       // Viewport culling (ignorer si hors écran)
       const screenStart = segmentStart + offsetX;
@@ -216,39 +218,115 @@ export class TimelineRenderer {
       ctx.fillStyle = color;
 
       // 2. Rendu du texte avec étirement (avec ou sans marques internes INNER)
-      if (bounds.innerMarks.length === 0) {
-        // Bloc unique étiré de segmentStart à segmentEnd
-        const availWidth = Math.max(20, segmentEnd - segmentStart);
-        this.drawScaledText(ctx, t.text, screenStart, baselineY, availWidth, targetTextHeight, false);
-      } else {
-        // Segments découpés et calés sur les séparateurs internes
-        let prevX = segmentStart;
-        let prevIdx = 0;
-        const len = t.text.length;
+      if (textContent.length > 0) {
+        if (bounds.innerMarks.length === 0) {
+          // Bloc unique étiré de segmentStart à segmentEnd
+          const availWidth = Math.max(20, segmentEnd - segmentStart);
+          this.drawScaledText(ctx, textContent, screenStart, baselineY, availWidth, targetTextHeight, false);
+        } else {
+          // Segments découpés et calés sur les séparateurs internes
+          let prevX = segmentStart;
+          let prevIdx = 0;
+          const len = textContent.length;
 
-        for (const mark of bounds.innerMarks) {
-          const segStart = prevX;
-          const segEnd = mark.x;
-          let idx = mark.splitIndex >= 0 ? mark.splitIndex : Math.round(((mark.x - segmentStart) / Math.max(1, segmentEnd - segmentStart)) * len);
-          if (idx < prevIdx) idx = prevIdx;
-          if (idx > len) idx = len;
+          for (const mark of bounds.innerMarks) {
+            const segStart = prevX;
+            const segEnd = mark.x;
+            let idx = mark.splitIndex >= 0 ? mark.splitIndex : Math.round(((mark.x - segmentStart) / Math.max(1, segmentEnd - segmentStart)) * len);
+            if (idx < prevIdx) idx = prevIdx;
+            if (idx > len) idx = len;
 
-          const sub = t.text.substring(prevIdx, idx);
-          const subScreenStart = segStart + offsetX;
-          const subWidth = Math.max(10, segEnd - segStart);
+            const sub = textContent.substring(prevIdx, idx);
+            const subScreenStart = segStart + offsetX;
+            const subWidth = Math.max(10, segEnd - segStart);
 
-          this.drawScaledText(ctx, sub, subScreenStart, baselineY, subWidth, targetTextHeight, false);
+            this.drawScaledText(ctx, sub, subScreenStart, baselineY, subWidth, targetTextHeight, false);
 
-          prevX = mark.x;
-          prevIdx = idx;
+            prevX = mark.x;
+            prevIdx = idx;
+          }
+
+          // Dernier morceau après la dernière marque interne
+          const lastSub = textContent.substring(prevIdx);
+          const lastScreenStart = prevX + offsetX;
+          const lastWidth = Math.max(10, segmentEnd - prevX);
+          this.drawScaledText(ctx, lastSub, lastScreenStart, baselineY, lastWidth, targetTextHeight, false);
+        }
+      }
+
+      // 3. Curseur clignotant direct sur la bande (Caret en mode édition active)
+      if (isCurrentlyEditing && textManager.caretVisible) {
+        const caretX = this.computeCursorX(ctx, textContent, offsetX, segmentStart, segmentEnd, bounds.innerMarks, textManager.cursorIndex);
+        const caretTop = bandTop + 3;
+        const caretHeight = bandH - 6;
+        ctx.save();
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = '#000000';
+        ctx.shadowBlur = 3;
+        ctx.fillRect(caretX - 1.5, caretTop, 3, caretHeight);
+        ctx.restore();
+      }
+    }
+  }
+
+  computeCursorX(ctx, text, offsetX, segmentStart, segmentEnd, innerMarks, cursorIdx) {
+    const len = text ? text.length : 0;
+    if (len === 0 || cursorIdx <= 0) {
+      return segmentStart + offsetX;
+    }
+
+    const safeCursor = Math.min(cursorIdx, len);
+
+    if (!innerMarks || innerMarks.length === 0) {
+      const availWidth = Math.max(20, segmentEnd - segmentStart);
+      const metrics = ctx.measureText(text);
+      const totalWidth = metrics.width;
+      if (totalWidth <= 0) return segmentStart + offsetX;
+      let scaleX = availWidth / totalWidth;
+      scaleX = Math.max(0.05, Math.min(scaleX, 15.0));
+
+      const sub = text.substring(0, safeCursor);
+      const subWidth = ctx.measureText(sub).width;
+      return (segmentStart + offsetX) + (subWidth * scaleX);
+    } else {
+      let prevX = segmentStart;
+      let prevIdx = 0;
+
+      for (const mark of innerMarks) {
+        const segStart = prevX;
+        const segEnd = mark.x;
+        let idx = mark.splitIndex >= 0 ? mark.splitIndex : Math.round(((mark.x - segmentStart) / Math.max(1, segmentEnd - segmentStart)) * len);
+        if (idx < prevIdx) idx = prevIdx;
+        if (idx > len) idx = len;
+
+        if (safeCursor <= idx) {
+          const segText = text.substring(prevIdx, idx);
+          const segWidth = Math.max(10, segEnd - segStart);
+          const totalWidth = ctx.measureText(segText).width;
+          if (totalWidth <= 0) return segStart + offsetX;
+          let scaleX = segWidth / totalWidth;
+          scaleX = Math.max(0.05, Math.min(scaleX, 15.0));
+
+          const sub = text.substring(prevIdx, safeCursor);
+          const subWidth = ctx.measureText(sub).width;
+          return (segStart + offsetX) + (subWidth * scaleX);
         }
 
-        // Dernier morceau après la dernière marque interne
-        const lastSub = t.text.substring(prevIdx);
-        const lastScreenStart = prevX + offsetX;
-        const lastWidth = Math.max(10, segmentEnd - prevX);
-        this.drawScaledText(ctx, lastSub, lastScreenStart, baselineY, lastWidth, targetTextHeight, false);
+        prevX = mark.x;
+        prevIdx = idx;
       }
+
+      // Dernier segment après la dernière marque
+      const segText = text.substring(prevIdx);
+      const segWidth = Math.max(10, segmentEnd - prevX);
+      const totalWidth = ctx.measureText(segText).width;
+      if (totalWidth <= 0) return prevX + offsetX;
+      let scaleX = segWidth / totalWidth;
+      scaleX = Math.max(0.05, Math.min(scaleX, 15.0));
+
+      const sub = text.substring(prevIdx, safeCursor);
+      const subWidth = ctx.measureText(sub).width;
+      return (prevX + offsetX) + (subWidth * scaleX);
     }
   }
 

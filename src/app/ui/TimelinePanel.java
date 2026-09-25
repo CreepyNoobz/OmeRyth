@@ -117,6 +117,10 @@ public class TimelinePanel extends JPanel {
     private ArrayList<Role> roles = new ArrayList<>();
     private app.services.AudioWaveformData waveformData;
 
+    private app.services.SpellGrammarService.SpellCheckIssue currentHoveredSpellIssue = null;
+    private javax.swing.Timer spellHoverTimer = null;
+    private SpellSuggestionPopup spellSuggestionPopup = null;
+
     private final TimelineRenderer renderer = new TimelineRenderer(bandCount, cursorX);
     private final TextManager textManager = new TextManager();
 
@@ -176,6 +180,51 @@ public class TimelinePanel extends JPanel {
         addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseMoved(MouseEvent e) {
+                // Survol interactif des fautes d'orthographe et de grammaire (0.5s pour apparition progressive)
+                if (separatorsVisible) {
+                    app.services.SpellGrammarService.SpellCheckIssue hitIssue =
+                            app.services.SpellGrammarService.getInstance().findIssueAt(e.getX(), e.getY());
+                    if (hitIssue != null) {
+                        setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                        if (hitIssue != currentHoveredSpellIssue) {
+                            currentHoveredSpellIssue = hitIssue;
+                            if (spellHoverTimer != null && spellHoverTimer.isRunning()) {
+                                spellHoverTimer.stop();
+                            }
+                            Point mouseLoc = e.getLocationOnScreen();
+                            spellHoverTimer = new Timer(500, evt -> {
+                                if (currentHoveredSpellIssue == hitIssue && isShowing()) {
+                                    showSpellSuggestionPopup(hitIssue, mouseLoc);
+                                }
+                            });
+                            spellHoverTimer.setRepeats(false);
+                            spellHoverTimer.start();
+                        }
+                        return;
+                    } else {
+                        if (spellHoverTimer != null && spellHoverTimer.isRunning()) {
+                            spellHoverTimer.stop();
+                        }
+                        currentHoveredSpellIssue = null;
+                        if (spellSuggestionPopup != null && spellSuggestionPopup.isVisible()) {
+                            try {
+                                Point screenPt = e.getLocationOnScreen();
+                                if (!spellSuggestionPopup.getBounds().contains(screenPt)) {
+                                    spellSuggestionPopup.fadeOutAndHide();
+                                }
+                            } catch (Throwable ignored) {}
+                        }
+                    }
+                } else {
+                    if (spellHoverTimer != null && spellHoverTimer.isRunning()) {
+                        spellHoverTimer.stop();
+                    }
+                    currentHoveredSpellIssue = null;
+                    if (spellSuggestionPopup != null && spellSuggestionPopup.isVisible()) {
+                        spellSuggestionPopup.fadeOutAndHide();
+                    }
+                }
+
                 int intOffsetX = getIntOffsetX();
                 TextItem hoveredText = textManager.getTextAtScaled(e.getX(), e.getY(), intOffsetX, getHeight(), bandCount);
                 int[] hitSep = textManager.findSeparatorAtScaled(e.getX(), e.getY(), intOffsetX, getHeight(), bandCount, 8);
@@ -434,6 +483,24 @@ public class TimelinePanel extends JPanel {
 
                 requestFocusInWindow();
                 repaint();
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (spellHoverTimer != null && spellHoverTimer.isRunning()) {
+                    spellHoverTimer.stop();
+                }
+                currentHoveredSpellIssue = null;
+                if (spellSuggestionPopup != null && spellSuggestionPopup.isVisible()) {
+                    try {
+                        PointerInfo pi = MouseInfo.getPointerInfo();
+                        if (pi == null || !spellSuggestionPopup.getBounds().contains(pi.getLocation())) {
+                            spellSuggestionPopup.fadeOutAndHide();
+                        }
+                    } catch (Throwable ignored) {
+                        spellSuggestionPopup.fadeOutAndHide();
+                    }
+                }
             }
         });
 
@@ -880,6 +947,8 @@ public class TimelinePanel extends JPanel {
         this.customization.showWaveform = c.showWaveform;
         this.customization.waveformColor = c.waveformColor;
         this.customization.defaultProjectFormat = c.defaultProjectFormat;
+        this.customization.appLanguage = c.appLanguage;
+        app.services.SpellGrammarService.getInstance().setLanguage(c.appLanguage);
 
         this.bandCount = Math.max(1, customization.bandCount);
         this.bandHeight = Math.max(20, customization.bandHeight);
@@ -1046,6 +1115,60 @@ public class TimelinePanel extends JPanel {
     /** Active ou masque l'affichage des séparateurs et repères de synchro. */
     public void setSeparatorsVisible(boolean visible) {
         this.separatorsVisible = visible;
+        if (!visible) {
+            if (spellHoverTimer != null && spellHoverTimer.isRunning()) {
+                spellHoverTimer.stop();
+            }
+            currentHoveredSpellIssue = null;
+            if (spellSuggestionPopup != null && spellSuggestionPopup.isVisible()) {
+                spellSuggestionPopup.fadeOutAndHide();
+            }
+        }
+        repaint();
+    }
+
+    private void showSpellSuggestionPopup(app.services.SpellGrammarService.SpellCheckIssue issue, Point mouseLoc) {
+        if (!separatorsVisible || issue == null) return;
+        if (spellSuggestionPopup != null) {
+            spellSuggestionPopup.dispose();
+        }
+        Window parentWin = SwingUtilities.getWindowAncestor(this);
+        spellSuggestionPopup = new SpellSuggestionPopup(
+            parentWin,
+            issue,
+            this::applySpellCorrection,
+            this::ignoreSpellWord
+        );
+
+        Point panelLoc = getLocationOnScreen();
+        int popupX = (int) (panelLoc.x + issue.screenStartX);
+        int popupY = (int) (panelLoc.y + issue.screenY + issue.screenHeight + 4);
+
+        Dimension screenDim = Toolkit.getDefaultToolkit().getScreenSize();
+        if (popupY + 160 > screenDim.height) {
+            popupY = Math.max(10, (int) (panelLoc.y + issue.screenY - 160));
+        }
+        if (popupX + 260 > screenDim.width) {
+            popupX = Math.max(10, screenDim.width - 270);
+        }
+        if (popupX < 10) popupX = 10;
+
+        spellSuggestionPopup.showProgressive(new Point(popupX, popupY));
+    }
+
+    private void applySpellCorrection(app.services.SpellGrammarService.SpellCheckIssue issue, String replacement) {
+        if (issue == null || issue.targetItem == null || replacement == null) return;
+        recordUndoSnapshot();
+        textManager.replaceWordInTextItem(issue.targetItem, issue.startIdx, issue.endIdx, replacement);
+        app.services.SpellGrammarService.getInstance().invalidateCache(issue.targetItem.text);
+        currentHoveredSpellIssue = null;
+        repaint();
+    }
+
+    private void ignoreSpellWord(app.services.SpellGrammarService.SpellCheckIssue issue) {
+        if (issue == null) return;
+        app.services.SpellGrammarService.getInstance().ignoreWord(issue.originalText);
+        currentHoveredSpellIssue = null;
         repaint();
     }
 

@@ -1190,6 +1190,54 @@ public class SmokeTests {
                     app.services.MediaWorkflowService.detectEncoder(ffmpegPath, "qsv");
             assertTrue(qsvEnc != null && qsvEnc.codec != null, "Profil QSV doit retourner un encodeur valide (QSV ou repli)");
             System.out.println("Support multi-marques AMD / Intel / CPU : VALIDÉ !");
+
+            // 14. Test Vérificateur Orthographique & Grammatical Bilingue (Français & Anglais)
+            System.out.println("--- Test Vérificateur Orthographique & Grammatical (FR / EN) ---");
+            app.services.SpellGrammarService checker = app.services.SpellGrammarService.getInstance();
+            checker.setLanguage("fr");
+
+            // Test orthographe français
+            java.util.List<app.services.SpellGrammarService.SpellCheckIssue> frSpell = checker.checkText("Voici une faute d'orthograaphe");
+            assertTrue(!frSpell.isEmpty(), "Une faute d'orthographe doit être détectée pour 'orthograaphe'");
+            assertTrue(frSpell.get(0).suggestions.contains("orthographe"), "La suggestion doit proposer 'orthographe'");
+
+            // Test grammaire français (accord pluriel)
+            java.util.List<app.services.SpellGrammarService.SpellCheckIssue> frGrammar1 = checker.checkText("Voici les faute dans le texte");
+            assertTrue(!frGrammar1.isEmpty() && frGrammar1.get(0).isGrammar, "Une faute d'accord doit être détectée pour 'les faute'");
+            assertTrue(frGrammar1.get(0).suggestions.contains("fautes"), "La suggestion doit proposer 'fautes'");
+
+            // Test grammaire français (accord sujet / verbe)
+            java.util.List<app.services.SpellGrammarService.SpellCheckIssue> frGrammar2 = checker.checkText("ils va au cinéma");
+            assertTrue(!frGrammar2.isEmpty() && frGrammar2.get(0).isGrammar, "Une faute d'accord sujet-verbe doit être détectée");
+            assertTrue(frGrammar2.get(0).suggestions.contains("vont"), "La suggestion doit proposer 'vont'");
+
+            // Test bascule vers l'Anglais
+            checker.setLanguage("en");
+            assertTrue("en".equals(checker.getLanguage()), "La langue active doit être l'anglais");
+
+            // Test grammaire anglais (article a / an)
+            java.util.List<app.services.SpellGrammarService.SpellCheckIssue> enGrammar1 = checker.checkText("This is a apple");
+            assertTrue(!enGrammar1.isEmpty() && enGrammar1.get(0).isGrammar, "Une faute d'accord d'article doit être détectée pour 'a apple'");
+            assertTrue(enGrammar1.get(0).suggestions.contains("an"), "La suggestion doit proposer 'an'");
+
+            // Test grammaire anglais (accord sujet / verbe)
+            java.util.List<app.services.SpellGrammarService.SpellCheckIssue> enGrammar2 = checker.checkText("they goes to the studio");
+            assertTrue(!enGrammar2.isEmpty() && enGrammar2.get(0).isGrammar, "Une faute d'accord sujet-verbe doit être détectée pour 'they goes'");
+            assertTrue(enGrammar2.get(0).suggestions.contains("go"), "La suggestion doit proposer 'go'");
+
+            // Test orthographe anglais (typo classique)
+            java.util.List<app.services.SpellGrammarService.SpellCheckIssue> enSpell = checker.checkText("watch teh new movie");
+            app.services.SpellGrammarService.SpellCheckIssue tehIssue = enSpell.stream().filter(i -> "teh".equalsIgnoreCase(i.originalText)).findFirst().orElse(null);
+            assertTrue(tehIssue != null, "Une faute d'orthographe doit être détectée pour 'teh'");
+            assertTrue(tehIssue.suggestions.contains("the"), "La suggestion doit proposer 'the'");
+
+            // Test respect de la visibilité des signes sur la timeline
+            timeline.setSeparatorsVisible(false);
+            assertTrue(!timeline.isSeparatorsVisible(), "Les signes doivent être masqués");
+            timeline.setSeparatorsVisible(true);
+            assertTrue(timeline.isSeparatorsVisible(), "Les signes doivent être réactivés");
+
+            System.out.println("Vérification orthographe & grammaire FR / EN : VALIDÉ !");
         }
 
         System.out.println("SmokeTests OK");

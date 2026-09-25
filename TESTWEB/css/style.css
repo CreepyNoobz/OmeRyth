@@ -278,6 +278,37 @@ body {
   cursor: crosshair;
 }
 
+/* --- Bouton Toggle Mode de Saisie (PC / Mobile) --- */
+.btn-mode-toggle {
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid #334155;
+  color: #e2e8f0;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.btn-mode-toggle:hover {
+  background: rgba(51, 65, 85, 0.9);
+  border-color: #64748b;
+  color: #fff;
+}
+
+.btn-mode-toggle.active-mode-pc {
+  border-color: rgba(36, 202, 68, 0.6);
+  background: rgba(36, 202, 68, 0.14);
+  color: #4ade80;
+  box-shadow: 0 0 10px rgba(36, 202, 68, 0.2);
+}
+
+.btn-mode-toggle.active-mode-mobile {
+  border-color: rgba(56, 189, 248, 0.6);
+  background: rgba(56, 189, 248, 0.14);
+  color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+}
+
 /* --- Barre de transport (Footer) --- */
 .transport-bar {
   height: 56px;

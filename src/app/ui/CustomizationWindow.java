@@ -17,7 +17,7 @@ public class CustomizationWindow extends JDialog {
 
     private JSpinner bandCount, bandHeight, cursorX, timerWidth, timerFontSize;
     private JCheckBox autoResizeTimerFont, showWaveform;
-    private JComboBox<String> defaultProjectFormat;
+    private JComboBox<String> defaultProjectFormat, appLanguage;
     private ColorPreviewButton timerBgBtn, timerTextBtn, historyBgBtn, mediaBgBtn, evenBandBtn, oddBandBtn;
     private ColorPreviewButton selectedBandBtn, gridBtn, cursorBtn, sepBtn, waveformColorBtn;
     private JTextField timerImagePath, historyImagePath, mediaImagePath, globalBandImagePath;
@@ -64,6 +64,7 @@ public class CustomizationWindow extends JDialog {
         c.weightx = 1;
 
         int row = 0;
+        addRow(basicPanel, c, row++, "Langue de l'application & correction :", appLanguage);
         addRow(basicPanel, c, row++, "Format de projet par défaut:", defaultProjectFormat);
         addRow(basicPanel, c, row++, "Nombre de bandes (Lignes):", bandCount);
         addRow(basicPanel, c, row++, "Hauteur de chaque bande (px):", bandHeight);
@@ -194,6 +195,13 @@ public class CustomizationWindow extends JDialog {
         showWaveform = new JCheckBox("Afficher la forme d'onde audio (vocale)");
         showWaveform.setSelected(customization.showWaveform);
 
+        appLanguage = new JComboBox<>(new String[]{"Français", "English"});
+        if ("en".equalsIgnoreCase(customization.appLanguage)) {
+            appLanguage.setSelectedIndex(1);
+        } else {
+            appLanguage.setSelectedIndex(0);
+        }
+
         defaultProjectFormat = new JComboBox<>(new String[]{"rythmo (OmeRyth)", "detx (Cappella)"});
         if ("detx".equalsIgnoreCase(customization.defaultProjectFormat)) {
             defaultProjectFormat.setSelectedIndex(1);
@@ -304,6 +312,7 @@ public class CustomizationWindow extends JDialog {
         timerFontSize.setEnabled(!def.autoResizeTimerFont);
         showWaveform.setSelected(def.showWaveform);
         defaultProjectFormat.setSelectedIndex("detx".equalsIgnoreCase(def.defaultProjectFormat) ? 1 : 0);
+        appLanguage.setSelectedIndex("en".equalsIgnoreCase(def.appLanguage) ? 1 : 0);
         timerBgBtn.setPreviewColor(def.timerBackground);
         timerTextBtn.setPreviewColor(def.timerTextColor);
         historyBgBtn.setPreviewColor(def.historyBackground);
@@ -333,6 +342,7 @@ public class CustomizationWindow extends JDialog {
         customization.autoResizeTimerFont = !autoResizeTimerFont.isSelected();
         customization.showWaveform = showWaveform.isSelected();
         customization.defaultProjectFormat = defaultProjectFormat.getSelectedIndex() == 1 ? "detx" : "rythmo";
+        customization.appLanguage = appLanguage.getSelectedIndex() == 1 ? "en" : "fr";
 
         // Only apply advanced (colors/images/font) if the section is enabled
         if (applyAdvanced) {

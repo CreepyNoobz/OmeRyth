@@ -126,7 +126,10 @@ public class TextManager {
             if (t.band != band) continue;
             int[] bounds = getSegmentBounds(t);
             if (x >= bounds[0] && x <= bounds[1]) {
-                int splitIdx = t.text.length();
+                double ratio = (double) (x - bounds[0]) / Math.max(1, bounds[1] - bounds[0]);
+                int splitIdx = (t.text != null && t.text.length() > 0)
+                        ? Math.max(1, Math.min(t.text.length() - 1, (int) Math.round(ratio * t.text.length())))
+                        : -1;
                 addSeparator(band, x, SeparatorMark.Type.INNER, splitIdx);
                 return;
             }
@@ -167,7 +170,10 @@ public class TextManager {
             if (t.band != band) continue;
             int[] bounds = getSegmentBounds(t);
             if (x >= bounds[0] && x <= bounds[1]) {
-                int splitIdx = t.text.length();
+                double ratio = (double) (x - bounds[0]) / Math.max(1, bounds[1] - bounds[0]);
+                int splitIdx = (t.text != null && t.text.length() > 0)
+                        ? Math.max(1, Math.min(t.text.length() - 1, (int) Math.round(ratio * t.text.length())))
+                        : -1;
                 addSeparator(band, x, SeparatorMark.Type.INNER, splitIdx, signType);
                 return;
             }
@@ -1337,5 +1343,39 @@ public class TextManager {
         }
         if (nextInner != null && nextInner.splitIndex >= 0) max = nextInner.splitIndex;
         return max;
+    }
+
+    /**
+     * Remplace une portion de texte (mot corrigé) dans un TextItem et réajuste
+     * les indices de césure (splitIndex) des repères intérieurs sans décaler les syllabes.
+     */
+    public void replaceWordInTextItem(TextItem item, int startIdx, int endIdx, String replacement) {
+        if (item == null || item.text == null || replacement == null) return;
+        if (startIdx < 0 || endIdx > item.text.length() || startIdx > endIdx) return;
+
+        String before = item.text.substring(0, startIdx);
+        String after = item.text.substring(endIdx);
+        int oldLen = endIdx - startIdx;
+        int diff = replacement.length() - oldLen;
+        item.text = before + replacement + after;
+        item.cachedWidth = 0;
+
+        // Réajustement des splitIndex des repères INNER sur la bande
+        if (diff != 0) {
+            ArrayList<SeparatorMark> sepList = bandSeparators.get(item.band);
+            if (sepList != null) {
+                for (SeparatorMark sep : sepList) {
+                    if (sep.type == SeparatorMark.Type.INNER && sep.splitIndex > 0) {
+                        if (sep.splitIndex >= endIdx) {
+                            sep.splitIndex += diff;
+                            if (sep.splitIndex < 0) sep.splitIndex = 0;
+                            if (sep.splitIndex > item.text.length()) sep.splitIndex = item.text.length();
+                        } else if (sep.splitIndex > startIdx) {
+                            sep.splitIndex = startIdx + replacement.length();
+                        }
+                    }
+                }
+            }
+        }
     }
 }

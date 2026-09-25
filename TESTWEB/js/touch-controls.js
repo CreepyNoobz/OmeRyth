@@ -181,7 +181,7 @@ export class TouchControls {
       } else if (this.dragMode === 'separator' && this.dragTarget !== null) {
         const offsetX = this.renderer.cursorX - (this.videoSync.currentTime * pps);
         const newWorldX = Math.round((pos.x - offsetX) / (pps * 0.1)) * (pps * 0.1);
-        this.textManager.moveSeparator(this.dragBand, this.dragTarget.x, newWorldX);
+        this.textManager.moveSeparator(this.dragBand, this.dragTarget.x, newWorldX, pps);
       }
 
       if (this.onUpdate) this.onUpdate();

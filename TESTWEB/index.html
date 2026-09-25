@@ -31,6 +31,7 @@
       <button class="btn btn-sm" id="btnRoles" title="Gestion des personnages et couleurs">🎭 Rôles</button>
       <button class="btn btn-sm" id="btnExportSrt" title="Exporter les répliques en sous-titres SRT">📝 SRT</button>
       <button class="btn btn-sm" id="btnDemo" title="Charger un projet d'exemple">⚡ Démo</button>
+      <button class="btn btn-sm btn-mode-toggle active-mode-pc" id="btnInputMode" title="Mode de saisie : PC (direct sur bande) ou Mobile (modale)">💻 Mode PC</button>
     </div>
 
     <div class="toolbar-group desktop-toolbar">
@@ -76,8 +77,11 @@
     </div>
 
     <!-- Zone Bande Rythmo (Canvas 60 FPS) -->
-    <section class="timeline-section">
+    <section class="timeline-section" id="timelineSection">
       <canvas id="timelineCanvas"></canvas>
+
+      <!-- Capteur de saisie clavier invisible pour écriture directe sur la bande (Mode PC) -->
+      <input type="text" id="canvasKeyboardCapturer" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="position: fixed; top: -9999px; left: -9999px; opacity: 0; pointer-events: none; width: 1px; height: 1px;">
     </section>
   </main>
 
@@ -386,6 +390,9 @@
           <button class="btn" id="mBtnZoomOut">🔍- Zoom arrière</button>
           <button class="btn" id="mBtnZoomIn">🔍+ Zoom avant</button>
         </div>
+
+        <div class="drawer-section-title">MODE DE SAISIE</div>
+        <button class="drawer-item" id="mBtnInputMode"><span class="drawer-icon">💻</span> Mode : Direct sur bande (PC)</button>
 
         <div class="drawer-section-title">AIDE</div>
         <button class="drawer-item" id="mBtnHelp"><span class="drawer-icon">❓</span> Guide & Raccourcis</button>

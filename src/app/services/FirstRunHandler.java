@@ -18,7 +18,10 @@ public class FirstRunHandler {
      */
     public static void handleFirstRun(MainFenetre window) {
         try {
-            // Utiliser le nouvel OnboardingManager pour gérer l'expérience du premier lancement
+            // 1. Choix de la langue lors du premier lancement
+            app.ui.LanguageSelectionDialog.showIfNeeded(window, window != null ? window.getCustomization() : null);
+
+            // 2. Utiliser le nouvel OnboardingManager pour gérer l'expérience du premier démarrage
             OnboardingManager.showOnboardingIfNeeded(window);
         } catch (Throwable ignored) {
             // En cas d'erreur, continuer silencieusement
