@@ -308,6 +308,34 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         // Mode édition — gestion des touches propres à l'édition de texte
         if (timelinePanel.isEditing()) {
 
+            if ((e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0 && (e.getKeyCode() == KeyEvent.VK_A || e.getKeyCode() == KeyEvent.VK_Q)) {
+                timelinePanel.selectAllText();
+                skipNextTyped = true;
+                e.consume();
+                return true;
+            }
+
+            if ((e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0 && e.getKeyCode() == KeyEvent.VK_C) {
+                timelinePanel.copySelectedText();
+                skipNextTyped = true;
+                e.consume();
+                return true;
+            }
+
+            if ((e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0 && e.getKeyCode() == KeyEvent.VK_X) {
+                timelinePanel.cutSelectedText();
+                skipNextTyped = true;
+                e.consume();
+                return true;
+            }
+
+            if (e.getKeyCode() == KeyEvent.VK_DELETE) {
+                timelinePanel.deleteForward();
+                skipNextTyped = true;
+                e.consume();
+                return true;
+            }
+
             if (e.getKeyCode() == KeyEvent.VK_V && (e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) {
                 try {
                     Object data = Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor);
@@ -341,7 +369,11 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
             }
 
             if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                timelinePanel.stopTyping();
+                if (timelinePanel.hasSelection()) {
+                    timelinePanel.clearSelection();
+                } else {
+                    timelinePanel.stopTyping();
+                }
                 e.consume();
                 return true;
             }

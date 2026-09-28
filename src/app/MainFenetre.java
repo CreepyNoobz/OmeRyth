@@ -124,13 +124,50 @@ public class MainFenetre extends JFrame {
         // Fenêtre
         updateTitle();
 
-        // Chargement de l'icône de l'application (supporte à la fois le JAR empaqueté et le système de fichiers de dev)
-        java.net.URL iconUrl = getClass().getResource("/images/logo.png");
-        if (iconUrl != null) {
-            setIconImage(new ImageIcon(iconUrl).getImage());
-        } else {
-            java.io.File iconFile = new java.io.File("src/images/logo.png");
-            if (iconFile.exists()) setIconImage(new ImageIcon(iconFile.getAbsolutePath()).getImage());
+        // Chargement de l'icône de l'application (supporte JAR, dev et barre des tâches Windows multi-résolutions)
+        Image appIcon = null;
+        try {
+            java.net.URL iconUrl = getClass().getResource("/images/logo.png");
+            if (iconUrl != null) {
+                appIcon = javax.imageio.ImageIO.read(iconUrl);
+            }
+        } catch (Throwable ignored) {}
+        if (appIcon == null) {
+            try {
+                java.io.File iconFile = new java.io.File("src/images/logo.png");
+                if (iconFile.exists()) {
+                    appIcon = javax.imageio.ImageIO.read(iconFile);
+                } else {
+                    iconFile = new java.io.File("images/logo.png");
+                    if (iconFile.exists()) {
+                        appIcon = javax.imageio.ImageIO.read(iconFile);
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+        if (appIcon == null) {
+            java.net.URL iconUrl = getClass().getResource("/images/logo.png");
+            if (iconUrl != null) appIcon = new ImageIcon(iconUrl).getImage();
+        }
+        if (appIcon != null) {
+            java.util.List<Image> iconList = new java.util.ArrayList<>();
+            int[] sizes = {16, 24, 32, 48, 64, 128, 256};
+            for (int s : sizes) {
+                iconList.add(appIcon.getScaledInstance(s, s, Image.SCALE_SMOOTH));
+            }
+            try {
+                setIconImages(iconList);
+            } catch (Throwable ignored) {
+                setIconImage(appIcon);
+            }
+            try {
+                if (java.awt.Taskbar.isTaskbarSupported()) {
+                    java.awt.Taskbar taskbar = java.awt.Taskbar.getTaskbar();
+                    if (taskbar.isSupported(java.awt.Taskbar.Feature.ICON_IMAGE)) {
+                        taskbar.setIconImage(appIcon);
+                    }
+                }
+            } catch (Throwable ignored) {}
         }
 
         setSize(900, 650);
@@ -180,6 +217,7 @@ public class MainFenetre extends JFrame {
         
         // Utiliser le menu simplifié au lieu du menu complexe
         simplifiedMenuBar = new SimplifiedMenuBarPanel(this, timelinePanel);
+        simplifiedMenuBar.updateLanguage(customization.appLanguage);
         setJMenuBar(simplifiedMenuBar);
 
         // Listener clavier global
@@ -362,14 +400,57 @@ public class MainFenetre extends JFrame {
     }
     public int getSigneRespirationKeyCode() { return this.signeRespirationKeyCode; }
 
+    public boolean isQwertyKeyboard() {
+        if (customization != null && "qwerty".equalsIgnoreCase(customization.keyboardLayout)) {
+            return true;
+        }
+        if (customization != null && "azerty".equalsIgnoreCase(customization.keyboardLayout)) {
+            return false;
+        }
+        if (customization != null && "en".equalsIgnoreCase(customization.appLanguage)) {
+            return true;
+        }
+        try {
+            java.awt.im.InputContext ic = java.awt.im.InputContext.getInstance();
+            if (ic != null && ic.getLocale() != null) {
+                String lang = ic.getLocale().getLanguage();
+                String country = ic.getLocale().getCountry();
+                if (!"fr".equalsIgnoreCase(lang) && !"fr".equalsIgnoreCase(country)) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {}
+        java.util.Locale def = java.util.Locale.getDefault();
+        if (def != null && !"fr".equalsIgnoreCase(def.getLanguage())) {
+            return true;
+        }
+        return false;
+    }
+
+    public boolean isEnglish() {
+        return customization != null && "en".equalsIgnoreCase(customization.appLanguage);
+    }
+
     public String getKeyText(int keyCode) {
-        if (keyCode == KeyEvent.VK_SPACE) return "ESPACE";
+        boolean en = isEnglish();
+        boolean qwerty = isQwertyKeyboard();
+
+        if (keyCode == KeyEvent.VK_SPACE) return en ? "SPACE" : "ESPACE";
         if (keyCode == KeyEvent.VK_ADD) return "NUMPAD +";
         if (keyCode == KeyEvent.VK_SUBTRACT) return "NUMPAD -";
-        if (keyCode == KeyEvent.VK_UP) return "FLÈCHE HAUT";
-        if (keyCode == KeyEvent.VK_DOWN) return "FLÈCHE BAS";
-        if (keyCode == KeyEvent.VK_LEFT) return "FLÈCHE GAUCHE";
-        if (keyCode == KeyEvent.VK_RIGHT) return "FLÈCHE DROITE";
+        if (keyCode == KeyEvent.VK_UP) return en ? "UP ARROW" : "FLÈCHE HAUT";
+        if (keyCode == KeyEvent.VK_DOWN) return en ? "DOWN ARROW" : "FLÈCHE BAS";
+        if (keyCode == KeyEvent.VK_LEFT) return en ? "LEFT ARROW" : "FLÈCHE GAUCHE";
+        if (keyCode == KeyEvent.VK_RIGHT) return en ? "RIGHT ARROW" : "FLÈCHE DROITE";
+
+        if (qwerty) {
+            if (keyCode == KeyEvent.VK_A) return "Q";
+            if (keyCode == KeyEvent.VK_Q) return "A";
+            if (keyCode == KeyEvent.VK_Z) return "W";
+            if (keyCode == KeyEvent.VK_W) return "Z";
+            if (keyCode == KeyEvent.VK_M) return ",";
+            if (keyCode == KeyEvent.VK_COMMA) return "M";
+        }
         
         String text = KeyEvent.getKeyText(keyCode);
         return text.toUpperCase();
@@ -843,6 +924,9 @@ public class MainFenetre extends JFrame {
         }
         timelinePanel.applyCustomization(c);
         app.services.SpellGrammarService.getInstance().setLanguage(c.appLanguage);
+        if (simplifiedMenuBar != null) {
+            simplifiedMenuBar.updateLanguage(c.appLanguage);
+        }
         revalidate();
         repaint();
     }
@@ -992,10 +1076,6 @@ public class MainFenetre extends JFrame {
             segmentsByBand.computeIfAbsent(band, k -> new ArrayList<>()).add(seg);
         }
 
-        // Seuil de silence (en secondes) pour isoler deux phrases complètement indépendantes chez le MÊME locuteur
-        // Si le même personnage enchaîne ses répliques (temps mort < 1.20s), elles restent groupées
-        // dans la même phrase rythmo et sont séparées par des séparateurs internes (INNER).
-        final double MAX_SAME_SPEAKER_GAP_SEC = 1.20;
         int minStep = Math.max(10, (int) Math.round(pps * 0.1));
 
         for (Map.Entry<Integer, java.util.List<SpeechWorkflowService.TranscriptionSegment>> entry : segmentsByBand.entrySet()) {
@@ -1003,10 +1083,25 @@ public class MainFenetre extends JFrame {
             java.util.List<SpeechWorkflowService.TranscriptionSegment> bandSegments = entry.getValue();
             bandSegments.sort(Comparator.comparingDouble(SpeechWorkflowService.TranscriptionSegment::getStartSeconds));
 
-            // Déduplication de segments superposés ou identiques et ajustement des bornes
+            // Déduplication de segments superposés ou identiques et ajustement précis des bornes
             java.util.List<SpeechWorkflowService.TranscriptionSegment> cleanBandSegments = new ArrayList<>();
             for (SpeechWorkflowService.TranscriptionSegment seg : bandSegments) {
                 if (seg.getText() == null || !SpeechWorkflowService.hasAlphanumeric(seg.getText())) continue;
+
+                // Calage acoustique précis :
+                // 1. Le début du segment ne doit pas commencer avant la première parole effective
+                // 2. La fin du segment ne doit pas déborder au-delà du dernier mot prononcé
+                if (seg.words != null && !seg.words.isEmpty()) {
+                    SpeechWorkflowService.WordTiming firstWord = seg.words.get(0);
+                    if (firstWord.start > seg.startSeconds) {
+                        seg.startSeconds = Math.max(seg.startSeconds, firstWord.start - 0.04);
+                    }
+                    SpeechWorkflowService.WordTiming lastWord = seg.words.get(seg.words.size() - 1);
+                    if (lastWord.end > seg.startSeconds && lastWord.end < seg.endSeconds) {
+                        seg.endSeconds = Math.min(seg.endSeconds, lastWord.end + 0.08);
+                    }
+                }
+
                 if (!cleanBandSegments.isEmpty()) {
                     SpeechWorkflowService.TranscriptionSegment prevSeg = cleanBandSegments.get(cleanBandSegments.size() - 1);
                     if (Math.abs(seg.getStartSeconds() - prevSeg.getStartSeconds()) < 0.05 &&
@@ -1019,8 +1114,7 @@ public class MainFenetre extends JFrame {
                     if (seg.getStartSeconds() < prevSeg.getEndSeconds() - 0.1 && seg.getText().trim().equalsIgnoreCase(prevSeg.getText().trim())) {
                         continue;
                     }
-                    // Éviter le débordement du segment précédent sur le début du nouveau :
-                    // On réduit la fin du précédent au lieu de repousser le début du nouveau dans le futur !
+                    // Éviter le débordement du segment précédent sur le début du nouveau
                     if (prevSeg.endSeconds > seg.startSeconds - 0.05) {
                         prevSeg.endSeconds = Math.max(prevSeg.startSeconds + 0.20, seg.startSeconds - 0.05);
                     }
@@ -1029,187 +1123,61 @@ public class MainFenetre extends JFrame {
             }
             bandSegments = cleanBandSegments;
 
-            // Regrouper les répliques consécutives du même locuteur dans la même phrase :
-            // La séparation entre répliques successives du même locuteur se fait via des séparateurs internes (INNER).
-            // On ne coupe une phrase indépendante (nouveau START/END) que lors d'un long silence (gap >= 1.20s)
-            // ou si la phrase cumulée dépasse 15 secondes.
-            java.util.List<java.util.List<SpeechWorkflowService.TranscriptionSegment>> phraseGroups = new ArrayList<>();
-            java.util.List<SpeechWorkflowService.TranscriptionSegment> currentGroup = new ArrayList<>();
-
-            for (SpeechWorkflowService.TranscriptionSegment seg : bandSegments) {
-                if (currentGroup.isEmpty()) {
-                    currentGroup.add(seg);
-                } else {
-                    SpeechWorkflowService.TranscriptionSegment prev = currentGroup.get(currentGroup.size() - 1);
-                    double gap = seg.getStartSeconds() - prev.getEndSeconds();
-                    double groupDur = prev.getEndSeconds() - currentGroup.get(0).getStartSeconds();
-
-                    if (gap >= MAX_SAME_SPEAKER_GAP_SEC || groupDur >= 15.0) {
-                        phraseGroups.add(currentGroup);
-                        currentGroup = new ArrayList<>();
-                    }
-                    currentGroup.add(seg);
-                }
-            }
-            if (!currentGroup.isEmpty()) {
-                phraseGroups.add(currentGroup);
-            }
-
             int lastCommittedEndX = 0;
 
-            // Insérer chaque groupe de phrases
-            for (int gi = 0; gi < phraseGroups.size(); gi++) {
-                java.util.List<SpeechWorkflowService.TranscriptionSegment> group = phraseGroups.get(gi);
-                if (group.isEmpty()) continue;
+            // Insérer chaque réplique comme une phrase rythmo autonome avec START, INNER et END
+            // Les silences et temps morts entre répliques restent fidèlement des zones vierges (blancs) sur la timeline
+            for (int i = 0; i < bandSegments.size(); i++) {
+                SpeechWorkflowService.TranscriptionSegment seg = bandSegments.get(i);
+                String txt = (seg.text != null) ? seg.text.trim() : "";
+                if (txt.isEmpty()) continue;
 
-                Role spkRole = speakerRolesMap.get(group.get(0).getSpeakerIndex());
+                Role spkRole = speakerRolesMap.get(seg.getSpeakerIndex());
 
-                // Calcul du début prévu du prochain groupe pour borner proprement la fin sans décalage
-                Integer nextGroupStartX = null;
-                if (gi + 1 < phraseGroups.size()) {
-                    java.util.List<SpeechWorkflowService.TranscriptionSegment> nextGrp = phraseGroups.get(gi + 1);
-                    if (!nextGrp.isEmpty()) {
-                        nextGroupStartX = timelinePanel.snapWorldXToTenth((int) Math.round(nextGrp.get(0).startSeconds * pps));
-                    }
+                double segStartSec = Math.round(seg.startSeconds * 100.0) / 100.0;
+                double segEndSec = Math.round(seg.endSeconds * 100.0) / 100.0;
+                if (segEndSec <= segStartSec) {
+                    segEndSec = segStartSec + 0.3;
                 }
 
-                if (group.size() == 1) {
-                    // Phrase unitaire classique : Début propre [START] et Fin propre [END]
-                    SpeechWorkflowService.TranscriptionSegment seg = group.get(0);
-                    String txt = (seg.text != null) ? seg.text.trim() : "";
-                    if (txt.isEmpty()) continue;
-
-                    double segStartSec = Math.round(seg.startSeconds * 100.0) / 100.0;
-                    double segEndSec = Math.round(seg.endSeconds * 100.0) / 100.0;
-                    if (segEndSec <= segStartSec) {
-                        segEndSec = segStartSec + 0.3;
-                    }
-
-                    // Le début de réplique est toujours calé sur son timecode réel (pas de dérive dans le futur)
-                    int segStartX = timelinePanel.snapWorldXToTenth((int) Math.round(segStartSec * pps));
-                    if (segStartX < lastCommittedEndX + 4) {
-                        segStartX = Math.max(segStartX, lastCommittedEndX + 4);
-                    }
-
-                    int segEndX = timelinePanel.snapWorldXToTenth((int) Math.round(segEndSec * pps));
-                    if (segEndX <= segStartX + minStep) {
-                        segEndX = segStartX + minStep;
-                    }
-                    if (nextGroupStartX != null && segEndX > nextGroupStartX - 4) {
-                        segEndX = Math.max(segStartX + minStep, nextGroupStartX - 4);
-                    }
-                    lastCommittedEndX = segEndX;
-
-                    TextItem item = new TextItem(txt, segStartX, band);
-                    item.role = spkRole;
-                    textManager.addTextItem(item);
-
-                    // Séparateur Début (vert ▶) et Fin (rouge ◀)
-                    textManager.addSeparator(band, segStartX, SeparatorMark.Type.START);
-                    if (seg.getSeparators() != null) {
-                        for (SpeechWorkflowService.RhythmicSeparator rsep : seg.getSeparators()) {
-                            int rsepX = timelinePanel.snapWorldXToTenth((int) Math.round(rsep.getTime() * pps));
-                            if (rsepX > segStartX + 4 && rsepX < segEndX - 4) {
-                                textManager.addSeparator(band, rsepX, SeparatorMark.Type.INNER, rsep.getSplitIndex());
-                            }
-                        }
-                    }
-                    textManager.addSeparator(band, segEndX, SeparatorMark.Type.END);
-                } else {
-                    // Multi-répliques du même locuteur : réunies en une seule phrase et séparées par des séparateurs internes (INNER)
-                    double groupStartSec = Math.round(group.get(0).startSeconds * 100.0) / 100.0;
-                    int groupStartX = timelinePanel.snapWorldXToTenth((int) Math.round(groupStartSec * pps));
-                    if (groupStartX < lastCommittedEndX + 4) {
-                        groupStartX = Math.max(groupStartX, lastCommittedEndX + 4);
-                    }
-
-                    StringBuilder fullText = new StringBuilder();
-
-                    class SepInfo {
-                        int x;
-                        int splitIndex;
-                        SepInfo(int x, int splitIndex) { this.x = x; this.splitIndex = splitIndex; }
-                    }
-                    java.util.List<SepInfo> inners = new ArrayList<>();
-
-                    int curSplit = 0;
-                    int lastEndX = groupStartX;
-
-                    for (int i = 0; i < group.size(); i++) {
-                        SpeechWorkflowService.TranscriptionSegment seg = group.get(i);
-                        String txt = (seg.text != null) ? seg.text.trim() : "";
-                        if (txt.isEmpty()) continue;
-
-                        double segStartSec = Math.round(seg.startSeconds * 100.0) / 100.0;
-                        double segEndSec = Math.round(seg.endSeconds * 100.0) / 100.0;
-                        if (segEndSec <= segStartSec) {
-                            segEndSec = segStartSec + 0.3;
-                        }
-
-                        int segStartX = timelinePanel.snapWorldXToTenth((int) Math.round(segStartSec * pps));
-                        int segEndX = timelinePanel.snapWorldXToTenth((int) Math.round(segEndSec * pps));
-                        if (segEndX - segStartX < minStep) {
-                            segEndX = segStartX + minStep;
-                        }
-
-                        int segTextStartOffset;
-                        if (i == 0) {
-                            segTextStartOffset = 0;
-                            fullText.append(txt);
-                            curSplit = fullText.length();
-                            lastEndX = Math.max(groupStartX + minStep, segEndX);
-                        } else {
-                            fullText.append(" ");
-                            curSplit = fullText.length();
-                            int sepX = Math.max(lastEndX, segStartX);
-                            inners.add(new SepInfo(sepX, curSplit));
-                            segTextStartOffset = curSplit;
-                            fullText.append(txt);
-                            curSplit = fullText.length();
-                            lastEndX = Math.max(sepX + minStep, segEndX);
-                        }
-
-                        if (seg.getSeparators() != null) {
-                            for (SpeechWorkflowService.RhythmicSeparator rsep : seg.getSeparators()) {
-                                int rsepX = timelinePanel.snapWorldXToTenth((int) Math.round(rsep.getTime() * pps));
-                                int rsplit = segTextStartOffset + rsep.getSplitIndex();
-                                if (rsepX > segStartX + 4 && rsepX < segEndX - 4 && rsplit < fullText.length()) {
-                                    inners.add(new SepInfo(rsepX, rsplit));
-                                }
-                            }
-                        }
-                    }
-
-                    if (fullText.length() == 0) continue;
-
-                    inners.sort(Comparator.comparingInt((SepInfo s) -> s.x).thenComparingInt(s -> s.splitIndex));
-
-                    int curX = groupStartX;
-                    int lastSplit = 0;
-                    for (SepInfo sep : inners) {
-                        sep.x = Math.max(curX + minStep, sep.x);
-                        curX = sep.x;
-                        if (sep.splitIndex < lastSplit) {
-                            sep.splitIndex = lastSplit;
-                        }
-                        lastSplit = sep.splitIndex;
-                    }
-                    int finalEndX = Math.max(curX + minStep, lastEndX);
-                    if (nextGroupStartX != null && finalEndX > nextGroupStartX - 4) {
-                        finalEndX = Math.max(curX + minStep, nextGroupStartX - 4);
-                    }
-                    lastCommittedEndX = finalEndX;
-
-                    TextItem item = new TextItem(fullText.toString(), groupStartX, band);
-                    item.role = spkRole;
-                    textManager.addTextItem(item);
-
-                    textManager.addSeparator(band, groupStartX, SeparatorMark.Type.START);
-                    for (SepInfo sep : inners) {
-                        textManager.addSeparator(band, sep.x, SeparatorMark.Type.INNER, sep.splitIndex);
-                    }
-                    textManager.addSeparator(band, finalEndX, SeparatorMark.Type.END);
+                int segStartX = timelinePanel.snapWorldXToTenth(segStartSec * pps);
+                if (segStartX < lastCommittedEndX) {
+                    segStartX = lastCommittedEndX;
                 }
+
+                int segEndX = timelinePanel.snapWorldXToTenth(segEndSec * pps);
+                if (segEndX <= segStartX) {
+                    segEndX = timelinePanel.snapWorldXToTenth(segStartX + pps * 0.1);
+                    if (segEndX <= segStartX) segEndX = segStartX + 1;
+                }
+
+                // Si un prochain segment existe sur la même bande, borner la fin pour ne pas chevaucher
+                if (i + 1 < bandSegments.size()) {
+                    int nextStartX = timelinePanel.snapWorldXToTenth(bandSegments.get(i + 1).startSeconds * pps);
+                    if (segEndX > nextStartX) {
+                        segEndX = nextStartX;
+                        if (segEndX <= segStartX) {
+                            segEndX = timelinePanel.snapWorldXToTenth(segStartX + pps * 0.1);
+                        }
+                    }
+                }
+                lastCommittedEndX = segEndX;
+
+                TextItem item = new TextItem(txt, segStartX, band);
+                item.role = spkRole;
+                textManager.addTextItem(item);
+
+                // Séparateur Début (vert ▶) et Fin (rouge ◀)
+                textManager.addSeparator(band, segStartX, SeparatorMark.Type.START);
+                if (seg.getSeparators() != null) {
+                    for (SpeechWorkflowService.RhythmicSeparator rsep : seg.getSeparators()) {
+                        int rsepX = timelinePanel.snapWorldXToTenth(rsep.getTime() * pps);
+                        if (rsepX > segStartX && rsepX < segEndX) {
+                            textManager.addSeparator(band, rsepX, SeparatorMark.Type.INNER, rsep.getSplitIndex());
+                        }
+                    }
+                }
+                textManager.addSeparator(band, segEndX, SeparatorMark.Type.END);
             }
         }
 

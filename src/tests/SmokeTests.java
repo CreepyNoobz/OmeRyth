@@ -756,68 +756,47 @@ public class SmokeTests {
                 assertTrue(shDuration < 500, "Le rendu sur timeline de 7h doit être instantané (< 500ms)");
                 System.out.println("Test de fluidité et non-disparition sur timeline 7 HEURES : VALIDÉ !");
 
-                // Test d'importation de transcription : même locuteur enchaîné (INNER) vs temps mort long (>= 1.20s)
+                // Test d'importation de transcription : répliques autonomes avec START et END, et préservation des pauses (blancs)
                 java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> testSegments = new ArrayList<>();
                 testSegments.add(new app.services.SpeechWorkflowService.TranscriptionSegment(1, "SPEAKER_00", 1.0, 2.0, "T'as oublié que"));
-                testSegments.add(new app.services.SpeechWorkflowService.TranscriptionSegment(2, "SPEAKER_00", 2.3, 3.5, "je suis ta mère !")); // 0.3s d'intervalle -> même locuteur, séparateur INNER
-                testSegments.add(new app.services.SpeechWorkflowService.TranscriptionSegment(3, "SPEAKER_00", 5.0, 6.0, "Et tu recommences.")); // 1.5s de silence -> nouvelle phrase (START/END)
+                testSegments.add(new app.services.SpeechWorkflowService.TranscriptionSegment(2, "SPEAKER_00", 2.3, 3.5, "je suis ta mère !")); // 0.3s de pause
+                testSegments.add(new app.services.SpeechWorkflowService.TranscriptionSegment(3, "SPEAKER_00", 5.0, 6.0, "Et tu recommences.")); // 1.5s de silence
 
-                // Simuler la logique d'importation de MainFenetre
                 TimelinePanel importTimeline = new TimelinePanel();
                 importTimeline.setSize(1200, 300);
                 app.ui.TextManager itTM = importTimeline.getTextManager();
                 double itPps = importTimeline.getPixelsPerSecond();
-                final double TEST_MAX_SAME_SPEAKER_GAP = 1.20;
+                int minStep = Math.max(10, (int) Math.round(itPps * 0.1));
 
-                java.util.List<java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment>> testGroups = new ArrayList<>();
-                java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> curGrp = new ArrayList<>();
-                for (app.services.SpeechWorkflowService.TranscriptionSegment seg : testSegments) {
-                    if (curGrp.isEmpty()) {
-                        curGrp.add(seg);
-                    } else {
-                        double gap = seg.getStartSeconds() - curGrp.get(curGrp.size() - 1).getEndSeconds();
-                        if (gap >= TEST_MAX_SAME_SPEAKER_GAP) {
-                            testGroups.add(curGrp);
-                            curGrp = new ArrayList<>();
-                        }
-                        curGrp.add(seg);
-                    }
+                // Insérer chaque segment comme phrase autonome avec START et END
+                int lastEndX = 0;
+                for (int si = 0; si < testSegments.size(); si++) {
+                    app.services.SpeechWorkflowService.TranscriptionSegment s = testSegments.get(si);
+                    int sX = importTimeline.snapWorldXToTenth((int) Math.round(s.startSeconds * itPps));
+                    if (sX < lastEndX + 4) sX = lastEndX + 4;
+                    int eX = importTimeline.snapWorldXToTenth((int) Math.round(s.endSeconds * itPps));
+                    if (eX <= sX + minStep) eX = sX + minStep;
+                    lastEndX = eX;
+
+                    itTM.addTextItem(new app.ui.TextItem(s.text, sX, 0));
+                    itTM.addSeparator(0, sX, SeparatorMark.Type.START);
+                    itTM.addSeparator(0, eX, SeparatorMark.Type.END);
                 }
-                if (!curGrp.isEmpty()) testGroups.add(curGrp);
 
-                assertTrue(testGroups.size() == 2, "Les segments 1 et 2 doivent être groupés ensemble, et le segment 3 après long silence (1.5s) doit former un 2e groupe (trouvé " + testGroups.size() + ")");
-                assertTrue(testGroups.get(0).size() == 2, "Le 1er groupe doit contenir les 2 répliques enchaînées");
-                assertTrue(testGroups.get(1).size() == 1, "Le 2e groupe doit contenir la réplique après long silence");
-
-                // Groupe 1 (2 répliques enchaînées avec INNER)
-                java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> grp1 = testGroups.get(0);
-                String fullTxt = grp1.get(0).text + " " + grp1.get(1).text;
-                int grp1StartX = importTimeline.snapWorldXToTenth((int) Math.round(grp1.get(0).startSeconds * itPps));
-                int grp1InnerX = importTimeline.snapWorldXToTenth((int) Math.round(grp1.get(1).startSeconds * itPps));
-                int grp1EndX = importTimeline.snapWorldXToTenth((int) Math.round(grp1.get(1).endSeconds * itPps));
-                itTM.addTextItem(new app.ui.TextItem(fullTxt, grp1StartX, 0));
-                itTM.addSeparator(0, grp1StartX, SeparatorMark.Type.START);
-                itTM.addSeparator(0, grp1InnerX, SeparatorMark.Type.INNER, grp1.get(0).text.length() + 1);
-                itTM.addSeparator(0, grp1EndX, SeparatorMark.Type.END);
-
-                // Groupe 2 (après long silence >= 1.20s)
-                java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> grp2 = testGroups.get(1);
-                int grp2StartX = importTimeline.snapWorldXToTenth((int) Math.round(grp2.get(0).startSeconds * itPps));
-                int grp2EndX = importTimeline.snapWorldXToTenth((int) Math.round(grp2.get(0).endSeconds * itPps));
-                itTM.addTextItem(new app.ui.TextItem(grp2.get(0).text, grp2StartX, 0));
-                itTM.addSeparator(0, grp2StartX, SeparatorMark.Type.START);
-                itTM.addSeparator(0, grp2EndX, SeparatorMark.Type.END);
-
-                assertTrue(itTM.getTexts().size() == 2, "La timeline doit contenir 2 TextItem distincts (1 pour les répliques enchaînées avec INNER, 1 après long silence)");
+                assertTrue(itTM.getTexts().size() == 3, "La timeline doit contenir 3 TextItem distincts (1 par réplique)");
                 ArrayList<SeparatorMark> sepsBand0 = itTM.getBandSeparators().get(0);
-                assertTrue(sepsBand0 != null && sepsBand0.size() == 5, "La timeline doit contenir 5 séparateurs (START, INNER, END, START, END)");
+                assertTrue(sepsBand0 != null && sepsBand0.size() == 6, "La timeline doit contenir 6 séparateurs (3 paires START / END)");
                 assertTrue(sepsBand0.get(0).type == SeparatorMark.Type.START, "Séparateur 1 doit être START");
-                assertTrue(sepsBand0.get(1).type == SeparatorMark.Type.INNER, "Séparateur 2 doit être INNER pour séparer les 2 répliques du même locuteur");
-                assertTrue(sepsBand0.get(2).type == SeparatorMark.Type.END, "Séparateur 3 doit être END");
-                assertTrue(sepsBand0.get(3).type == SeparatorMark.Type.START, "Séparateur 4 doit être START après long silence");
-                assertTrue(sepsBand0.get(4).type == SeparatorMark.Type.END, "Séparateur 5 doit être END");
-                assertTrue(sepsBand0.get(3).x > sepsBand0.get(2).x, "Il doit y avoir un espace vide entre le END de la phrase 1 et le START de la phrase 2");
-                System.out.println("Test de regroupement des répliques même locuteur (séparateur INNER) et découpe sur long silence : VALIDÉ !");
+                assertTrue(sepsBand0.get(1).type == SeparatorMark.Type.END, "Séparateur 2 doit être END (fermeture de la 1ère phrase)");
+                assertTrue(sepsBand0.get(2).type == SeparatorMark.Type.START, "Séparateur 3 doit être START (début de la 2e phrase)");
+                assertTrue(sepsBand0.get(3).type == SeparatorMark.Type.END, "Séparateur 4 doit être END (fermeture de la 2e phrase)");
+                assertTrue(sepsBand0.get(4).type == SeparatorMark.Type.START, "Séparateur 5 doit être START (début de la 3e phrase)");
+                assertTrue(sepsBand0.get(5).type == SeparatorMark.Type.END, "Séparateur 6 doit être END (fermeture de la 3e phrase)");
+
+                // Vérifier la présence des blancs (pauses) entre phrases
+                assertTrue(sepsBand0.get(2).x > sepsBand0.get(1).x, "Il doit y avoir un blanc entre la phrase 1 et la phrase 2 (pause de 0.3s)");
+                assertTrue(sepsBand0.get(4).x > sepsBand0.get(3).x, "Il doit y avoir un blanc entre la phrase 2 et la phrase 3 (silence de 1.5s)");
+                System.out.println("Test répliques autonomes et préservation des blancs (pauses) : VALIDÉ !");
 
                 // Test Rhythmic Separators & Prolonged Word Stretching (ex: "je suis" 1.3s / "ce petit quiproquo" 0.7s)
                 System.out.println("--- Test Séparateurs Rythmiques & Stretching des Mots Rallongés ---");
@@ -1201,6 +1180,16 @@ public class SmokeTests {
             assertTrue(!frSpell.isEmpty(), "Une faute d'orthographe doit être détectée pour 'orthograaphe'");
             assertTrue(frSpell.get(0).suggestions.contains("orthographe"), "La suggestion doit proposer 'orthographe'");
 
+            // Test spécifique suggestion guarde -> garde
+            java.util.List<app.services.SpellGrammarService.SpellCheckIssue> frGuarde = checker.checkText("Le guarde du palais");
+            assertTrue(!frGuarde.isEmpty(), "Une faute doit être détectée pour 'guarde'");
+            app.services.SpellGrammarService.SpellCheckIssue guardeIssue = frGuarde.stream()
+                .filter(i -> "guarde".equalsIgnoreCase(i.originalText))
+                .findFirst().orElse(null);
+            assertTrue(guardeIssue != null, "L'anomalie 'guarde' doit être trouvée");
+            assertTrue(!guardeIssue.suggestions.isEmpty() && "garde".equalsIgnoreCase(guardeIssue.suggestions.get(0)),
+                "La première suggestion pour 'guarde' doit être 'garde' (reçu: " + guardeIssue.suggestions + ")");
+
             // Test grammaire français (accord pluriel)
             java.util.List<app.services.SpellGrammarService.SpellCheckIssue> frGrammar1 = checker.checkText("Voici les faute dans le texte");
             assertTrue(!frGrammar1.isEmpty() && frGrammar1.get(0).isGrammar, "Une faute d'accord doit être détectée pour 'les faute'");
@@ -1231,6 +1220,14 @@ public class SmokeTests {
             assertTrue(tehIssue != null, "Une faute d'orthographe doit être détectée pour 'teh'");
             assertTrue(tehIssue.suggestions.contains("the"), "La suggestion doit proposer 'the'");
 
+            // Test spécifique : les mots valides (gestions, pas, créer, problèmes, compétition) ne doivent pas être signalés comme fautes
+            checker.setLanguage("fr");
+            java.util.List<app.services.SpellGrammarService.SpellCheckIssue> validIssues = checker.checkText("gestions");
+            assertTrue(validIssues.isEmpty(), "Le mot 'gestions' est valide et ne doit PAS être signalé comme faute");
+
+            java.util.List<app.services.SpellGrammarService.SpellCheckIssue> validPhrase = checker.checkText("On va pas se créer des problèmes pour une compétition");
+            assertTrue(validPhrase.isEmpty(), "La phrase contenant 'pas', 'créer', 'problèmes', 'compétition' ne doit comporter aucune erreur");
+
             // Test respect de la visibilité des signes sur la timeline
             timeline.setSeparatorsVisible(false);
             assertTrue(!timeline.isSeparatorsVisible(), "Les signes doivent être masqués");
@@ -1238,6 +1235,110 @@ public class SmokeTests {
             assertTrue(timeline.isSeparatorsVisible(), "Les signes doivent être réactivés");
 
             System.out.println("Vérification orthographe & grammaire FR / EN : VALIDÉ !");
+        }
+
+        // Test vérification des icônes Start.png (Vert) et End.png (Rouge)
+        {
+            File startFile = new File("src/images/Start.png");
+            File endFile = new File("src/images/End.png");
+            assertTrue(startFile.exists() && startFile.length() > 0, "src/images/Start.png doit exister et être non vide");
+            assertTrue(endFile.exists() && endFile.length() > 0, "src/images/End.png doit exister et être non vide");
+
+            // Test rendu d'une phrase vide avec rôle (la bulle de rôle doit s'afficher immédiatement)
+            TimelinePanel emptyPhraseTimeline = new TimelinePanel();
+            emptyPhraseTimeline.setSize(800, 240);
+            Role actorRole = new Role("Héros", new Color(0, 150, 255));
+            emptyPhraseTimeline.startPhrase(0, actorRole);
+            assertTrue(emptyPhraseTimeline.getTextManager().getTexts().size() == 1, "Un TextItem doit être créé dès startPhrase");
+            assertTrue(emptyPhraseTimeline.getTextManager().getTexts().get(0).role == actorRole, "Le rôle doit être assigné");
+            assertTrue(emptyPhraseTimeline.getTextManager().getTexts().get(0).text.isEmpty(), "Le texte initial est vide");
+            BufferedImage emptyFrame = emptyPhraseTimeline.renderFrame(800, 240, 0.0);
+            assertTrue(emptyFrame != null, "Le rendu avec phrase vide et rôle doit réussir sans exception");
+
+            // Test SimplifiedMenuBarPanel bilingue et sans émojis
+            app.ui.SimplifiedMenuBarPanel menu = new app.ui.SimplifiedMenuBarPanel(null, emptyPhraseTimeline);
+            menu.updateLanguage("fr");
+            assertTrue(menu.getMenu(0).getText().equals("Fichier"), "Le menu 0 en FR doit être 'Fichier'");
+            assertTrue(menu.getMenu(1).getText().equals("Édition"), "Le menu 1 en FR doit être 'Édition'");
+
+            menu.updateLanguage("en");
+            assertTrue(menu.getMenu(0).getText().equals("Folder"), "Le menu 0 en EN doit être 'Folder'");
+            assertTrue(menu.getMenu(1).getText().equals("Edit"), "Le menu 1 en EN doit être 'Edit'");
+            assertTrue(menu.getMenu(2).getText().equals("View"), "Le menu 2 en EN doit être 'View'");
+            assertTrue(menu.getMenu(3).getText().equals("Tools"), "Le menu 3 en EN doit être 'Tools'");
+            assertTrue(menu.getMenu(4).getText().equals("Settings"), "Le menu 4 en EN doit être 'Settings'");
+            assertTrue(menu.getMenu(5).getText().equals("Help"), "Le menu 5 en EN doit être 'Help'");
+
+            System.out.println("Vérification Start/End PNG, Rôle immédiat & Menus bilingues : VALIDÉ !");
+        }
+
+        // Test vérification du Logo OmeRyth PNG et multi-résolution
+        {
+            File logoFile = new File("src/images/logo.png");
+            assertTrue(logoFile.exists() && logoFile.length() > 0, "src/images/logo.png doit exister");
+            BufferedImage logoImg = javax.imageio.ImageIO.read(logoFile);
+            assertTrue(logoImg != null, "src/images/logo.png doit être une image PNG valide et lisible");
+            assertTrue(logoImg.getWidth() >= 64 && logoImg.getHeight() >= 64, "src/images/logo.png doit avoir une résolution adéquate");
+            System.out.println("Vérification Logo PNG valide : VALIDÉ ! (dimensions: " + logoImg.getWidth() + "x" + logoImg.getHeight() + ")");
+        }
+
+        // Test sélection de texte dans TextManager (Double-clic, Ctrl+A, drag, remplacement, suppression)
+        {
+            app.ui.TextManager tm = new app.ui.TextManager();
+            app.ui.TextItem item = new app.ui.TextItem("Bonjour OmeRyth", 100, 0);
+            tm.getTexts().add(item);
+            tm.startEditingExistingText(item, 0);
+
+            // 1. selectAll
+            assertTrue(!tm.hasSelection(), "Par défaut pas de sélection au démarrage");
+            tm.selectAll();
+            assertTrue(tm.hasSelection(), "selectAll doit activer la sélection");
+            assertTrue(tm.getSelectionStart() == 0, "selectionStart doit être 0");
+            assertTrue(tm.getSelectionEnd() == "Bonjour OmeRyth".length(), "selectionEnd doit être la longueur du texte");
+            assertTrue("Bonjour OmeRyth".equals(tm.getSelectedText()), "Le texte sélectionné doit être 'Bonjour OmeRyth'");
+
+            // 2. Frappe d'un caractère remplace toute la sélection
+            tm.typeChar('S');
+            assertTrue(!tm.hasSelection(), "La frappe d'un caractère doit vider la sélection");
+            assertTrue("S".equals(tm.getTexts().get(0).text), "Le texte doit être remplacé par 'S'");
+
+            // 3. Réinsérer du texte et tester la sélection partielle
+            tm.getTexts().get(0).text = "Hello World";
+            tm.setSelection(6, 11); // "World"
+            assertTrue(tm.hasSelection(), "setSelection(6, 11) doit être active");
+            assertTrue("World".equals(tm.getSelectedText()), "Le texte sélectionné doit être 'World'");
+
+            // 4. deleteSelection
+            tm.deleteSelection();
+            assertTrue(!tm.hasSelection(), "deleteSelection doit effacer la sélection");
+            assertTrue("Hello ".equals(tm.getTexts().get(0).text), "Le texte restant doit être 'Hello '");
+
+            // 5. deleteForward
+            tm.setCursorIndex(0);
+            tm.deleteForward();
+            assertTrue("ello ".equals(tm.getTexts().get(0).text), "deleteForward à l'index 0 doit supprimer 'H'");
+
+            // 6. deleteForward avec sélection
+            tm.setSelection(1, 3); // "ll"
+            tm.deleteForward();
+            assertTrue("eo ".equals(tm.getTexts().get(0).text), "deleteForward avec sélection doit supprimer 'll'");
+
+            System.out.println("Vérification Sélection TextManager (selectAll, deleteSelection, deleteForward, typeChar) : VALIDÉ !");
+        }
+
+        // Test CustomizationWindow keyboardLayout & persist
+        {
+            app.ui.AppCustomization custLayout = new app.ui.AppCustomization();
+            custLayout.keyboardLayout = "qwerty";
+            app.utils.FileUtils.saveCustomization(custLayout);
+
+            app.ui.AppCustomization reloaded = app.utils.FileUtils.loadCustomization();
+            assertTrue("qwerty".equals(reloaded.keyboardLayout), "keyboardLayout persisté doit être qwerty");
+
+            // Nettoyage vers auto
+            custLayout.keyboardLayout = "auto";
+            app.utils.FileUtils.saveCustomization(custLayout);
+            System.out.println("Vérification persistance keyboardLayout : VALIDÉ !");
         }
 
         System.out.println("SmokeTests OK");

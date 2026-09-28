@@ -42,4 +42,5 @@ public class AppCustomization {
     
     public String defaultProjectFormat = "rythmo"; // "rythmo" or "detx"
     public String appLanguage = "fr"; // "fr" (Français) ou "en" (English)
+    public String keyboardLayout = "auto"; // "auto", "azerty", "qwerty"
 }

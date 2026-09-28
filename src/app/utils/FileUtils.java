@@ -127,6 +127,7 @@ public class FileUtils {
         c.waveformColor = parseColor(props.getProperty("waveformColor"), c.waveformColor);
         c.defaultProjectFormat = props.getProperty("defaultProjectFormat", c.defaultProjectFormat);
         c.appLanguage = props.getProperty("appLanguage", c.appLanguage);
+        c.keyboardLayout = props.getProperty("keyboardLayout", c.keyboardLayout);
         return c;
     }
 
@@ -163,6 +164,7 @@ public class FileUtils {
         props.setProperty("waveformColor", Integer.toString(c.waveformColor.getRGB()));
         props.setProperty("defaultProjectFormat", safe(c.defaultProjectFormat));
         props.setProperty("appLanguage", safe(c.appLanguage));
+        props.setProperty("keyboardLayout", safe(c.keyboardLayout));
 
         try (FileOutputStream fos = new FileOutputStream(CUSTOMIZATION_FILE)) {
             props.store(fos, "App customization");

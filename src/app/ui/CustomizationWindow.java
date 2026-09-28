@@ -17,7 +17,7 @@ public class CustomizationWindow extends JDialog {
 
     private JSpinner bandCount, bandHeight, cursorX, timerWidth, timerFontSize;
     private JCheckBox autoResizeTimerFont, showWaveform;
-    private JComboBox<String> defaultProjectFormat, appLanguage;
+    private JComboBox<String> defaultProjectFormat, appLanguage, keyboardLayout;
     private ColorPreviewButton timerBgBtn, timerTextBtn, historyBgBtn, mediaBgBtn, evenBandBtn, oddBandBtn;
     private ColorPreviewButton selectedBandBtn, gridBtn, cursorBtn, sepBtn, waveformColorBtn;
     private JTextField timerImagePath, historyImagePath, mediaImagePath, globalBandImagePath;
@@ -27,10 +27,11 @@ public class CustomizationWindow extends JDialog {
     private JPanel advancedPanel;
 
     public CustomizationWindow(JFrame parent, AppCustomization customization, ApplyHandler handler) {
-        super(parent, "Paramètres", true);
+        super(parent, "en".equalsIgnoreCase(customization.appLanguage) ? "Settings" : "Paramètres", true);
         this.customization = customization;
+        boolean isEn = "en".equalsIgnoreCase(customization.appLanguage);
 
-        setSize(800, 750);
+        setSize(800, 780);
         setMinimumSize(new Dimension(800, 750));
         setLocationRelativeTo(parent);
         setLayout(new BorderLayout());
@@ -40,7 +41,7 @@ public class CustomizationWindow extends JDialog {
         JPanel headerPanel = new JPanel(new BorderLayout());
         headerPanel.setBackground(new Color(30, 30, 30));
         headerPanel.setBorder(new EmptyBorder(15, 20, 15, 20));
-        JLabel headerLabel = new JLabel("Paramètres OmeRyth");
+        JLabel headerLabel = new JLabel(isEn ? "OmeRyth Settings" : "Paramètres OmeRyth");
         headerLabel.setFont(new Font("Segoe UI", Font.BOLD, 22));
         headerLabel.setForeground(Color.WHITE);
         headerPanel.add(headerLabel, BorderLayout.WEST);
@@ -64,28 +65,29 @@ public class CustomizationWindow extends JDialog {
         c.weightx = 1;
 
         int row = 0;
-        addRow(basicPanel, c, row++, "Langue de l'application & correction :", appLanguage);
-        addRow(basicPanel, c, row++, "Format de projet par défaut:", defaultProjectFormat);
-        addRow(basicPanel, c, row++, "Nombre de bandes (Lignes):", bandCount);
-        addRow(basicPanel, c, row++, "Hauteur de chaque bande (px):", bandHeight);
-        addRow(basicPanel, c, row++, "Position du curseur temporel (px):", cursorX);
-        addRow(basicPanel, c, row++, "Largeur de la zone du timer (px):", timerWidth);
+        addRow(basicPanel, c, row++, isEn ? "Application language & spell check:" : "Langue de l'application & correction :", appLanguage);
+        addRow(basicPanel, c, row++, isEn ? "Default project format:" : "Format de projet par défaut:", defaultProjectFormat);
+        addRow(basicPanel, c, row++, isEn ? "Keyboard layout:" : "Disposition du clavier :", keyboardLayout);
+        addRow(basicPanel, c, row++, isEn ? "Number of bands (Lines):" : "Nombre de bandes (Lignes):", bandCount);
+        addRow(basicPanel, c, row++, isEn ? "Height of each band (px):" : "Hauteur de chaque bande (px):", bandHeight);
+        addRow(basicPanel, c, row++, isEn ? "Time cursor position (px):" : "Position du curseur temporel (px):", cursorX);
+        addRow(basicPanel, c, row++, isEn ? "Timer panel width (px):" : "Largeur de la zone du timer (px):", timerWidth);
         
         c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.weightx = 1;
         basicPanel.add(autoResizeTimerFont, c);
         row++;
         
         c.gridwidth = 1; c.weightx = 0;
-        addRow(basicPanel, c, row++, "Taille de police du timer (manuel):", timerFontSize);
+        addRow(basicPanel, c, row++, isEn ? "Timer font size (manual):" : "Taille de police du timer (manuel):", timerFontSize);
 
         c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.weightx = 1;
         basicPanel.add(showWaveform, c);
         row++;
 
-        mainContent.add(createSection("Réglages Généraux", basicPanel));
+        mainContent.add(createSection(isEn ? "General Settings" : "Réglages Généraux", basicPanel));
         mainContent.add(Box.createVerticalStrut(15));
 
-        JCheckBox advancedToggle = new JCheckBox(" Paramètres avancés (Couleurs, Images, Police)");
+        JCheckBox advancedToggle = new JCheckBox(isEn ? " Advanced settings (Colors, Images, Font)" : " Paramètres avancés (Couleurs, Images, Police)");
         advancedToggle.setFont(new Font("Segoe UI", Font.BOLD, 14));
         advancedToggle.setOpaque(false);
         advancedToggle.setCursor(new Cursor(Cursor.HAND_CURSOR));
@@ -103,19 +105,19 @@ public class CustomizationWindow extends JDialog {
         // -- Sous-section : Couleurs
         JPanel colorsPanel = new JPanel(new GridLayout(0, 2, 15, 15));
         colorsPanel.setOpaque(false);
-        colorsPanel.add(createColorRow("Fond zone timer:", timerBgBtn));
-        colorsPanel.add(createColorRow("Texte zone timer:", timerTextBtn));
-        colorsPanel.add(createColorRow("Fond historique:", historyBgBtn));
-        colorsPanel.add(createColorRow("Fond zone média:", mediaBgBtn));
-        colorsPanel.add(createColorRow("Bande paire:", evenBandBtn));
-        colorsPanel.add(createColorRow("Bande impaire:", oddBandBtn));
-        colorsPanel.add(createColorRow("Bande sélectionnée:", selectedBandBtn));
-        colorsPanel.add(createColorRow("Grille temporel:", gridBtn));
-        colorsPanel.add(createColorRow("Curseur temporel:", cursorBtn));
-        colorsPanel.add(createColorRow("Séparateurs:", sepBtn));
-        colorsPanel.add(createColorRow("Forme d'onde vocale:", waveformColorBtn));
+        colorsPanel.add(createColorRow(isEn ? "Timer background:" : "Fond zone timer:", timerBgBtn));
+        colorsPanel.add(createColorRow(isEn ? "Timer text:" : "Texte zone timer:", timerTextBtn));
+        colorsPanel.add(createColorRow(isEn ? "History background:" : "Fond historique:", historyBgBtn));
+        colorsPanel.add(createColorRow(isEn ? "Media background:" : "Fond zone média:", mediaBgBtn));
+        colorsPanel.add(createColorRow(isEn ? "Even band:" : "Bande paire:", evenBandBtn));
+        colorsPanel.add(createColorRow(isEn ? "Odd band:" : "Bande impaire:", oddBandBtn));
+        colorsPanel.add(createColorRow(isEn ? "Selected band:" : "Bande sélectionnée:", selectedBandBtn));
+        colorsPanel.add(createColorRow(isEn ? "Timeline grid:" : "Grille temporel:", gridBtn));
+        colorsPanel.add(createColorRow(isEn ? "Time cursor:" : "Curseur temporel:", cursorBtn));
+        colorsPanel.add(createColorRow(isEn ? "Separators:" : "Séparateurs:", sepBtn));
+        colorsPanel.add(createColorRow(isEn ? "Voice waveform:" : "Forme d'onde vocale:", waveformColorBtn));
 
-        advancedPanel.add(createSection("Couleurs", colorsPanel));
+        advancedPanel.add(createSection(isEn ? "Colors" : "Couleurs", colorsPanel));
         advancedPanel.add(Box.createVerticalStrut(15));
 
         // -- Sous-section : Images et Police
@@ -127,19 +129,19 @@ public class CustomizationWindow extends JDialog {
         c.weightx = 1;
         row = 0;
         
-        addRow(imagesPanel, c, row++, "Police texte timeline:", timelineFontFamily);
-        addPathRow(imagesPanel, c, row++, "Image fond timer:", timerImagePath, createBrowseBtn("timer", timerImagePath));
-        addPathRow(imagesPanel, c, row++, "Image fond historique:", historyImagePath, createBrowseBtn("historique", historyImagePath));
-        addPathRow(imagesPanel, c, row++, "Image fond média:", mediaImagePath, createBrowseBtn("media", mediaImagePath));
-        addRow(imagesPanel, c, row++, "Mode image bandes:", bandBgMode);
-        addPathRow(imagesPanel, c, row++, "Image bandes (Unique):", globalBandImagePath, createBrowseBtn("bandes", globalBandImagePath));
+        addRow(imagesPanel, c, row++, isEn ? "Timeline text font:" : "Police texte timeline:", timelineFontFamily);
+        addPathRow(imagesPanel, c, row++, isEn ? "Timer background image:" : "Image fond timer:", timerImagePath, createBrowseBtn(isEn ? "timer" : "timer", timerImagePath));
+        addPathRow(imagesPanel, c, row++, isEn ? "History background image:" : "Image fond historique:", historyImagePath, createBrowseBtn(isEn ? "history" : "historique", historyImagePath));
+        addPathRow(imagesPanel, c, row++, isEn ? "Media background image:" : "Image fond média:", mediaImagePath, createBrowseBtn(isEn ? "media" : "media", mediaImagePath));
+        addRow(imagesPanel, c, row++, isEn ? "Band image mode:" : "Mode image bandes:", bandBgMode);
+        addPathRow(imagesPanel, c, row++, isEn ? "Band image (Single):" : "Image bandes (Unique):", globalBandImagePath, createBrowseBtn(isEn ? "bands" : "bandes", globalBandImagePath));
         
         c.gridx = 0; c.gridy = row; c.weightx = 0;
-        imagesPanel.add(new JLabel("Images séparées (bande0;bande1):"), c);
+        imagesPanel.add(new JLabel(isEn ? "Separate images (band0;band1):" : "Images séparées (bande0;bande1):"), c);
         c.gridx = 1; c.weightx = 1;
         imagesPanel.add(new JScrollPane(perBandImages), c);
 
-        advancedPanel.add(createSection("Images de fond & Polices", imagesPanel));
+        advancedPanel.add(createSection(isEn ? "Background Images & Fonts" : "Images de fond & Polices", imagesPanel));
         
         mainContent.add(advancedPanel);
 
@@ -160,14 +162,14 @@ public class CustomizationWindow extends JDialog {
         actions.setBackground(Color.WHITE);
         actions.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(220, 220, 220)));
 
-        JButton reset = new JButton("Rétablir par défaut");
-        JButton apply = new JButton("✔ Appliquer");
+        JButton reset = new JButton(isEn ? "Restore defaults" : "Rétablir par défaut");
+        JButton apply = new JButton(isEn ? "Apply" : "Appliquer");
         apply.setFont(new Font("Segoe UI", Font.BOLD, 12));
         apply.setBackground(new Color(0, 120, 215));
         apply.setForeground(Color.BLACK);
         apply.setFocusPainted(false);
         
-        JButton close = new JButton("Annuler");
+        JButton close = new JButton(isEn ? "Cancel" : "Annuler");
 
         actions.add(reset);
         actions.add(close);
@@ -186,21 +188,27 @@ public class CustomizationWindow extends JDialog {
         cursorX = new JSpinner(new SpinnerNumberModel(customization.timelineCursorX, 20, 600, 5));
         timerWidth = new JSpinner(new SpinnerNumberModel(customization.timerPanelWidth, 100, 500, 10));
         timerFontSize = new JSpinner(new SpinnerNumberModel(customization.timerFontSize, 10, 200, 2));
-        autoResizeTimerFont = new JCheckBox("Définir manuellement la taille de la police du timer");
+        boolean isEn = "en".equalsIgnoreCase(customization.appLanguage);
+        autoResizeTimerFont = new JCheckBox(isEn ? "Manually set timer font size" : "Définir manuellement la taille de la police du timer");
         autoResizeTimerFont.setSelected(!customization.autoResizeTimerFont);
         
         timerFontSize.setEnabled(autoResizeTimerFont.isSelected());
         autoResizeTimerFont.addActionListener(e -> timerFontSize.setEnabled(autoResizeTimerFont.isSelected()));
 
-        showWaveform = new JCheckBox("Afficher la forme d'onde audio (vocale)");
+        showWaveform = new JCheckBox(isEn ? "Show audio waveform (vocal)" : "Afficher la forme d'onde audio (vocale)");
         showWaveform.setSelected(customization.showWaveform);
 
         appLanguage = new JComboBox<>(new String[]{"Français", "English"});
-        if ("en".equalsIgnoreCase(customization.appLanguage)) {
+        if (isEn) {
             appLanguage.setSelectedIndex(1);
         } else {
             appLanguage.setSelectedIndex(0);
         }
+
+        keyboardLayout = new JComboBox<>(isEn ? new String[]{"Auto-detect", "AZERTY", "QWERTY"} : new String[]{"Automatique", "AZERTY", "QWERTY"});
+        if ("azerty".equalsIgnoreCase(customization.keyboardLayout)) keyboardLayout.setSelectedIndex(1);
+        else if ("qwerty".equalsIgnoreCase(customization.keyboardLayout)) keyboardLayout.setSelectedIndex(2);
+        else keyboardLayout.setSelectedIndex(0);
 
         defaultProjectFormat = new JComboBox<>(new String[]{"rythmo (OmeRyth)", "detx (Cappella)"});
         if ("detx".equalsIgnoreCase(customization.defaultProjectFormat)) {
@@ -226,7 +234,7 @@ public class CustomizationWindow extends JDialog {
         mediaImagePath = new JTextField(customization.mediaImagePath);
         globalBandImagePath = new JTextField(customization.globalBandImagePath);
 
-        bandBgMode = new JComboBox<>(new String[]{"Couleur", "Image unique", "Images par bande"});
+        bandBgMode = new JComboBox<>(isEn ? new String[]{"Color", "Single image", "Images per band"} : new String[]{"Couleur", "Image unique", "Images par bande"});
         if (AppCustomization.BAND_BG_IMAGE_GLOBAL.equals(customization.bandBackgroundMode)) bandBgMode.setSelectedIndex(1);
         else if (AppCustomization.BAND_BG_IMAGE_PER_BAND.equals(customization.bandBackgroundMode)) bandBgMode.setSelectedIndex(2);
         else bandBgMode.setSelectedIndex(0);
@@ -270,10 +278,11 @@ public class CustomizationWindow extends JDialog {
     }
 
     private JButton createBrowseBtn(String type, JTextField field) {
+        boolean isEn = "en".equalsIgnoreCase(customization.appLanguage);
         JButton btn = new JButton("...");
-        btn.setToolTipText("Parcourir");
+        btn.setToolTipText(isEn ? "Browse" : "Parcourir");
         btn.addActionListener(e -> {
-            File f = FileUtils.chooseOpenFile(this, "Choisir image " + type, "png", "jpg", "jpeg", "gif", "bmp", "webp");
+            File f = FileUtils.chooseOpenFile(this, (isEn ? "Choose image " : "Choisir image ") + type, "png", "jpg", "jpeg", "gif", "bmp", "webp");
             if (f != null) field.setText(f.getAbsolutePath());
         });
         return btn;
@@ -313,6 +322,7 @@ public class CustomizationWindow extends JDialog {
         showWaveform.setSelected(def.showWaveform);
         defaultProjectFormat.setSelectedIndex("detx".equalsIgnoreCase(def.defaultProjectFormat) ? 1 : 0);
         appLanguage.setSelectedIndex("en".equalsIgnoreCase(def.appLanguage) ? 1 : 0);
+        keyboardLayout.setSelectedIndex(0);
         timerBgBtn.setPreviewColor(def.timerBackground);
         timerTextBtn.setPreviewColor(def.timerTextColor);
         historyBgBtn.setPreviewColor(def.historyBackground);
@@ -343,6 +353,9 @@ public class CustomizationWindow extends JDialog {
         customization.showWaveform = showWaveform.isSelected();
         customization.defaultProjectFormat = defaultProjectFormat.getSelectedIndex() == 1 ? "detx" : "rythmo";
         customization.appLanguage = appLanguage.getSelectedIndex() == 1 ? "en" : "fr";
+        if (keyboardLayout.getSelectedIndex() == 1) customization.keyboardLayout = "azerty";
+        else if (keyboardLayout.getSelectedIndex() == 2) customization.keyboardLayout = "qwerty";
+        else customization.keyboardLayout = "auto";
 
         // Only apply advanced (colors/images/font) if the section is enabled
         if (applyAdvanced) {
@@ -372,12 +385,14 @@ public class CustomizationWindow extends JDialog {
         }
 
         handler.onApply(customization);
+        dispose();
     }
 
     private ColorPreviewButton createColorButton(Color initial) {
+        boolean isEn = "en".equalsIgnoreCase(customization.appLanguage);
         ColorPreviewButton btn = new ColorPreviewButton(initial);
         btn.addActionListener(e -> {
-            Color chosen = JColorChooser.showDialog(this, "Choisir une couleur", btn.getBackground());
+            Color chosen = JColorChooser.showDialog(this, isEn ? "Choose a color" : "Choisir une couleur", btn.getBackground());
             if (chosen != null) btn.setPreviewColor(chosen);
         });
         return btn;

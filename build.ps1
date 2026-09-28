@@ -49,11 +49,18 @@ Get-ChildItem '..\libs\*.jar' | ForEach-Object {
 }
 Pop-Location
 
-# 4. Copy resource images
+# 4. Copy resource images and dictionaries
 if (-not (Test-Path 'bin\images')) {
     New-Item -ItemType Directory -Path 'bin\images' | Out-Null
 }
 Copy-Item -Path 'src\images\*' -Destination 'bin\images\' -Recurse -Force
+
+if (-not (Test-Path 'bin\dictionaries')) {
+    New-Item -ItemType Directory -Path 'bin\dictionaries' | Out-Null
+}
+if (Test-Path 'src\dictionaries') {
+    Copy-Item -Path 'src\dictionaries\*' -Destination 'bin\dictionaries\' -Recurse -Force
+}
 
 # 5. Create OmeRyth.jar
 Write-Host "[3/4] Création du JAR exécutable (OmeRyth.jar)..." -ForegroundColor Yellow

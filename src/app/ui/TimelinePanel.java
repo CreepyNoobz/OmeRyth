@@ -95,6 +95,8 @@ public class TimelinePanel extends JPanel {
     private int draggingSeparatorBand = -1;
     private int draggingSeparatorX = Integer.MIN_VALUE;
     private int draggingPlanMarkerX = Integer.MIN_VALUE;
+    private boolean textDragSelecting = false;
+    private int textSelectionAnchor = -1;
     private boolean suppressNextClick = false;
     private float dragPixelAccum = 0f;
     
@@ -120,6 +122,17 @@ public class TimelinePanel extends JPanel {
     private app.services.SpellGrammarService.SpellCheckIssue currentHoveredSpellIssue = null;
     private javax.swing.Timer spellHoverTimer = null;
     private SpellSuggestionPopup spellSuggestionPopup = null;
+    private long lastTypingTimestamp = 0L;
+    private javax.swing.Timer typingDebounceTimer = null;
+
+    private void onTypingActivity() {
+        lastTypingTimestamp = System.currentTimeMillis();
+        if (typingDebounceTimer == null) {
+            typingDebounceTimer = new javax.swing.Timer(1000, e -> repaint());
+            typingDebounceTimer.setRepeats(false);
+        }
+        typingDebounceTimer.restart();
+    }
 
     private final TimelineRenderer renderer = new TimelineRenderer(bandCount, cursorX);
     private final TextManager textManager = new TextManager();
@@ -250,6 +263,16 @@ public class TimelinePanel extends JPanel {
                 int intOffsetX = getIntOffsetX();
                 int newWorldX = e.getX() - intOffsetX;
 
+                if (textDragSelecting && textManager.isEditing() && textManager.getEditingItem() != null) {
+                    TextItem editing = textManager.getEditingItem();
+                    int curIdx = textManager.getCursorIndexForClick(editing, e.getX(), intOffsetX);
+                    textManager.setSelection(textSelectionAnchor, curIdx);
+                    textManager.setCursorIndex(curIdx);
+                    hasMovedDuringDrag = true;
+                    repaint();
+                    return;
+                }
+
                 if (shiftingText) {
                     // Clic gauche seul sur INNER : transfère des caractères sans bouger le symbole
                     int pointerX = newWorldX;
@@ -346,6 +369,23 @@ public class TimelinePanel extends JPanel {
                         shiftingBaseSeparatorX = hit[1];
                         shiftingPointerPrevX = e.getX() - intOffsetX;
                         dragPixelAccum = 0f;
+                    } else if (hit == null) {
+                        // Clic gauche sur une phrase : sélection de texte à la souris (drag to select)
+                        TextItem hitText = textManager.getTextAtScaled(e.getX(), e.getY(), intOffsetX, getHeight(), bandCount);
+                        if (hitText == null) {
+                            hitText = textManager.getTextInSegmentAt(e.getX(), e.getY(), intOffsetX, getHeight(), bandCount);
+                        }
+                        if (hitText != null) {
+                            if (!textManager.isEditing() || textManager.getEditingItem() != hitText) {
+                                int clickIdx = textManager.getCursorIndexForClick(hitText, e.getX(), intOffsetX);
+                                textManager.startEditingExistingText(hitText, clickIdx);
+                                resetCaretBlink();
+                            }
+                            textDragSelecting = true;
+                            textSelectionAnchor = textManager.getCursorIndexForClick(hitText, e.getX(), intOffsetX);
+                            textManager.setSelection(textSelectionAnchor, textSelectionAnchor);
+                            textManager.setCursorIndex(textSelectionAnchor);
+                        }
                     }
                 }
                 repaint();
@@ -353,6 +393,14 @@ public class TimelinePanel extends JPanel {
 
             @Override
             public void mouseReleased(MouseEvent e) {
+                if (textDragSelecting) {
+                    textDragSelecting = false;
+                    if (hasMovedDuringDrag) {
+                        suppressNextClick = true;
+                    }
+                    repaint();
+                }
+
                 if (draggingSeparator || shiftingText || draggingPlanMarker) {
                     if (hasMovedDuringDrag) {
                         suppressNextClick = true;
@@ -432,15 +480,15 @@ public class TimelinePanel extends JPanel {
                 }
 
                 if (e.getClickCount() == 2) {
-                    // Double-clic : créer phrase si vide, ou éditer si du texte existe
+                    // Double-clic : créer phrase si vide, ou éditer et tout sélectionner si du texte existe
                     TextItem existing = textManager.getTextAtScaled(x, y, intOffsetX, getHeight(), bandCount);
                     if (existing == null) {
                         existing = textManager.getTextInSegmentAt(x, y, intOffsetX, getHeight(), bandCount);
                     }
                     if (existing != null) {
                         boolean emptyGap = textManager.isInEmptyInnerGap(existing, x, intOffsetX);
-                        int cursorIdx = textManager.getCursorIndexForClick(existing, x, intOffsetX);
-                        textManager.startEditingExistingText(existing, cursorIdx);
+                        textManager.startEditingExistingText(existing, 0);
+                        textManager.selectAll();
                         if (emptyGap) {
                             triggerInsertionPulse(existing.band, x - intOffsetX);
                         }
@@ -461,6 +509,7 @@ public class TimelinePanel extends JPanel {
                     boolean emptyGap = textManager.isInEmptyInnerGap(clickedText, x, intOffsetX);
                     int cursorIdx = textManager.getCursorIndexForClick(clickedText, x, intOffsetX);
                     textManager.startEditingExistingText(clickedText, cursorIdx);
+                    textManager.clearSelection();
                     if (emptyGap) {
                         triggerInsertionPulse(clickedText.band, x - intOffsetX);
                     }
@@ -471,6 +520,7 @@ public class TimelinePanel extends JPanel {
                         boolean emptyGap = textManager.isInEmptyInnerGap(segmentText, x, intOffsetX);
                         int cursorIdx = textManager.getCursorIndexForClick(segmentText, x, intOffsetX);
                         textManager.startEditingExistingText(segmentText, cursorIdx);
+                        textManager.clearSelection();
                         if (emptyGap) {
                             triggerInsertionPulse(segmentText.band, x - intOffsetX);
                         }
@@ -975,6 +1025,8 @@ public class TimelinePanel extends JPanel {
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
+        renderer.setLastTypingTimestamp(lastTypingTimestamp);
+        renderer.setSelection(textManager.getSelectionStart(), textManager.getSelectionEnd());
         renderer.render(g,
                 textManager.getBandSeparators(),
                 textManager.getTexts(),
@@ -1013,6 +1065,7 @@ public class TimelinePanel extends JPanel {
     public void typeChar(char c) {
         if (!textManager.isEditing()) return;
         recordUndoSnapshot();
+        onTypingActivity();
         textManager.typeChar(c);
         resetCaretBlink();
         repaint();
@@ -1050,6 +1103,7 @@ public class TimelinePanel extends JPanel {
     public void deleteChar() {
         if (!textManager.isEditing()) return;
         recordUndoSnapshot();
+        onTypingActivity();
         textManager.deleteChar();
         resetCaretBlink();
         repaint();
@@ -1059,6 +1113,7 @@ public class TimelinePanel extends JPanel {
     public void deleteWord() {
         if (!textManager.isEditing()) return;
         recordUndoSnapshot();
+        onTypingActivity();
         textManager.deleteWord();
         resetCaretBlink();
         repaint();
@@ -1066,6 +1121,7 @@ public class TimelinePanel extends JPanel {
 
     /** Quitte le mode édition et masque le curseur clignotant. */
     public void stopTyping() {
+        lastTypingTimestamp = 0L;
         textManager.stopTyping();
         caretVisible = false;
         repaint();
@@ -1075,7 +1131,55 @@ public class TimelinePanel extends JPanel {
     public void pasteText(String text) {
         if (!textManager.isEditing() || text == null || text.isEmpty()) return;
         recordUndoSnapshot();
+        onTypingActivity();
         textManager.insertText(text);
+        resetCaretBlink();
+        repaint();
+    }
+
+    public boolean hasSelection() {
+        return textManager.hasSelection();
+    }
+
+    public void clearSelection() {
+        textManager.clearSelection();
+        repaint();
+    }
+
+    public void selectAllText() {
+        if (!textManager.isEditing()) return;
+        textManager.selectAll();
+        resetCaretBlink();
+        repaint();
+    }
+
+    public void copySelectedText() {
+        if (!textManager.isEditing() || !textManager.hasSelection()) return;
+        String sel = textManager.getSelectedText();
+        if (sel != null && !sel.isEmpty()) {
+            try {
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
+                    new java.awt.datatransfer.StringSelection(sel), null
+                );
+            } catch (Exception ignored) {}
+        }
+    }
+
+    public void cutSelectedText() {
+        if (!textManager.isEditing() || !textManager.hasSelection()) return;
+        copySelectedText();
+        recordUndoSnapshot();
+        onTypingActivity();
+        textManager.deleteSelection();
+        resetCaretBlink();
+        repaint();
+    }
+
+    public void deleteForward() {
+        if (!textManager.isEditing()) return;
+        recordUndoSnapshot();
+        onTypingActivity();
+        textManager.deleteForward();
         resetCaretBlink();
         repaint();
     }

@@ -50,18 +50,21 @@ public class RoleWindow extends JDialog {
 
         // ─── En-tête moderne ───
         JPanel headerPanel = new JPanel(new BorderLayout(8, 4));
-        headerPanel.setBackground(new Color(30, 30, 30));
-        headerPanel.setBorder(new EmptyBorder(16, 20, 16, 20));
+        headerPanel.setBackground(new Color(245, 246, 248));
+        headerPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(220, 224, 230)),
+                new EmptyBorder(16, 20, 16, 20)
+        ));
 
-        JLabel titleLabel = new JLabel(pickerMode ? "🎭 Sélectionner un rôle" : "🎭 Gestion des rôles");
+        JLabel titleLabel = new JLabel(pickerMode ? "Sélectionner un rôle" : "Gestion des rôles");
         titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        titleLabel.setForeground(Color.WHITE);
+        titleLabel.setForeground(Color.BLACK);
 
         JLabel subtitleLabel = new JLabel(pickerMode
                 ? "Choisissez un rôle pour colorer et identifier la réplique sélectionnée."
                 : "Créez et personnalisez les rôles des comédiens pour la bande rythmo.");
         subtitleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        subtitleLabel.setForeground(new Color(180, 180, 180));
+        subtitleLabel.setForeground(new Color(80, 80, 80));
 
         JPanel headerTextPanel = new JPanel();
         headerTextPanel.setLayout(new BoxLayout(headerTextPanel, BoxLayout.Y_AXIS));
@@ -121,10 +124,10 @@ public class RoleWindow extends JDialog {
         JPanel manageRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         manageRow.setOpaque(false);
 
-        JButton addBtn = createStyledButton("➕ Ajouter", new Color(0, 120, 215), Color.WHITE);
-        JButton editBtn = createStyledButton("✏️ Modifier", new Color(235, 238, 242), new Color(40, 40, 40));
-        JButton removeBtn = createStyledButton("🗑️ Supprimer", new Color(235, 238, 242), new Color(180, 40, 40));
-        JButton presetBtn = createStyledButton("⚡ Présets...", new Color(235, 238, 242), new Color(40, 40, 40));
+        JButton addBtn = createStyledButton("+ Ajouter", new Color(220, 235, 252), Color.BLACK);
+        JButton editBtn = createStyledButton("Modifier", new Color(235, 238, 242), Color.BLACK);
+        JButton removeBtn = createStyledButton("Supprimer", new Color(255, 230, 230), Color.BLACK);
+        JButton presetBtn = createStyledButton("Présets...", new Color(235, 238, 242), Color.BLACK);
 
         manageRow.add(addBtn);
         manageRow.add(editBtn);
@@ -137,14 +140,8 @@ public class RoleWindow extends JDialog {
         actionRow.setOpaque(false);
 
         if (pickerMode) {
-            JButton noRoleBtn = createStyledButton("🚫 Sans rôle", new Color(235, 238, 242), new Color(80, 80, 80));
-            JButton chooseBtn = createStyledButton("✔ Choisir ce rôle", new Color(46, 160, 67), Color.WHITE);
-            JButton cancelBtn = createStyledButton("Annuler", new Color(235, 238, 242), new Color(40, 40, 40));
-
-            noRoleBtn.addActionListener(e -> {
-                selectedResultRole = NO_ROLE;
-                dispose();
-            });
+            JButton chooseBtn = createStyledButton("Choisir ce rôle", new Color(220, 245, 225), Color.BLACK);
+            JButton cancelBtn = createStyledButton("Annuler", new Color(235, 238, 242), Color.BLACK);
 
             chooseBtn.addActionListener(e -> {
                 Role chosen = roleList.getSelectedValue();
@@ -153,7 +150,7 @@ public class RoleWindow extends JDialog {
                     dispose();
                 } else {
                     JOptionPane.showMessageDialog(this,
-                            "Veuillez sélectionner un rôle dans la liste ou cliquer sur « Sans rôle ».",
+                            "Veuillez sélectionner un rôle dans la liste.",
                             "Aucune sélection", JOptionPane.INFORMATION_MESSAGE);
                 }
             });
@@ -163,11 +160,10 @@ public class RoleWindow extends JDialog {
                 dispose();
             });
 
-            actionRow.add(noRoleBtn);
             actionRow.add(cancelBtn);
             actionRow.add(chooseBtn);
         } else {
-            JButton closeBtn = createStyledButton("Fermer", new Color(0, 120, 215), Color.WHITE);
+            JButton closeBtn = createStyledButton("Fermer", new Color(235, 238, 242), Color.BLACK);
             closeBtn.addActionListener(e -> dispose());
             actionRow.add(closeBtn);
         }
@@ -259,22 +255,16 @@ public class RoleWindow extends JDialog {
         centerBox.setLayout(new BoxLayout(centerBox, BoxLayout.Y_AXIS));
         centerBox.setOpaque(false);
 
-        JLabel iconLabel = new JLabel("🎭");
-        iconLabel.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 40));
-        iconLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-
         JLabel emptyTitle = new JLabel("Aucun rôle défini");
         emptyTitle.setFont(new Font("Segoe UI", Font.BOLD, 15));
         emptyTitle.setForeground(new Color(60, 60, 60));
         emptyTitle.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        JLabel emptyDesc = new JLabel("<html><center>Cliquez sur <b>➕ Ajouter</b> ou chargez un <b>⚡ Préset</b><br>pour configurer vos personnages.</center></html>");
+        JLabel emptyDesc = new JLabel("<html><center>Cliquez sur <b>+ Ajouter</b> ou chargez un <b>Préset</b><br>pour configurer vos personnages.</center></html>");
         emptyDesc.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         emptyDesc.setForeground(new Color(120, 120, 120));
         emptyDesc.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        centerBox.add(iconLabel);
-        centerBox.add(Box.createVerticalStrut(8));
         centerBox.add(emptyTitle);
         centerBox.add(Box.createVerticalStrut(6));
         centerBox.add(emptyDesc);
@@ -341,11 +331,14 @@ public class RoleWindow extends JDialog {
 
         // En-tête dialog
         JPanel dlgHeader = new JPanel(new BorderLayout());
-        dlgHeader.setBackground(new Color(35, 35, 35));
-        dlgHeader.setBorder(new EmptyBorder(12, 16, 12, 16));
-        JLabel dlgTitle = new JLabel(isEdit ? "✏️ Modifier le rôle" : "➕ Ajouter un rôle");
+        dlgHeader.setBackground(new Color(240, 242, 246));
+        dlgHeader.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(220, 224, 230)),
+                new EmptyBorder(12, 16, 12, 16)
+        ));
+        JLabel dlgTitle = new JLabel(isEdit ? "Modifier le rôle" : "Ajouter un rôle");
         dlgTitle.setFont(new Font("Segoe UI", Font.BOLD, 15));
-        dlgTitle.setForeground(Color.WHITE);
+        dlgTitle.setForeground(Color.BLACK);
         dlgHeader.add(dlgTitle, BorderLayout.WEST);
         dlg.add(dlgHeader, BorderLayout.NORTH);
 
@@ -443,7 +436,7 @@ public class RoleWindow extends JDialog {
         customColorRow.setOpaque(false);
         customColorRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JButton chooseMoreColor = createStyledButton("🎨 Autre couleur...", new Color(235, 238, 242), new Color(40, 40, 40));
+        JButton chooseMoreColor = createStyledButton("Autre couleur...", new Color(235, 238, 242), Color.BLACK);
 
         chooseMoreColor.addActionListener(ev -> {
             Color c = JColorChooser.showDialog(dlg, "Choisir une couleur personnalisée", chosen[0]);
@@ -474,8 +467,8 @@ public class RoleWindow extends JDialog {
         // Actions
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 12));
         actions.setBackground(new Color(245, 246, 248));
-        JButton okBtn = createStyledButton("✔ Enregistrer", new Color(0, 120, 215), Color.WHITE);
-        JButton cancelBtn = createStyledButton("Annuler", new Color(235, 238, 242), new Color(40, 40, 40));
+        JButton okBtn = createStyledButton("Enregistrer", new Color(220, 235, 252), Color.BLACK);
+        JButton cancelBtn = createStyledButton("Annuler", new Color(235, 238, 242), Color.BLACK);
 
         actions.add(cancelBtn);
         actions.add(okBtn);
@@ -618,14 +611,18 @@ public class RoleWindow extends JDialog {
             int w = Math.min(getWidth() - 4, fm.stringWidth(name) + 16);
             int x = getWidth() - w - 2;
 
-            g2.setColor(color);
+            Color bg = new Color(
+                Math.min(255, (color.getRed() + 255 * 2) / 3),
+                Math.min(255, (color.getGreen() + 255 * 2) / 3),
+                Math.min(255, (color.getBlue() + 255 * 2) / 3)
+            );
+            g2.setColor(bg);
             g2.fillRoundRect(x, y, w, h, 12, 12);
 
-            g2.setColor(new Color(0, 0, 0, 40));
+            g2.setColor(color);
             g2.drawRoundRect(x, y, w, h, 12, 12);
 
-            boolean isDark = isDarkColor(color);
-            g2.setColor(isDark ? Color.WHITE : Color.BLACK);
+            g2.setColor(Color.BLACK);
             int textX = x + (w - fm.stringWidth(name)) / 2;
             int textY = y + fm.getAscent() + (h - fm.getHeight()) / 2;
             g2.drawString(name, textX, textY);
@@ -668,9 +665,16 @@ public class RoleWindow extends JDialog {
             int badgeX = 10;
 
             // Badge du rôle
-            g2.setColor(roleColor);
+            Color badgeBg = new Color(
+                Math.min(255, (roleColor.getRed() + 255 * 2) / 3),
+                Math.min(255, (roleColor.getGreen() + 255 * 2) / 3),
+                Math.min(255, (roleColor.getBlue() + 255 * 2) / 3)
+            );
+            g2.setColor(badgeBg);
             g2.fillRoundRect(badgeX, badgeY, badgeW, badgeH, 10, 10);
-            g2.setColor(isDarkColor(roleColor) ? Color.WHITE : Color.BLACK);
+            g2.setColor(roleColor);
+            g2.drawRoundRect(badgeX, badgeY, badgeW, badgeH, 10, 10);
+            g2.setColor(Color.BLACK);
             int labelY = badgeY + lfm.getAscent() + (badgeH - lfm.getHeight()) / 2;
             g2.drawString(roleName, badgeX + 8, labelY);
 

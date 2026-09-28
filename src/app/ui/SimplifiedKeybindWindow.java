@@ -11,7 +11,8 @@ import java.awt.*;
 public class SimplifiedKeybindWindow extends JDialog {
 
     public SimplifiedKeybindWindow(MainFenetre owner) {
-        super(owner, "Raccourcis clavier", true);
+        super(owner, owner != null && owner.isEnglish() ? "Keyboard Shortcuts" : "Raccourcis clavier", true);
+        boolean isEn = owner != null && owner.isEnglish();
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setSize(550, 480);
         setMinimumSize(new Dimension(550, 480));
@@ -23,7 +24,7 @@ public class SimplifiedKeybindWindow extends JDialog {
         JPanel headerPanel = new JPanel(new BorderLayout());
         headerPanel.setBackground(new Color(30, 30, 30));
         headerPanel.setBorder(new EmptyBorder(15, 20, 15, 20));
-        JLabel titleLabel = new JLabel("⌨️ Raccourcis clavier essentiels");
+        JLabel titleLabel = new JLabel(isEn ? "Essential keyboard shortcuts" : "Raccourcis clavier essentiels");
         titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
         titleLabel.setForeground(Color.WHITE);
         headerPanel.add(titleLabel, BorderLayout.WEST);
@@ -35,7 +36,17 @@ public class SimplifiedKeybindWindow extends JDialog {
         contentPanel.setBackground(new Color(250, 250, 250));
         contentPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
 
-        Object[][] keybinds = new Object[][] {
+        Object[][] keybinds = isEn ? new Object[][] {
+            {owner.getKeyText(owner.getMarcheArretKeyCode()), "Play / Pause video"},
+            {owner.getKeyText(owner.getZoomInKeyCode()), "Zoom in timeline"},
+            {owner.getKeyText(owner.getZoomOutKeyCode()), "Zoom out timeline"},
+            {owner.getKeyText(owner.getAvanceMSKeyCode()), "Forward 0.5s"},
+            {owner.getKeyText(owner.getReculerMSKeyCode()), "Rewind 0.5s"},
+            {owner.getKeyText(owner.getRetourDebutKeyCode()), "Return to video start"},
+            {owner.getKeyText(owner.getSeparateurKeyCode()), "Add shot / plan separator"},
+            {"Ctrl+Z", "Undo last action"},
+            {"Ctrl+Y", "Redo undone action"}
+        } : new Object[][] {
             {owner.getKeyText(owner.getMarcheArretKeyCode()), "Lecture / Arrêt de la vidéo"},
             {owner.getKeyText(owner.getZoomInKeyCode()), "Zoomer sur la timeline"},
             {owner.getKeyText(owner.getZoomOutKeyCode()), "Dézoomer la timeline"},
@@ -82,7 +93,7 @@ public class SimplifiedKeybindWindow extends JDialog {
         footerPanel.setBackground(Color.WHITE);
         footerPanel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(220, 220, 220)));
         
-        JTextArea infoArea = new JTextArea("💡 Astuce : Ces raccourcis sont personnalisables dans Options > Configurer les touches.");
+        JTextArea infoArea = new JTextArea(isEn ? "Tip: These shortcuts can be customized in Settings > Configure shortcuts." : "Astuce : Ces raccourcis sont personnalisables dans Options > Configurer les touches.");
         infoArea.setEditable(false);
         infoArea.setOpaque(false);
         infoArea.setLineWrap(true);
@@ -90,7 +101,7 @@ public class SimplifiedKeybindWindow extends JDialog {
         infoArea.setFont(new Font("Segoe UI", Font.ITALIC, 12));
         infoArea.setForeground(new Color(100, 100, 100));
         infoArea.setBorder(new EmptyBorder(15, 20, 15, 20));
-        JButton closeBtn = new JButton("Fermer");
+        JButton closeBtn = new JButton(isEn ? "Close" : "Fermer");
         closeBtn.setFocusPainted(false);
         closeBtn.addActionListener(e -> dispose());
         

@@ -65,6 +65,20 @@ public class TimelineRenderer {
         return cursorX;
     }
 
+    private long lastTypingTimestamp = 0L;
+
+    public void setLastTypingTimestamp(long lastTypingTimestamp) {
+        this.lastTypingTimestamp = lastTypingTimestamp;
+    }
+
+    private int selectionStart = -1;
+    private int selectionEnd = -1;
+
+    public void setSelection(int start, int end) {
+        this.selectionStart = start;
+        this.selectionEnd = end;
+    }
+
     /** Applique les paramètres de personnalisation visuelle (thème sombre, couleurs, polices). */
     public void setCustomization(AppCustomization customization) {
         this.customization = customization != null ? customization : new AppCustomization();
@@ -314,7 +328,8 @@ public class TimelineRenderer {
         int startTextIdx = Math.max(0, findTextIndex(texts, (int) Math.floor(-offsetX - 500)) - 1);
         for (int ti = startTextIdx; ti < texts.size(); ti++) {
             TextItem t = texts.get(ti);
-            if (t == null || t.text == null || t.text.isEmpty()) continue;
+            if (t == null) continue;
+            if (t.text == null) t.text = "";
             if (t.x > panelWidth - offsetX + 500) {
                 break; // Liste triée par X : les textes suivants sont tous hors écran à droite
             }
@@ -397,12 +412,9 @@ public class TimelineRenderer {
 
             double availableWidth = Math.max(20.0, (double) (segmentEnd - segmentStart));
 
-            // Badge du personnage (rôle) : pastille colorée avec le nom du comédien/personnage
+            // Badge du personnage (rôle) : pastille rectangulaire positionnée à GAUCHE du repère START
             if (t.role != null && t.role.name != null && !t.role.name.isEmpty()) {
-                Color roleColor = (t.role.color != null) ? t.role.color : Color.WHITE;
-                boolean useDarkText = isDarkColor(roleColor);
-                Color labelBackground = roleColor;
-                Color labelTextColor = useDarkText ? Color.WHITE : Color.BLACK;
+                Color roleColor = (t.role.color != null) ? t.role.color : new Color(0, 120, 215);
 
                 Font oldFont = g2.getFont();
                 float labelFontSize = Math.max(9.5f, Math.min(13.5f, (float) (bandHeight * 0.16f)));
@@ -410,91 +422,122 @@ public class TimelineRenderer {
                 g2.setFont(labelFont);
                 FontMetrics lfm = g2.getFontMetrics();
 
-                int padX = Math.max(3, Math.round(labelFontSize * 0.35f));
+                int padX = Math.max(4, Math.round(labelFontSize * 0.38f));
                 int padY = Math.max(1, Math.round(labelFontSize * 0.12f));
                 int lw = lfm.stringWidth(t.role.name) + padX * 2;
                 int lh = lfm.getHeight() + padY;
-                int arc = Math.max(3, Math.round(lh * 0.35f));
 
                 int badgeTop = t.band * bandHeight + 2;
                 int labelY = badgeTop + padY + lfm.getAscent() - 1;
-                double labelX;
 
-                if (leftSep != Integer.MIN_VALUE) {
-                    labelX = segmentStart + offsetX - lw - 2;
-                } else {
-                    labelX = segmentStart + offsetX + 2;
-                }
+                // Positionnement sur le côté GAUCHE du repère START
+                double labelX = segmentStart + offsetX - lw - 2;
 
-                g2.setColor(labelBackground);
-                g2.fill(new RoundRectangle2D.Double(labelX, badgeTop, lw, lh, arc, arc));
-                g2.setColor(labelTextColor);
+                // Fond avec la couleur du rôle, bords rectangulaires nets (pas d'arrondi)
+                g2.setColor(roleColor);
+                g2.fillRect((int) Math.round(labelX), badgeTop, lw, lh);
+
+                // Contour fin
+                g2.setColor(isDarkColor(roleColor) ? new Color(255, 255, 255, 160) : new Color(0, 0, 0, 80));
+                g2.setStroke(new BasicStroke(1.0f));
+                g2.drawRect((int) Math.round(labelX), badgeTop, lw, lh);
+
+                // Couleur du texte : noir par défaut, blanc si le rôle est noir/sombre
+                Color textColor = isDarkColor(roleColor) ? Color.WHITE : Color.BLACK;
+                g2.setColor(textColor);
                 g2.drawString(t.role.name, (float) (labelX + padX), (float) labelY);
                 g2.setFont(oldFont);
             }
 
-            if (textWidth <= 0) continue;
-            Color roleColor = (t.role != null && t.role.color != null) ? t.role.color : Color.WHITE;
-            double luminance = 0.299 * roleColor.getRed() + 0.587 * roleColor.getGreen() + 0.114 * roleColor.getBlue();
-            boolean isDarkBg = isDarkColor(customization.timelineEvenBand);
-            if (isDarkBg) {
-                if (luminance < 45) {
-                    roleColor = new Color(225, 225, 225);
-                }
-            } else {
-                if (luminance > 185) {
-                    roleColor = new Color(30, 35, 45);
-                }
-            }
-
-            if (innerMarks.isEmpty()) {
-                // Pas de séparateurs internes : la phrase entière est étirée d'un seul bloc
-                g2.setColor(roleColor);
-                double drawX = segmentStart + offsetX;
-                drawScaledText(g2, fm, t.text, drawX, bandBaselineY, availableWidth, targetTextHeight, false);
-            } else {
-                // Présence de séparateurs syllabiques : chaque portion est étirée indépendamment
-                int len = t.text.length();
-                int prevX = segmentStart;
-                int prevIdx = 0;
-                g2.setColor(roleColor);
-                boolean anyTextDrawn = false;
-
-                for (int mi = 0; mi < innerMarks.size(); mi++) {
-                    SeparatorMark mark = innerMarks.get(mi);
-                    int segStart = prevX;
-                    int segEnd = mark.x;
-                    if (segEnd <= segStart) continue;
-
-                    int idx = mark.splitIndex;
-                    if (idx <= prevIdx || idx > len) {
-                        // Réparation automatique de l'index de découpe si non défini ou désordonné
-                        double ratio = (double) (mark.x - segmentStart) / Math.max(1, segmentEnd - segmentStart);
-                        idx = (int) Math.round(ratio * len);
+            if (!t.text.isEmpty()) {
+                Color roleColor = (t.role != null && t.role.color != null) ? t.role.color : Color.WHITE;
+                double luminance = 0.299 * roleColor.getRed() + 0.587 * roleColor.getGreen() + 0.114 * roleColor.getBlue();
+                boolean isDarkBg = isDarkColor(customization.timelineEvenBand);
+                if (isDarkBg) {
+                    if (luminance < 45) {
+                        roleColor = new Color(225, 225, 225);
                     }
-                    if (idx < prevIdx) idx = prevIdx;
-                    if (idx > len) idx = len;
+                } else {
+                    if (luminance > 185) {
+                        roleColor = new Color(30, 35, 45);
+                    }
+                }
 
-                    String segText = t.text.substring(prevIdx, idx);
-                    if (!segText.isEmpty()) {
-                        drawTextSegment(g2, fm, segText, segStart + offsetX, segEnd + offsetX, bandBaselineY, targetTextHeight);
+                if (innerMarks.isEmpty()) {
+                    // Pas de séparateurs internes : la phrase entière est étirée d'un seul bloc
+                    g2.setColor(roleColor);
+                    double drawX = segmentStart + offsetX;
+                    drawScaledText(g2, fm, t.text, drawX, bandBaselineY, availableWidth, targetTextHeight, false);
+                } else {
+                    // Présence de séparateurs syllabiques : chaque portion est étirée indépendamment
+                    int len = t.text.length();
+                    int prevX = segmentStart;
+                    int prevIdx = 0;
+                    g2.setColor(roleColor);
+                    boolean anyTextDrawn = false;
+
+                    for (int mi = 0; mi < innerMarks.size(); mi++) {
+                        SeparatorMark mark = innerMarks.get(mi);
+                        int segStart = prevX;
+                        int segEnd = mark.x;
+                        if (segEnd <= segStart) continue;
+
+                        int idx = mark.splitIndex;
+                        if (idx <= prevIdx || idx > len) {
+                            // Réparation automatique de l'index de découpe si non défini ou désordonné
+                            double ratio = (double) (mark.x - segmentStart) / Math.max(1, segmentEnd - segmentStart);
+                            idx = (int) Math.round(ratio * len);
+                        }
+                        if (idx < prevIdx) idx = prevIdx;
+                        if (idx > len) idx = len;
+
+                        String segText = t.text.substring(prevIdx, idx);
+                        if (!segText.isEmpty()) {
+                            drawTextSegment(g2, fm, segText, segStart + offsetX, segEnd + offsetX, bandBaselineY, targetTextHeight);
+                            anyTextDrawn = true;
+                        }
+
+                        prevX = mark.x;
+                        prevIdx = idx;
+                    }
+
+                    String remaining = t.text.substring(Math.min(prevIdx, len));
+                    if (!remaining.isEmpty()) {
+                        drawTextSegment(g2, fm, remaining, prevX + offsetX, segmentEnd + offsetX, bandBaselineY, targetTextHeight);
                         anyTextDrawn = true;
                     }
 
-                    prevX = mark.x;
-                    prevIdx = idx;
+                    // Filet de sécurité absolu anti-texte fantôme :
+                    if (!anyTextDrawn) {
+                        drawScaledText(g2, fm, t.text, segmentStart + offsetX, bandBaselineY, availableWidth, targetTextHeight, false);
+                    }
                 }
+            }
 
-                String remaining = t.text.substring(Math.min(prevIdx, len));
-                if (!remaining.isEmpty()) {
-                    drawTextSegment(g2, fm, remaining, prevX + offsetX, segmentEnd + offsetX, bandBaselineY, targetTextHeight);
-                    anyTextDrawn = true;
-                }
+            // Affichage de la sélection de texte (surbrillance bleue Windows)
+            if (t == editingItem && isEditing && selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
+                int selStart = Math.min(selectionStart, selectionEnd);
+                int selEnd = Math.max(selectionStart, selectionEnd);
+                int tlen = (t.text != null) ? t.text.length() : 0;
+                selStart = Math.max(0, Math.min(selStart, tlen));
+                selEnd = Math.max(selStart, Math.min(selEnd, tlen));
+                if (selEnd > selStart) {
+                    double selStartX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, selStart, false);
+                    double selEndX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, selEnd, false);
+                    if (selEndX < selStartX) {
+                        double tmp = selStartX;
+                        selStartX = selEndX;
+                        selEndX = tmp;
+                    }
+                    int boxTop = bandBaselineY - (int) Math.round(fm.getAscent() * ((double) targetTextHeight / Math.max(1, fm.getHeight())));
+                    int boxHeight = (int) Math.round(fm.getHeight() * ((double) targetTextHeight / Math.max(1, fm.getHeight()))) + 4;
+                    double boxWidth = Math.max(2.0, selEndX - selStartX);
 
-                // Filet de sécurité absolu anti-texte fantôme :
-                // Si aucune portion n'a pu être dessinée, on garantit l'affichage du texte complet sur l'intervalle
-                if (!anyTextDrawn && !t.text.isEmpty()) {
-                    drawScaledText(g2, fm, t.text, segmentStart + offsetX, bandBaselineY, availableWidth, targetTextHeight, false);
+                    g2.setColor(new Color(51, 153, 255, 120));
+                    g2.fill(new Rectangle2D.Double(selStartX, boxTop - 2, boxWidth, boxHeight));
+                    g2.setColor(new Color(0, 102, 204, 180));
+                    g2.setStroke(new BasicStroke(1.0f));
+                    g2.draw(new Rectangle2D.Double(selStartX, boxTop - 2, boxWidth, boxHeight));
                 }
             }
 
@@ -502,6 +545,9 @@ public class TimelineRenderer {
             if (t == editingItem && isEditing && caretVisible) {
                 int safeIdx = Math.max(0, Math.min(cursorIndex, t.text.length()));
                 double cursorScreenX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, safeIdx, cursorRightSide);
+                if (t.text.isEmpty()) {
+                    cursorScreenX += 12; // Décalage vers la droite pour ne pas être masqué par le signe Start
+                }
                 if (cursorScreenX >= 0) {
                     int cursorTop = bandBaselineY - (int) Math.round(fm.getAscent() * ((double) targetTextHeight / Math.max(1, fm.getHeight())));
                     int cursorBottom = bandBaselineY + 2;
@@ -519,27 +565,31 @@ public class TimelineRenderer {
 
             // Soulignement des anomalies orthographiques et grammaticales
             // Condition explicite : visible uniquement si les signes/séparateurs sont affichés
+            // Temporisation 1 seconde : si l'utilisateur est activement en train de taper ce texte, on masque les erreurs pendant la frappe
             if (separatorsVisible && t.text != null && !t.text.isEmpty()) {
-                List<app.services.SpellGrammarService.SpellCheckIssue> issues =
-                        app.services.SpellGrammarService.getInstance().checkText(t.text);
-                if (issues != null && !issues.isEmpty()) {
-                    for (app.services.SpellGrammarService.SpellCheckIssue issue : issues) {
-                        int safeStart = Math.max(0, Math.min(issue.startIdx, t.text.length()));
-                        int safeEnd = Math.max(safeStart, Math.min(issue.endIdx, t.text.length()));
-                        double startScreenX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, safeStart, false);
-                        double endScreenX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, safeEnd, false);
+                boolean isActivelyTypingThisItem = isEditing && (t == editingItem) && (System.currentTimeMillis() - lastTypingTimestamp < 1000);
+                if (!isActivelyTypingThisItem) {
+                    List<app.services.SpellGrammarService.SpellCheckIssue> issues =
+                            app.services.SpellGrammarService.getInstance().checkText(t.text);
+                    if (issues != null && !issues.isEmpty()) {
+                        for (app.services.SpellGrammarService.SpellCheckIssue issue : issues) {
+                            int safeStart = Math.max(0, Math.min(issue.startIdx, t.text.length()));
+                            int safeEnd = Math.max(safeStart, Math.min(issue.endIdx, t.text.length()));
+                            double startScreenX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, safeStart, false);
+                            double endScreenX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, safeEnd, false);
 
-                        if (endScreenX >= -100 && startScreenX <= panelWidth + 100) {
-                            int ascent = (int) Math.round(fm.getAscent() * ((double) targetTextHeight / Math.max(1, fm.getHeight())));
-                            issue.screenStartX = startScreenX;
-                            issue.screenEndX = endScreenX;
-                            issue.screenY = bandBaselineY - ascent;
-                            issue.screenHeight = ascent + 6;
-                            issue.targetItem = t;
-                            issue.band = t.band;
-                            app.services.SpellGrammarService.getInstance().registerVisibleIssue(issue);
+                            if (endScreenX >= -100 && startScreenX <= panelWidth + 100) {
+                                int ascent = (int) Math.round(fm.getAscent() * ((double) targetTextHeight / Math.max(1, fm.getHeight())));
+                                issue.screenStartX = startScreenX;
+                                issue.screenEndX = endScreenX;
+                                issue.screenY = bandBaselineY - ascent;
+                                issue.screenHeight = ascent + 6;
+                                issue.targetItem = t;
+                                issue.band = t.band;
+                                app.services.SpellGrammarService.getInstance().registerVisibleIssue(issue);
 
-                            drawSquigglyUnderline(g2, startScreenX, endScreenX, bandBaselineY + 3, issue.isGrammar);
+                                drawSquigglyUnderline(g2, startScreenX, endScreenX, bandBaselineY + 3, issue.isGrammar);
+                            }
                         }
                     }
                 }
@@ -820,7 +870,7 @@ public class TimelineRenderer {
                             double aspect = (double) startImg.getWidth() / Math.max(1, startImg.getHeight());
                             double imgWidth = imgHeight * aspect;
                             double imgX = sx - imgWidth / 2.0;
-                            double imgY = bandTop + bandHeight - 2;
+                            double imgY = bandTop + bandHeight + 3;
                             AffineTransform at = AffineTransform.getTranslateInstance(imgX, imgY);
                             at.scale(imgWidth / startImg.getWidth(), imgHeight / startImg.getHeight());
                             g2.drawImage(startImg, at, null);
@@ -828,7 +878,7 @@ public class TimelineRenderer {
                             int isx = (int) Math.round(sx);
                             int itriW = (int) Math.round(Math.max(8.0, bandHeight * 0.15));
                             int itriH = (int) Math.round(Math.max(10.0, bandHeight * 0.25));
-                            int baseY = bandTop + bandHeight - 2;
+                            int baseY = bandTop + bandHeight + 3;
                             int[] px = { isx, isx - itriW / 2, isx + itriW / 2 };
                             int[] py = { baseY, baseY + itriH, baseY + itriH };
                             g2.setColor(new Color(80, 220, 120));
@@ -842,7 +892,7 @@ public class TimelineRenderer {
                             double aspect = (double) endImg.getWidth() / Math.max(1, endImg.getHeight());
                             double imgWidth = imgHeight * aspect;
                             double imgX = sx - imgWidth / 2.0;
-                            double imgY = bandTop + bandHeight - 2;
+                            double imgY = bandTop + bandHeight + 3;
                             AffineTransform at = AffineTransform.getTranslateInstance(imgX, imgY);
                             at.scale(imgWidth / endImg.getWidth(), imgHeight / endImg.getHeight());
                             g2.drawImage(endImg, at, null);
@@ -850,7 +900,7 @@ public class TimelineRenderer {
                             int isx = (int) Math.round(sx);
                             int itriW = (int) Math.round(Math.max(8.0, bandHeight * 0.15));
                             int itriH = (int) Math.round(Math.max(10.0, bandHeight * 0.25));
-                            int baseY = bandTop + bandHeight - 2;
+                            int baseY = bandTop + bandHeight + 3;
                             int[] px = { isx, isx - itriW / 2, isx + itriW / 2 };
                             int[] py = { baseY, baseY + itriH, baseY + itriH };
                             g2.setColor(new Color(255, 60, 60));

@@ -27,6 +27,8 @@ public class TextManager {
     private int activeBand = -1;
     private int cursorIndex = 0;
     private boolean cursorRightSide = false;
+    private int selectionStart = -1;
+    private int selectionEnd = -1;
 
     // ==================== GETTERS ====================
     public ArrayList<TextItem> getTexts() { return texts; }
@@ -39,6 +41,61 @@ public class TextManager {
     public int getCursorIndex() { return cursorIndex; }
     public boolean isCursorRightSide() { return cursorRightSide; }
     public TextItem getEditingItem() { return selectedText; }
+
+    public boolean hasSelection() {
+        return selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd;
+    }
+    public int getSelectionStart() {
+        return Math.min(selectionStart, selectionEnd);
+    }
+    public int getSelectionEnd() {
+        return Math.max(selectionStart, selectionEnd);
+    }
+    public void setSelection(int start, int end) {
+        int len = (currentInput != null) ? currentInput.length() : 0;
+        this.selectionStart = Math.max(0, Math.min(start, len));
+        this.selectionEnd = Math.max(0, Math.min(end, len));
+    }
+    public void selectAll() {
+        int len = (currentInput != null) ? currentInput.length() : 0;
+        this.selectionStart = 0;
+        this.selectionEnd = len;
+        this.cursorIndex = len;
+        this.cursorRightSide = true;
+    }
+    public void clearSelection() {
+        this.selectionStart = -1;
+        this.selectionEnd = -1;
+    }
+    public String getSelectedText() {
+        if (!hasSelection() || currentInput == null) return "";
+        int s = getSelectionStart();
+        int e = getSelectionEnd();
+        if (s < 0 || e > currentInput.length() || s >= e) return "";
+        return currentInput.substring(s, e);
+    }
+    public void setCursorIndex(int idx) {
+        this.cursorIndex = clampCursorIndex(idx);
+    }
+    public boolean deleteSelection() {
+        if (!hasSelection() || currentInput == null) return false;
+        int start = getSelectionStart();
+        int end = getSelectionEnd();
+        int count = end - start;
+        if (count <= 0) {
+            clearSelection();
+            return false;
+        }
+        currentInput = currentInput.substring(0, start) + currentInput.substring(end);
+        shiftInnerSplitIndicesOnDelete(start, count);
+        cursorIndex = clampCursorIndex(start);
+        cursorRightSide = false;
+        clearSelection();
+        if (selectedText != null) {
+            selectedText.text = currentInput;
+        }
+        return true;
+    }
 
     // =========================================================================
     // GESTION DES TEXTES ET RECALAGE TEMPOREL
@@ -238,7 +295,7 @@ public class TextManager {
                     int imgWidth = Math.max(16, (int) Math.round(imgHeight * 1.5));
                     int tolX = Math.max(tolerancePx, imgWidth / 2 + 2);
                     int yMin = bandTop;
-                    int yMax = bandBottom + imgHeight + 4;
+                    int yMax = bandBottom + imgHeight + 10;
 
                     if (mouseX >= sx - tolX && mouseX <= sx + tolX && mouseY >= yMin && mouseY <= yMax) {
                         return new int[]{band, sep.x};
@@ -395,6 +452,7 @@ public class TextManager {
         TextItem item = new TextItem("", cursorX, band);
         item.role = role;
         texts.add(item);
+        texts.sort(Comparator.comparingInt(t -> t.x));
 
         this.selectedText = item;
         this.activeBand = band;
@@ -402,6 +460,7 @@ public class TextManager {
         this.currentInput = "";
         this.isEditing = true;
         this.cursorIndex = 0;
+        clearSelection();
     }
 
     /**
@@ -447,6 +506,7 @@ public class TextManager {
         this.isEditing = true;
         this.cursorIndex = clampCursorIndex(cursorIdx);
         this.cursorRightSide = false;
+        clearSelection();
     }
 
     /**
@@ -475,6 +535,9 @@ public class TextManager {
         }
 
         if (!Character.isISOControl(c)) {
+            if (hasSelection()) {
+                deleteSelection();
+            }
             shiftInnerSplitIndicesOnInsert(cursorIndex, 1);
             currentInput = currentInput.substring(0, cursorIndex) + c + currentInput.substring(cursorIndex);
             cursorIndex++;
@@ -495,6 +558,7 @@ public class TextManager {
         activeBand = -1;
         selectedText = null;
         cursorIndex = 0;
+        clearSelection();
     }
 
     /** Efface tous les textes, séparateurs et marqueurs de la timeline. */
@@ -511,6 +575,17 @@ public class TextManager {
      */
     public void moveCursor(int delta) {
         if (!isEditing || delta == 0) return;
+        if (hasSelection()) {
+            if (delta < 0) {
+                cursorIndex = getSelectionStart();
+                cursorRightSide = false;
+            } else {
+                cursorIndex = getSelectionEnd();
+                cursorRightSide = true;
+            }
+            clearSelection();
+            return;
+        }
         int len = currentInput.length();
 
         ArrayList<SeparatorMark> inner = (selectedText != null) ? getInnerMarksForSelectedPhrase() : null;
@@ -545,18 +620,21 @@ public class TextManager {
 
     /** Déplace le curseur au début de la réplique (indice 0). */
     public void moveCursorToStart() {
+        clearSelection();
         cursorIndex = 0;
         cursorRightSide = false;
     }
 
     /** Déplace le curseur à la fin de la réplique. */
     public void moveCursorToEnd() {
+        clearSelection();
         cursorIndex = currentInput.length();
         cursorRightSide = true;
     }
 
     /** Déplace le curseur d'un mot complet vers la gauche ou vers la droite. */
     public void moveCursorByWord(int direction) {
+        clearSelection();
         if (direction < 0) {
             int i = cursorIndex - 1;
             while (i > 0 && currentInput.charAt(i - 1) == ' ') i--;
@@ -573,11 +651,13 @@ public class TextManager {
     }
 
     /**
-     * Supprime le caractère à gauche du curseur (Backspace) et ajuste
+     * Supprime le caractère à gauche du curseur (Backspace) ou la sélection active, et ajuste
      * automatiquement les coupures syllabiques des séparateurs internes situés à droite.
      */
     public void deleteChar() {
-        if (!isEditing || cursorIndex == 0) return;
+        if (!isEditing) return;
+        if (deleteSelection()) return;
+        if (cursorIndex == 0) return;
         int deletePos = cursorIndex - 1;
         currentInput = currentInput.substring(0, deletePos) + currentInput.substring(cursorIndex);
         shiftInnerSplitIndicesOnDelete(deletePos, 1);
@@ -586,9 +666,11 @@ public class TextManager {
         if (selectedText != null) selectedText.text = currentInput;
     }
 
-    /** Supprime le mot complet à gauche du curseur (Ctrl+Backspace). */
+    /** Supprime le mot complet à gauche du curseur (Ctrl+Backspace) ou la sélection. */
     public void deleteWord() {
-        if (!isEditing || cursorIndex == 0) return;
+        if (!isEditing) return;
+        if (deleteSelection()) return;
+        if (cursorIndex == 0) return;
         int i = cursorIndex - 1;
         while (i > 0 && currentInput.charAt(i - 1) == ' ') i--;
         while (i > 0 && currentInput.charAt(i - 1) != ' ') i--;
@@ -599,11 +681,25 @@ public class TextManager {
         if (selectedText != null) selectedText.text = currentInput;
     }
 
+    /** Supprime le caractère à droite du curseur (Delete) ou la sélection active. */
+    public void deleteForward() {
+        if (!isEditing || currentInput == null) return;
+        if (deleteSelection()) return;
+        if (cursorIndex >= currentInput.length()) return;
+        currentInput = currentInput.substring(0, cursorIndex) + currentInput.substring(cursorIndex + 1);
+        shiftInnerSplitIndicesOnDelete(cursorIndex, 1);
+        cursorIndex = clampCursorIndex(cursorIndex);
+        if (selectedText != null) selectedText.text = currentInput;
+    }
+
     /** Insère un bloc de texte complet au curseur (Collage / Paste). */
     public void insertText(String text) {
         if (!isEditing || text == null || text.isEmpty()) return;
         String normalized = text.replace('\r', ' ').replace('\n', ' ');
         if (normalized.isEmpty()) return;
+        if (hasSelection()) {
+            deleteSelection();
+        }
         currentInput = currentInput.substring(0, cursorIndex) + normalized + currentInput.substring(cursorIndex);
         shiftInnerSplitIndicesOnInsert(cursorIndex, normalized.length());
         cursorIndex += normalized.length();

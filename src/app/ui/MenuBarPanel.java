@@ -31,10 +31,10 @@ public class MenuBarPanel extends JMenuBar {
             JMenuItem quitter = new JMenuItem("Quitter");
 
         // Sous-menu Exporter
-        JMenu menuExporter = new JMenu("📤 Exporter");
-        JMenuItem exportRythmo = new JMenuItem("📦 Exporter en .rythmo (OmeRyth)...");
-        JMenuItem exportDetx = new JMenuItem("📜 Exporter en .detx (Cappella)...");
-        JMenuItem exportVideo = new JMenuItem("🎬 Export vidéo...");
+        JMenu menuExporter = new JMenu("Exporter");
+        JMenuItem exportRythmo = new JMenuItem("Exporter en .rythmo (OmeRyth)...");
+        JMenuItem exportDetx = new JMenuItem("Exporter en .detx (Cappella)...");
+        JMenuItem exportVideo = new JMenuItem("Export vidéo...");
 
         // Création du menu de gestion
         JMenu menuGestion = new JMenu("Gestion");
@@ -134,11 +134,11 @@ public class MenuBarPanel extends JMenuBar {
         menuEdition.add(annuler);
         menuEdition.add(retablir);
         menuEdition.addSeparator();
-        JMenuItem transcriptionItem = new JMenuItem("🎙️ Transcription Vocale (WhisperX)...");
+        JMenuItem transcriptionItem = new JMenuItem("Transcription Vocale (WhisperX)...");
         transcriptionItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_T, java.awt.event.InputEvent.CTRL_DOWN_MASK));
         transcriptionItem.addActionListener(e -> mainFenetre.ouvrirTranscriptionWhisperX());
         menuEdition.add(transcriptionItem);
-        JMenuItem rolesEditionItem = new JMenuItem("🎭 Rôles...");
+        JMenuItem rolesEditionItem = new JMenuItem("Rôles...");
         rolesEditionItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_R, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK));
         rolesEditionItem.addActionListener(e -> mainFenetre.ouvrirRoleWindow());
         menuEdition.add(rolesEditionItem);
@@ -153,10 +153,6 @@ public class MenuBarPanel extends JMenuBar {
         menuParam.addSeparator();
         menuParam.add(themeSombre);
         menuParam.add(themeClair);
-        menuParam.addSeparator();
-        JMenuItem associerRythmo = new JMenuItem("🔗 Associer les fichiers .rythmo au logo...");
-        associerRythmo.addActionListener(e -> app.services.FileAssociationService.associateNow(mainFenetre));
-        menuParam.add(associerRythmo);
 
         add(menuFichier);
         add(menuGestion);

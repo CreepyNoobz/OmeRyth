@@ -48,12 +48,12 @@ public class SpellSuggestionPopup extends JWindow {
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                // Fond sombre moderne
-                g2.setColor(new Color(32, 33, 36, 245));
+                // Fond clair moderne
+                g2.setColor(new Color(255, 255, 255, 252));
                 g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 14, 14);
                 // Bordure douce
-                g2.setColor(issue.isGrammar ? new Color(245, 140, 0, 180) : new Color(235, 60, 60, 180));
-                g2.setStroke(new BasicStroke(1.2f));
+                g2.setColor(issue.isGrammar ? new Color(245, 140, 0, 210) : new Color(230, 50, 50, 210));
+                g2.setStroke(new BasicStroke(1.4f));
                 g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 14, 14);
                 g2.dispose();
                 super.paintComponent(g);
@@ -68,18 +68,22 @@ public class SpellSuggestionPopup extends JWindow {
         headerPanel.setOpaque(false);
 
         String badgeText = issue.isGrammar ? "GRAMMAIRE" : "ORTHOGRAPHE";
-        Color badgeColor = issue.isGrammar ? new Color(245, 140, 0) : new Color(230, 45, 45);
+        Color badgeBg = issue.isGrammar ? new Color(255, 230, 185) : new Color(255, 215, 215);
+        Color badgeBorder = issue.isGrammar ? new Color(235, 140, 0) : new Color(225, 60, 60);
         JLabel badgeLabel = new JLabel(" " + badgeText + " ");
         badgeLabel.setFont(new Font("Segoe UI", Font.BOLD, 10));
-        badgeLabel.setForeground(Color.WHITE);
+        badgeLabel.setForeground(Color.BLACK);
         badgeLabel.setOpaque(true);
-        badgeLabel.setBackground(badgeColor);
-        badgeLabel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        badgeLabel.setBackground(badgeBg);
+        badgeLabel.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(badgeBorder, 1, true),
+            BorderFactory.createEmptyBorder(2, 5, 2, 5)
+        ));
         headerPanel.add(badgeLabel);
 
         JLabel wordLabel = new JLabel("« " + issue.originalText + " »");
         wordLabel.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        wordLabel.setForeground(new Color(240, 240, 240));
+        wordLabel.setForeground(Color.BLACK);
         headerPanel.add(wordLabel);
 
         rootPanel.add(headerPanel);
@@ -89,7 +93,7 @@ public class SpellSuggestionPopup extends JWindow {
         if (issue.message != null && !issue.message.isBlank()) {
             JLabel descLabel = new JLabel(issue.message);
             descLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            descLabel.setForeground(new Color(190, 195, 200));
+            descLabel.setForeground(new Color(40, 40, 45));
             descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
             rootPanel.add(descLabel);
             rootPanel.add(Box.createVerticalStrut(8));
@@ -99,8 +103,8 @@ public class SpellSuggestionPopup extends JWindow {
         List<String> suggestions = issue.suggestions;
         if (suggestions != null && !suggestions.isEmpty()) {
             JLabel suggTitle = new JLabel("Suggestions :");
-            suggTitle.setFont(new Font("Segoe UI", Font.ITALIC, 11));
-            suggTitle.setForeground(new Color(160, 160, 165));
+            suggTitle.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            suggTitle.setForeground(new Color(60, 60, 65));
             suggTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
             rootPanel.add(suggTitle);
             rootPanel.add(Box.createVerticalStrut(4));
@@ -114,7 +118,7 @@ public class SpellSuggestionPopup extends JWindow {
         } else {
             JLabel noSugg = new JLabel("Aucune suggestion immédiate");
             noSugg.setFont(new Font("Segoe UI", Font.ITALIC, 11));
-            noSugg.setForeground(new Color(150, 150, 150));
+            noSugg.setForeground(new Color(110, 110, 115));
             noSugg.setAlignmentX(Component.LEFT_ALIGNMENT);
             rootPanel.add(noSugg);
             rootPanel.add(Box.createVerticalStrut(4));
@@ -129,7 +133,7 @@ public class SpellSuggestionPopup extends JWindow {
 
         JButton ignoreBtn = new JButton("Ignorer");
         ignoreBtn.setFont(new Font("Segoe UI", Font.PLAIN, 10));
-        ignoreBtn.setForeground(new Color(160, 160, 160));
+        ignoreBtn.setForeground(new Color(70, 70, 70));
         ignoreBtn.setContentAreaFilled(false);
         ignoreBtn.setBorderPainted(false);
         ignoreBtn.setFocusPainted(false);
@@ -148,13 +152,13 @@ public class SpellSuggestionPopup extends JWindow {
     }
 
     private JButton createSuggestionButton(String suggestion) {
-        JButton btn = new JButton("👉  " + suggestion);
+        JButton btn = new JButton(suggestion);
         btn.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        btn.setForeground(new Color(255, 255, 255));
-        btn.setBackground(new Color(45, 48, 55));
+        btn.setForeground(Color.BLACK);
+        btn.setBackground(new Color(240, 244, 250));
         btn.setFocusPainted(false);
         btn.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(75, 80, 95), 1),
+            BorderFactory.createLineBorder(new Color(190, 205, 225), 1),
             BorderFactory.createEmptyBorder(5, 10, 5, 10)
         ));
         btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
@@ -163,18 +167,20 @@ public class SpellSuggestionPopup extends JWindow {
         btn.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseEntered(MouseEvent e) {
-                btn.setBackground(new Color(24, 110, 180));
+                btn.setBackground(new Color(215, 232, 255));
+                btn.setForeground(Color.BLACK);
                 btn.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(new Color(50, 160, 240), 1),
+                    BorderFactory.createLineBorder(new Color(50, 140, 230), 1),
                     BorderFactory.createEmptyBorder(5, 10, 5, 10)
                 ));
             }
 
             @Override
             public void mouseExited(MouseEvent e) {
-                btn.setBackground(new Color(45, 48, 55));
+                btn.setBackground(new Color(240, 244, 250));
+                btn.setForeground(Color.BLACK);
                 btn.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(new Color(75, 80, 95), 1),
+                    BorderFactory.createLineBorder(new Color(190, 205, 225), 1),
                     BorderFactory.createEmptyBorder(5, 10, 5, 10)
                 ));
             }
