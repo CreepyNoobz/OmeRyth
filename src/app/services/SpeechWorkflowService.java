@@ -419,7 +419,7 @@ public class SpeechWorkflowService {
             File tempWav = new File(tempDir, "audio_" + System.currentTimeMillis() + ".wav");
             File resultJson = new File(tempDir, "result_" + System.currentTimeMillis() + ".json");
             String dateStr = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-            File reportFile = new File(videoFile.getParentFile(), "transcription_report_" + dateStr + ".json");
+            File reportFile = new File(tempDir, "report_" + dateStr + ".json");
 
             try {
                 // 1. Vérification FFmpeg & Python
@@ -583,6 +583,7 @@ public class SpeechWorkflowService {
                 }
                 if (tempWav != null && tempWav.exists()) tempWav.delete();
                 if (resultJson != null && resultJson.exists()) resultJson.delete();
+                if (reportFile != null && reportFile.exists()) reportFile.delete();
             }
         }).start();
     }

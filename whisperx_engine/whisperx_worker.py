@@ -451,6 +451,25 @@ FILLER_WORDS = {
     "uh", "um", "er"
 }
 
+# Mots-outils et mots de liaison courts qui ne doivent JAMAIS être étirés sur la bande rythmo
+# même si Whisper leur assigne une longue durée (artéfact de bégaiement ou timing imprécis)
+NEVER_PROLONGED = {
+    # prépositions
+    "sur", "de", "du", "des", "en", "à", "au", "aux", "par", "pour",
+    "dans", "avec", "sans", "sous", "vers", "chez", "entre", "contre",
+    # articles et déterminants
+    "le", "la", "les", "un", "une", "ce", "cet", "cette", "ces",
+    "mon", "ton", "son", "ma", "ta", "sa", "mes", "tes", "ses",
+    "notre", "votre", "leur", "nos", "vos", "leurs",
+    # pronoms courants
+    "il", "elle", "ils", "elles", "je", "tu", "on", "nous", "vous",
+    "se", "y", "lui", "me", "te",
+    # conjonctions
+    "et", "ou", "ni", "que", "qui", "si", "car",
+    # adverbes courts
+    "ne", "pas", "plus", "très", "bien",
+}
+
 def extract_local_pitch(audio_data, start_sec: float, end_sec: float, sr: int = 16000) -> float:
     """Estime rapidement le pitch F0 médian local sur une fenêtre temporelle restreinte."""
     if audio_data is None or sr <= 0 or end_sec <= start_sec:
@@ -555,9 +574,17 @@ def compute_rhythmic_separators(phrase_text: str, words: list) -> list:
         is_filler = (
             w_clean in FILLER_WORDS
             or bool(re.match(r"^(euh+|et+|hum+|ah+|oh+|mais+|ouais+|ben+|bah+)", w_clean))
+            or w_clean in {"comme", "commme", "commmme", "mais", "maiiis", "maiis", "donc", "genre", "voilà", "enfin", "alors"}
+            or bool(re.search(r"[.…]{2,}$", w_curr.get("word", "")))
         )
-        # Seul un vrai mot parasite est prolongé dès 0.35s. Un mot ordinaire ne l'est que s'il est très étiré (>= 0.85s)
-        is_prolonged = (is_filler and dur >= 0.35) or (dur >= 0.85)
+        # Seul un vrai mot parasite ou étiré est prolongé dès 0.35s.
+        # Les mots-outils (prépositions, articles, pronoms) ne sont JAMAIS étirés
+        # même si Whisper leur assigne une longue durée (artéfact de bégaiement).
+        # Un mot lexical ordinaire n'est étiré que s'il dure vraiment très longtemps (>= 1.3s).
+        is_never_prolonged = w_clean in NEVER_PROLONGED
+        is_prolonged = (not is_never_prolonged) and (
+            (is_filler and dur >= 0.35) or (dur >= 1.3)
+        )
 
         if is_prolonged:
             if i > 0 and word_spans[i - 1][0] < word_spans[i - 1][1]:
@@ -583,6 +610,53 @@ def compute_rhythmic_separators(phrase_text: str, words: list) -> list:
 
     separators.sort(key=lambda s: (s["split_index"], s["time"]))
     return separators
+
+
+def norm_word(w: str) -> str:
+    """Normalise un mot pour comparaison sans ponctuation ni casse."""
+    return re.sub(r'[\W_]+', '', str(w)).lower()
+
+
+def deduplicate_adjacent_words(words: list) -> list:
+    """
+    Élimine les dédoublements accidentels de tokens générés par Whisper
+    (ex: 'grand...' de 0.04s suivi de 'grand' de 0.12s), tout en préservant
+    scrupuleusement les vraies répétitions mot à mot délibérées (ex: 'très très', 'comme comme', 'on a, on a').
+    """
+    if not words or len(words) < 2:
+        return words
+    cleaned = []
+    i = 0
+    while i < len(words):
+        w = words[i]
+        if i < len(words) - 1:
+            w_next = words[i + 1]
+            t1 = norm_word(w.get("word", ""))
+            t2 = norm_word(w_next.get("word", ""))
+            dur1 = float(w.get("end", 0.0)) - float(w.get("start", 0.0))
+            dur2 = float(w_next.get("end", 0.0)) - float(w_next.get("start", 0.0))
+            gap = float(w_next.get("start", 0.0)) - float(w.get("end", 0.0))
+
+            if t1 and t2 and t1 == t2:
+                # Si l'un des deux mots consécutifs identiques est un micro-fragment (< 0.09s)
+                # et qu'ils sont contigus (< 0.15s), c'est une fausse répétition (artéfact acoustique/token)
+                if min(dur1, dur2) < 0.09 and gap < 0.15:
+                    chosen_word = w_next.get("word", "")
+                    if chosen_word.endswith("...") or chosen_word.endswith("…"):
+                        chosen_word = w.get("word", "").rstrip(".…")
+                    if not chosen_word:
+                        chosen_word = w_next.get("word", "").rstrip(".…")
+                    merged_word = {
+                        "word": chosen_word,
+                        "start": min(float(w["start"]), float(w_next["start"])),
+                        "end": max(float(w["end"]), float(w_next["end"]))
+                    }
+                    cleaned.append(merged_word)
+                    i += 2
+                    continue
+        cleaned.append(w)
+        i += 1
+    return cleaned
 
 
 def segment_words_into_clean_phrases(words: list, silence_intervals: list = None, pause_threshold: float = 0.28, lang: str = "fr", audio_data=None, sr: int = 16000) -> list:
@@ -685,7 +759,13 @@ def segment_words_into_clean_phrases(words: list, silence_intervals: list = None
                        has_acoustic_pitch_jump or \
                        split_long_phrase
 
+        # Répétition mot à mot (ex: comme... comme, on a, on a, qu'on va, qu'on va) : ne jamais couper en deux répliques distinctes
+        is_word_repetition = (norm_word(w_text) == norm_word(prev_word_text) and len(norm_word(w_text)) >= 2)
+        if is_word_repetition and gap < 0.65 and (phrase_duration + gap) <= 6.5:
+            should_split = False
+
         if should_split:
+
             phrase_end = prev_end
             if current_words:
                 phrase_start = float(current_words[0].get("start", phrase_start))
@@ -1172,7 +1252,89 @@ def merge_consecutive_same_speaker_phrases(phrases: list, silence_intervals: lis
     return merged
 
 
+ORPHAN_CONNECTORS = {
+    "et", "mais", "ou", "donc", "or", "ni", "car", "si", "que", "qui", "qu", "c", "d", "l", "j", "on"
+}
+
+
+def resolve_orphan_phrases(phrases: list, max_duration: float = 6.5) -> list:
+    """
+    Élimine les répliques orphelines (ex: 'Et' isolé de 0.16s entre deux pauses).
+    Une réplique constituée d'un seul mot de liaison / connecteur est rattachée :
+    - soit à la phrase précédente (si le gap précédent est plus court ou égal au gap suivant),
+    - soit à la phrase suivante (si le gap suivant est plus court),
+    à condition d'appartenir au même locuteur et de ne pas dépasser max_duration.
+    """
+    if not phrases or len(phrases) < 2:
+        return phrases
+
+    changed = True
+    iteration = 0
+    while changed and iteration < 5:
+        changed = False
+        iteration += 1
+        new_phrases = []
+        i = 0
+        while i < len(phrases):
+            p = phrases[i]
+            p_words = p.get("words", [])
+            p_text = norm_word(p.get("text", ""))
+            is_single_word = len(p_words) == 1
+            is_connector = p_text in ORPHAN_CONNECTORS or (len(p_words) == 1 and norm_word(p_words[0].get("word", "")) in ORPHAN_CONNECTORS)
+            is_short = (p["end"] - p["start"]) < 0.60
+
+            if is_single_word and is_connector and is_short:
+                has_prev = len(new_phrases) > 0
+                has_next = (i < len(phrases) - 1)
+                prev_p = new_phrases[-1] if has_prev else None
+                next_p = phrases[i + 1] if has_next else None
+
+                same_spk_prev = prev_p is not None and prev_p.get("speaker") == p.get("speaker")
+                same_spk_next = next_p is not None and next_p.get("speaker") == p.get("speaker")
+
+                gap_prev = (p["start"] - prev_p["end"]) if same_spk_prev else 999.0
+                gap_next = (next_p["start"] - p["end"]) if same_spk_next else 999.0
+
+                attach_to = None
+                if same_spk_prev and (p["end"] - prev_p["start"]) <= max_duration:
+                    if not same_spk_next or gap_prev <= gap_next:
+                        attach_to = "prev"
+                if attach_to is None and same_spk_next:
+                    if (next_p["end"] - p["start"]) <= max_duration:
+                        attach_to = "next"
+
+                if attach_to == "prev":
+                    p_text_raw = p.get("text", "").strip()
+                    word_clean = p_text_raw.lower() if p_text_raw.lower() in ORPHAN_CONNECTORS else p_text_raw
+                    prev_text = prev_p["text"].rstrip()
+                    if not prev_text.endswith(",") and not prev_text.endswith(";"):
+                        prev_p["text"] = f"{prev_text}, {word_clean}"
+                    else:
+                        prev_p["text"] = f"{prev_text} {word_clean}"
+                    prev_p["end"] = p["end"]
+                    prev_p["words"] = prev_p.get("words", []) + p_words
+                    changed = True
+                    i += 1
+                    continue
+                elif attach_to == "next":
+                    p_text_raw = p.get("text", "").strip()
+                    word_clean = p_text_raw.capitalize()
+                    next_p["start"] = p["start"]
+                    next_p["text"] = (word_clean + " " + next_p["text"]).strip()
+                    next_p["words"] = p_words + next_p.get("words", [])
+                    changed = True
+                    i += 1
+                    continue
+
+            new_phrases.append(p)
+            i += 1
+        phrases = new_phrases
+
+    return phrases
+
+
 # ─────────────────────────────────────────────────────────
+
 # Main transcription pipeline
 # ─────────────────────────────────────────────────────────
 
@@ -1252,8 +1414,8 @@ def main():
     batch_size = max(1, min(args.batch_size, 32))
 
     # Prompt initial naturel optimisé pour le doublage et la bande rythmo :
-    # Guide le style sans métadonnées pour préserver fidèlement toutes les répétitions et hésitations réelles
-    initial_prompt_text = "Qu'on va, qu'on va régler, on a, on a un pays, et euh... je demande pas, comme... comme ça me correspond."
+    # Guide le style sans métadonnées pour préserver fidèlement toutes les répétitions et hésitations réelles sans induire de faux bégaiements
+    initial_prompt_text = "Transcription fidèle pour bande rythmo et doublage. Conserver absolument toutes les répétitions mot à mot, hésitations et bégaiements réels du comédien : qu'on va, qu'on va régler, on a, on a un pays, et euh... comme... comme ça me correspond."
 
     # Décodage haute précision optimisé pour le doublage et la bande rythmo :
     # vad_filter=False : transmission intégrale du flux audio sans suppression de chunks Silero VAD,
@@ -1404,12 +1566,14 @@ def main():
                 w1 = collected_words[i]
                 w2 = collected_words[i + 1]
                 gap = float(w2["start"]) - float(w1["end"])
-                if gap >= 0.35:
+                # Seuil plus élevé (0.50s) pour éviter les hallucinations sur les courts silences inter-mots
+                # Un gap de 0.35s-0.49s est souvent un bégaiement ou une hésitation naturelle, pas un mot manquant
+                if gap >= 0.50:
                     s_idx = int(float(w1["end"]) * audio_sr)
                     e_idx = int(float(w2["start"]) * audio_sr)
                     chunk = audio_data[s_idx:e_idx]
                     chunk_rms = np.sqrt(np.mean(chunk ** 2)) if len(chunk) > 0 else 0.0
-                    if chunk_rms >= 0.02 and (len(chunk) / audio_sr) >= 0.20:
+                    if chunk_rms >= 0.025 and (len(chunk) / audio_sr) >= 0.25:
                         try:
                             gap_segs, _ = mdl.transcribe(
                                 chunk,
@@ -1424,10 +1588,14 @@ def main():
                                     if w_txt and any(c.isalnum() for c in w_txt):
                                         act_start = round(float(w1["end"]) + float(gw.start), 2)
                                         act_end = round(float(w1["end"]) + float(gw.end), 2)
-                                        # Éviter de dupliquer un mot identique si l'horodatage chevauche déjà le mot précédent ou suivant
-                                        if w_txt.lower() == w1.get("word", "").lower().strip() and abs(act_start - float(w1["end"])) < 0.15:
+                                        w_dur = act_end - act_start
+                                        if w_dur < 0.08:
                                             continue
-                                        if w_txt.lower() == w2.get("word", "").lower().strip() and abs(act_end - float(w2["start"])) < 0.15:
+                                        # Éviter de dupliquer un mot identique si l'horodatage chevauche déjà le mot précédent ou suivant (uniquement si micro-fragment < 0.15s)
+                                        n_txt = norm_word(w_txt)
+                                        if n_txt == norm_word(w1.get("word", "")) and abs(act_start - float(w1["end"])) < 0.18 and w_dur < 0.15:
+                                            continue
+                                        if n_txt == norm_word(w2.get("word", "")) and abs(act_end - float(w2["start"])) < 0.18 and w_dur < 0.15:
                                             continue
                                         recovered_entries.append({
                                             "insert_after": i,
@@ -1444,7 +1612,10 @@ def main():
                     collected_words.insert(entry["insert_after"] + 1, entry["word"])
                 collected_words.sort(key=lambda w: w["start"])
 
+        # Élimination des micro-dédoublements de tokens accidentels (< 0.09s)
+        collected_words = deduplicate_adjacent_words(collected_words)
         return collected_words, det_lang, raw_count
+
 
     all_words = []
     detected_lang = lang_param or "fr"
@@ -1518,6 +1689,10 @@ def main():
 
     # ── 3. Fusion des micro-fragments contigus d'un même personnage (< 0.15s sans silence) ──
     phrases = merge_consecutive_same_speaker_phrases(phrases, silence_intervals=silence_intervals, max_gap=0.15, max_duration=6.5, max_words=25)
+
+    # ── 3b. Rattachement des mots de liaison orphelins (ex: 'Et' isolé de 0.16s entre deux répliques) ──
+    phrases = resolve_orphan_phrases(phrases, max_duration=6.5)
+
 
     # Filtrer rigoureusement toute réplique vide ou ne contenant aucun caractère alphanumérique
     phrases = [p for p in phrases if p.get("text") and any(c.isalnum() for c in p["text"])]
