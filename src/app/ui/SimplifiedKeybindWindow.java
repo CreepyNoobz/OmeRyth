@@ -53,7 +53,7 @@ public class SimplifiedKeybindWindow extends JDialog {
             {owner.getKeyText(owner.getAvanceMSKeyCode()), "Avancer de 0.5s"},
             {owner.getKeyText(owner.getReculerMSKeyCode()), "Reculer de 0.5s"},
             {owner.getKeyText(owner.getRetourDebutKeyCode()), "Retour au début de la vidéo"},
-            {owner.getKeyText(owner.getSeparateurKeyCode()), "Ajouter un séparateur de plan"},
+            {owner.getKeyText(owner.getSeparateurKeyCode()), "Ajouter un séparateur de texte rythmo"},
             {"Ctrl+Z", "Annuler la dernière action"},
             {"Ctrl+Y", "Rétablir l'action annulée"}
         };

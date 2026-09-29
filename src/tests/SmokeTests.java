@@ -1341,6 +1341,87 @@ public class SmokeTests {
             System.out.println("Vérification persistance keyboardLayout : VALIDÉ !");
         }
 
+        // Test Signes, Curseur Gauche/Droite, Non-Suppression de Signe & Glissement de Lettres
+        {
+            app.ui.TextManager tm = new app.ui.TextManager();
+            app.ui.TextItem item = new app.ui.TextItem("Bonjour", 100, 0);
+            tm.getTexts().add(item);
+            tm.addSeparator(0, 100, app.ui.SeparatorMark.Type.START);
+            tm.addSeparator(0, 150, app.ui.SeparatorMark.Type.INNER);
+            tm.addSeparator(0, 200, app.ui.SeparatorMark.Type.END);
+            
+            // Forcer splitIndex = 3 ("Bon" | "jour")
+            tm.getBandSeparators().get(0).get(1).splitIndex = 3;
+
+            tm.startEditingExistingText(item, 4); // Juste après 'j' (splitIndex + 1)
+            
+            // 1. Supprimer la première lettre à droite du signe avec Backspace
+            tm.deleteChar();
+            assertTrue("Bonour".equals(item.text), "Le 'j' doit être supprimé");
+            assertTrue(tm.getCursorIndex() == 3, "Le curseur doit être à l'index 3 (au niveau du signe)");
+            assertTrue(tm.isCursorRightSide(), "Le curseur doit rester sur le CÔTÉ DROIT du signe après suppression de la première lettre à droite");
+            assertTrue(tm.getBandSeparators().get(0).size() == 3, "Le signe INNER ne doit PAS être supprimé lors de la suppression d'une lettre !");
+
+            // 1.b. Règle stricte : Juste à côté droit du signe, Backspace ne supprime PAS le côté gauche (supprime rien)
+            tm.deleteChar();
+            assertTrue("Bonour".equals(item.text), "Backspace juste à droite du signe ne doit rien supprimer du tout (texte inchangé)");
+            assertTrue(tm.getCursorIndex() == 3 && tm.isCursorRightSide(), "Le curseur doit rester à droite du signe");
+
+            // 1.c. Basculement vers la gauche avec flèche gauche
+            tm.moveCursor(-1);
+            assertTrue(tm.getCursorIndex() == 3 && !tm.isCursorRightSide(), "La flèche gauche bascule le curseur sur le côté GAUCHE du signe");
+
+            // 1.d. Règle stricte : Juste à côté gauche du signe, Delete (deleteForward) ne supprime PAS le côté droit
+            tm.deleteForward();
+            assertTrue("Bonour".equals(item.text), "Delete juste à gauche du signe ne doit rien supprimer du côté droit");
+
+            // 1.e. Basculement vers la droite avec flèche droite
+            tm.moveCursor(1);
+            assertTrue(tm.getCursorIndex() == 3 && tm.isCursorRightSide(), "La flèche droite rebascule sur le côté DROIT du signe");
+
+            // 2. Supprimer la première lettre à droite avec Delete (deleteForward)
+            tm.deleteForward(); // Supprime 'o'
+            assertTrue("Bonur".equals(item.text), "Le 'o' doit être supprimé");
+            assertTrue(tm.getCursorIndex() == 3, "Le curseur reste à l'index 3");
+            assertTrue(tm.isCursorRightSide(), "Le curseur doit rester sur le CÔTÉ DROIT après deleteForward");
+            assertTrue(tm.getBandSeparators().get(0).size() == 3, "Le signe INNER ne doit toujours PAS être supprimé !");
+
+            // 3. Glissement des lettres à travers le signe (shiftInnerSepTextBy)
+            tm.shiftInnerSepTextBy(0, 150, 1);
+            assertTrue(tm.getBandSeparators().get(0).get(1).splitIndex == 4, "Glisser vers la droite doit incrémenter splitIndex à 4 ('Bonu' | 'r')");
+            tm.shiftInnerSepTextBy(0, 150, -2);
+            assertTrue(tm.getBandSeparators().get(0).get(1).splitIndex == 2, "Glisser vers la gauche doit décrémenter splitIndex à 2 ('Bo' | 'nur')");
+
+            // 4. Test clic à gauche vs clic à droite du signe
+            // Le signe est à x=150 dans le monde. Clic à x=146 (gauche) vs x=154 (droite) avec offsetX=0
+            int idxLeft = tm.getCursorIndexForClick(item, 146, 0);
+            boolean sideLeft = tm.isCursorRightSide();
+            int idxRight = tm.getCursorIndexForClick(item, 154, 0);
+            boolean sideRight = tm.isCursorRightSide();
+            assertTrue(idxLeft == 2 && !sideLeft, "Clic à gauche du signe doit positionner le curseur à gauche (cursorRightSide = false)");
+            assertTrue(idxRight == 2 && sideRight, "Clic à droite du signe doit positionner le curseur à droite (cursorRightSide = true)");
+
+            System.out.println("Vérification Signes & Curseur (Non-suppression, Côté droit préservé, Glissement naturel) : VALIDÉ !");
+        }
+
+        // Test Touche Échap en mode édition de texte
+        {
+            TimelinePanel tl = new TimelinePanel();
+            tl.setSize(900, 260);
+            app.ui.TextItem testItem = new app.ui.TextItem("TestEchap", 100, 0);
+            tl.getTextManager().getTexts().add(testItem);
+            tl.getTextManager().startEditingExistingText(testItem, 4);
+            assertTrue(tl.isEditing(), "Le mode édition doit être actif");
+
+            // Simuler l'appui sur Échap via KeyBoardListener
+            app.utils.KeyBoardListener kbl = new app.utils.KeyBoardListener(tl);
+            KeyEvent escEvent = new KeyEvent(tl, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, KeyEvent.VK_ESCAPE, KeyEvent.CHAR_UNDEFINED);
+            boolean handled = kbl.dispatchKeyEvent(escEvent);
+            assertTrue(handled, "La touche Échap doit être interceptée et traitée");
+            assertTrue(!tl.isEditing(), "L'appui sur Échap doit immédiatement quitter le mode édition");
+            System.out.println("Vérification Sortie du mode édition avec Échap : VALIDÉ !");
+        }
+
         System.out.println("SmokeTests OK");
         System.exit(0);
     }

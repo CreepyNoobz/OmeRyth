@@ -88,8 +88,8 @@ public class KeybindWindow extends JDialog {
         reculeMSButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("reculerMSCode", "37"))));
         retourDebutButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("retourDebutCode", "82"))));
         separateurButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("separateurKeyCode", "77"))));
-        zoomInButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("zoomInCode", "107"))));
-        zoomOutButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("zoomOutCode", "109"))));
+        zoomInButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("zoomInCode", String.valueOf(KeyEvent.VK_EQUALS)))));
+        zoomOutButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("zoomOutCode", String.valueOf(KeyEvent.VK_MINUS)))));
         finPhraseButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("finPhraseCode", "99"))));
         signeMpbButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("signeMpbCode", "100"))));
         signeFvrButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("signeFvrCode", "101"))));

@@ -111,7 +111,14 @@ def format_timecode(seconds: float) -> str:
     secs = int(seconds % 60)
     millis = int(round((seconds - int(seconds)) * 1000))
     if millis >= 1000:
-        millis = 999
+        millis -= 1000
+        secs += 1
+        if secs >= 60:
+            secs -= 60
+            minutes += 1
+            if minutes >= 60:
+                minutes -= 60
+                hours += 1
     return f"{hours:02}:{minutes:02}:{secs:02}.{millis:03}"
 
 
@@ -206,9 +213,9 @@ def clean_text(raw: str, lang: str = "fr") -> str:
     # 1. Supprimer les annotations parasites entre crochets/parenthèses [Musique], (Rires), etc.
     text = _BRACKET_RE.sub("", text)
 
-    # 1b. Éliminer toute fuite accidentelle de métadonnées ou de consignes
-    for leak in ["transcription fidèle", "bande rythmo", "doublage", "conserver impérativement", "bégaiements exacts"]:
-        text = re.sub(re.escape(leak), "", text, flags=re.IGNORECASE)
+    # 1b. Éliminer toute fuite accidentelle de métadonnées ou de consignes explicites
+    for leak in ["transcription fidèle", "conserver impérativement", "bégaiements exacts"]:
+        text = re.sub(rf"(?:^|\b){re.escape(leak)}(?:\b|$)", "", text, flags=re.IGNORECASE)
 
     # 2. Supprimer uniquement les boucles d'hallucination réelles Whisper (>= 4 mots ou >= 3 phrases)
     text = _REPEATED_WORD_LOOP_RE.sub(r"\1 \1", text)
@@ -231,8 +238,15 @@ def clean_text(raw: str, lang: str = "fr") -> str:
     text = text.replace("...", "…")
     text = re.sub(r"\.{2,}", "…", text)
 
-    # 6. Guillemets
-    text = text.replace('"', "« ").replace('"', " »").replace('"', "« ")
+    # 6. Guillemets français alternés (« ouvrants et » fermants)
+    quote_parts = text.split('"')
+    if len(quote_parts) > 1:
+        reconstructed = []
+        for q_idx, part in enumerate(quote_parts):
+            reconstructed.append(part)
+            if q_idx < len(quote_parts) - 1:
+                reconstructed.append("« " if q_idx % 2 == 0 else " »")
+        text = "".join(reconstructed)
 
     # 7. Suppression des symboles musicaux ou de bruit isolés (♪, ♫, *, _, #)
     text = re.sub(r"[♪♫\*_~#\^]+", " ", text)
@@ -1085,22 +1099,34 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
             log_pitch = np.log2(max(50.0, med_pitch) / 55.0)
             log_iqr = np.log2(max(1.0, iqr_pitch) / 10.0)
 
-            # MFCCs globaux (timbre et conduit vocal)
+            # MFCCs complets (enveloppe du conduit vocal)
             mfcc_mean, mfcc_std = extract_mfcc_stats(y, target_sr=target_sr, n_mfcc=13, n_fft=512, hop_len=160, n_mels=40)
 
-            # Brillance et centroïde spectral
+            # Brillance, roll-off et centroïde spectral
             spec = np.abs(np.fft.rfft(y))
             freqs = np.fft.rfftfreq(len(y), 1.0 / target_sr)
             spec_sum = np.sum(spec) + 1e-9
             centroid = np.sum(freqs * spec) / spec_sum
             norm_centroid = centroid / 4000.0
 
+            # Spectral roll-off (85% de l'énergie cumulée)
+            cum_spec = np.cumsum(spec)
+            rolloff_idx = np.searchsorted(cum_spec, 0.85 * spec_sum)
+            norm_rolloff = float(freqs[min(rolloff_idx, len(freqs) - 1)]) / 4000.0
+
+            # Ratio d'énergie bas/haut (résonance trachéale/buccale distincte entre individus)
+            low_energy = np.sum(spec[(freqs >= 100.0) & (freqs < 1000.0)]) + 1e-9
+            mid_energy = np.sum(spec[(freqs >= 1000.0) & (freqs < 4000.0)]) + 1e-9
+            energy_ratio = float(np.clip(np.log2(low_energy / mid_energy), -3.0, 3.0))
+
             feat = np.hstack([
                 [log_pitch],
                 [log_iqr],
                 [norm_centroid],
-                mfcc_mean[:8],
-                mfcc_std[:4]
+                [norm_rolloff],
+                [energy_ratio],
+                mfcc_mean,
+                mfcc_std[:6]
             ])
             features.append(feat)
 
@@ -1108,15 +1134,18 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
         scaler = StandardScaler()
         X_norm = scaler.fit_transform(X)
 
-        # Pondération appliquée APRÈS StandardScaler pour que le pitch et le timbre dominent
-        # et que les variations de phonèmes (voyelles différentes d'une phrase à l'autre) soient atténuées :
+        # Pondération ciblée : pitch (hauteur), résonance (low/mid ratio) et conduit vocal (MFCC 0-3)
+        # sont prioritaires sur les variations phonétiques (MFCC 4+)
         # - col 0 (log_pitch): 3.5
-        # - col 1 (log_iqr): 1.5
+        # - col 1 (log_iqr): 1.2
         # - col 2 (norm_centroid): 1.5
-        # - col 3-6 (mfcc_mean 0-3): 1.2 chacun (enveloppe du conduit vocal)
-        # - col 7-10 (mfcc_mean 4-7): 0.4 chacun (phonèmes atténués)
-        # - col 11-14 (mfcc_std): 0.3 chacun
-        weights = np.array([3.5, 1.5, 1.5] + [1.2] * 4 + [0.4] * 4 + [0.3] * 4)
+        # - col 3 (norm_rolloff): 1.5
+        # - col 4 (energy_ratio): 2.2
+        # - col 5-8 (mfcc_mean 0-3): 1.8 chacun (conduit vocal)
+        # - col 9-13 (mfcc_mean 4-8): 0.8 chacun
+        # - col 14-17 (mfcc_mean 9-12): 0.4 chacun
+        # - col 18-23 (mfcc_std 0-5): 0.3 chacun
+        weights = np.array([3.5, 1.2, 1.5, 1.5, 2.2] + [1.8] * 4 + [0.8] * 5 + [0.4] * 4 + [0.3] * 6)
         X_weighted = X_norm * weights
 
         if num_speakers > 1:
@@ -1124,7 +1153,7 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
         else:
             # Mode Auto-détection : sélection optimale et robuste du nombre de personnages
             from sklearn.metrics import silhouette_score
-            max_candidates = min(8, max(2, len(phrases) // 2))
+            max_candidates = min(6, max(2, len(phrases) // 2))
             best_k = 1
             best_score = -1.0
             best_labels = None
@@ -1135,9 +1164,9 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
                     labels = cl.fit_predict(X_weighted)
 
                     # Validation des tailles de cluster : un vrai personnage a au moins 2 répliques
-                    # et au moins 8% des interventions du fichier
+                    # et au moins 10% des interventions du fichier
                     unique, counts = np.unique(labels, return_counts=True)
-                    if min(counts) < 2 or (min(counts) / len(phrases)) < 0.08:
+                    if min(counts) < 2 or (min(counts) / len(phrases)) < 0.10:
                         continue
 
                     score = float(silhouette_score(X_weighted, labels))
@@ -1148,10 +1177,10 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
                 except Exception:
                     pass
 
-            # Validation stricte du seuil de séparation multi-locuteurs :
-            # Un score < 0.32 correspond à un locuteur unique avec intonation naturelle.
-            if best_k >= 2 and best_score >= 0.32 and best_labels is not None:
-                # Vérification de l'écart acoustique réel entre les deux principaux groupes
+            # Validation stricte multi-locuteurs :
+            # Différencie à la fois les voix de hauteur différente (homme/femme) ET les voix de même hauteur (deux hommes ou deux femmes)
+            if best_k >= 2 and best_score >= 0.30 and best_labels is not None:
+                # Écart de hauteur vocale (pitch)
                 cl0_p = [p_med_list[i] for i in range(len(phrases)) if best_labels[i] == 0 and has_pitch_list[i] > 0]
                 cl1_p = [p_med_list[i] for i in range(len(phrases)) if best_labels[i] == 1 and has_pitch_list[i] > 0]
 
@@ -1162,13 +1191,13 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
                 c0 = np.mean(X_weighted[best_labels == 0], axis=0)
                 c1 = np.mean(X_weighted[best_labels == 1], axis=0)
                 centroid_dist = float(np.linalg.norm(c0 - c1))
+                timbre_dist = float(np.linalg.norm(c0[2:] - c1[2:]))
 
-                # Pour confirmer 2+ locuteurs en mode automatique :
-                # Une même personne module naturellement sa voix de 5 à 12 Hz.
-                # Deux personnes distinctes présentent :
-                # - Soit un écart net de hauteur vocale (delta_pitch >= 20.0 Hz avec indice >= 0.32)
-                # - Soit une différence de pitch modérée (delta_pitch >= 12.0 Hz) couplée à une séparation spectrale marquée (indice >= 0.45)
-                if (delta_pitch >= 20.0 and best_score >= 0.32) or (delta_pitch >= 12.0 and best_score >= 0.45 and centroid_dist >= 4.0):
+                # Confirmation multi-personnages :
+                # Condition 1: Séparation de registre vocal (delta_pitch >= 24 Hz, indice >= 0.30)
+                # Condition 2: Séparation de timbre marqué même sans écart de pitch (timbre_dist >= 3.6, indice >= 0.38, centroid_dist >= 3.2)
+                if (delta_pitch >= 24.0 and best_score >= 0.30 and centroid_dist >= 2.5) or \
+                   (timbre_dist >= 3.6 and best_score >= 0.38 and centroid_dist >= 3.2):
                     target_k = best_k
                 else:
                     target_k = 1
@@ -1183,7 +1212,15 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
             return phrases
 
         clusterer = KMeans(n_clusters=target_k, random_state=42, n_init=20)
-        raw_labels = clusterer.fit_predict(X_weighted)
+        raw_labels = list(clusterer.fit_predict(X_weighted))
+
+        # Lissage temporel : élimine les faux micro-sauts isolés (< 1.2s) au milieu d'un même intervenant
+        for i in range(1, len(phrases) - 1):
+            if raw_labels[i] != raw_labels[i - 1] and raw_labels[i - 1] == raw_labels[i + 1]:
+                dur = phrases[i]["end"] - phrases[i]["start"]
+                gap = phrases[i]["start"] - phrases[i - 1]["end"]
+                if dur < 1.2 and gap < 0.4:
+                    raw_labels[i] = raw_labels[i - 1]
 
         # Réassignation chronologique (premier intervenant entendu = SPEAKER_00)
         label_map = {}

@@ -50,6 +50,10 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
     private boolean skipNextTyped = false;
     private TimelinePanel timelinePanel;
     
+    public KeyBoardListener(TimelinePanel panel) {
+        this.timelinePanel = panel;
+    }
+
     public KeyBoardListener(
         TimelinePanel panel,
         TimerClass timer,
@@ -148,8 +152,8 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
     }
 
     public boolean dispatchKeyEvent(KeyEvent e) {
-        // ★ Séparateur standard (M ou configuré)
-        if (e.getKeyCode() == separateurKeyCode) {
+        // ★ Séparateur standard (M ou configuré) — inactif pendant l'édition de texte pour permettre la frappe de 'M' / 'm'
+        if (e.getKeyCode() == separateurKeyCode && !timelinePanel.isEditing()) {
             skipNextTyped = true;
             int band = timelinePanel.getSelectedBand();
             if (band < 0) {
@@ -369,11 +373,8 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
             }
 
             if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                if (timelinePanel.hasSelection()) {
-                    timelinePanel.clearSelection();
-                } else {
-                    timelinePanel.stopTyping();
-                }
+                timelinePanel.stopTyping();
+                skipNextTyped = true;
                 e.consume();
                 return true;
             }

@@ -121,8 +121,6 @@ public class TimerClass extends JPanel {
         if (timer.isRunning()) {
             if (direction == requestedDirection) {
                 timer.stop();
-                // À la mise en pause, troncature au dixième inférieur (ex: 1.32s -> 1.30s)
-                time = Math.floor(time * 10.0) / 10.0;
                 startRythmoTime = time;
                 timerLabel.setText(format());
                 timeline.setTime(time);

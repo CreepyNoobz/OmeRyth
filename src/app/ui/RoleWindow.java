@@ -192,8 +192,25 @@ public class RoleWindow extends JDialog {
                         "Voulez-vous vraiment supprimer le rôle « " + toRemove.name + " » ?",
                         "Confirmation de suppression", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                 if (rep == JOptionPane.YES_OPTION) {
+                    Window owner = getOwner();
+                    app.ui.TimelinePanel tp = null;
+                    if (owner instanceof app.MainFenetre mf) {
+                        tp = mf.getTimelinePanel();
+                    }
+                    if (tp != null) {
+                        tp.recordUndoSnapshot();
+                    }
                     roles.remove(idx);
                     listModel.remove(idx);
+                    if (tp != null && tp.getTextManager() != null) {
+                        for (app.ui.TextItem item : tp.getTextManager().getTexts()) {
+                            if (item.role != null && (item.role == toRemove || item.role.name.equalsIgnoreCase(toRemove.name))) {
+                                item.role = null;
+                            }
+                        }
+                        tp.markDirty();
+                        tp.repaint();
+                    }
                     updateListVisibility();
                     if (!listModel.isEmpty()) {
                         roleList.setSelectedIndex(Math.max(0, idx - 1));

@@ -276,7 +276,7 @@ public class TimelinePanel extends JPanel {
                 if (shiftingText) {
                     // Clic gauche seul sur INNER : transfère des caractères sans bouger le symbole
                     int pointerX = newWorldX;
-                    int delta = shiftingPointerPrevX - pointerX;
+                    int delta = pointerX - shiftingPointerPrevX;
                     dragPixelAccum += delta;
                     shiftingPointerPrevX = pointerX;
                     double ratio = (double) dragPixelAccum / Math.max(1, pixelsPerChar);
@@ -1061,10 +1061,27 @@ public class TimelinePanel extends JPanel {
         }
     }
 
+    private boolean typingSessionActive = false;
+    private long lastTypingSessionTime = 0L;
+
+    /**
+     * Enregistre un instantané d'annulation uniquement au début d'une session de frappe
+     * ou après une pause significative (> 1,5 seconde), évitant ainsi d'inonder la pile
+     * d'annulation avec chaque caractère individuel et de perdre l'historique précédent.
+     */
+    private void recordTypingUndoIfNeeded() {
+        long now = System.currentTimeMillis();
+        if (!typingSessionActive || (now - lastTypingSessionTime > 1500)) {
+            recordUndoSnapshot();
+            typingSessionActive = true;
+        }
+        lastTypingSessionTime = now;
+    }
+
     /** Insère un caractère dans la phrase en cours d'édition (avec support complet des accents et de l'historique d'annulation). */
     public void typeChar(char c) {
         if (!textManager.isEditing()) return;
-        recordUndoSnapshot();
+        recordTypingUndoIfNeeded();
         onTypingActivity();
         textManager.typeChar(c);
         resetCaretBlink();
@@ -1102,7 +1119,7 @@ public class TimelinePanel extends JPanel {
     /** Supprime le caractère situé immédiatement avant le curseur (touche Retour arrière / Backspace). */
     public void deleteChar() {
         if (!textManager.isEditing()) return;
-        recordUndoSnapshot();
+        recordTypingUndoIfNeeded();
         onTypingActivity();
         textManager.deleteChar();
         resetCaretBlink();
@@ -1112,7 +1129,7 @@ public class TimelinePanel extends JPanel {
     /** Supprime le mot précédent situé avant le curseur (raccourci Ctrl+Backspace). */
     public void deleteWord() {
         if (!textManager.isEditing()) return;
-        recordUndoSnapshot();
+        recordTypingUndoIfNeeded();
         onTypingActivity();
         textManager.deleteWord();
         resetCaretBlink();
@@ -1121,6 +1138,7 @@ public class TimelinePanel extends JPanel {
 
     /** Quitte le mode édition et masque le curseur clignotant. */
     public void stopTyping() {
+        typingSessionActive = false;
         lastTypingTimestamp = 0L;
         textManager.stopTyping();
         caretVisible = false;
@@ -1177,7 +1195,7 @@ public class TimelinePanel extends JPanel {
 
     public void deleteForward() {
         if (!textManager.isEditing()) return;
-        recordUndoSnapshot();
+        recordTypingUndoIfNeeded();
         onTypingActivity();
         textManager.deleteForward();
         resetCaretBlink();
@@ -1248,14 +1266,17 @@ public class TimelinePanel extends JPanel {
         int popupX = (int) (panelLoc.x + issue.screenStartX);
         int popupY = (int) (panelLoc.y + issue.screenY + issue.screenHeight + 4);
 
-        Dimension screenDim = Toolkit.getDefaultToolkit().getScreenSize();
-        if (popupY + 160 > screenDim.height) {
-            popupY = Math.max(10, (int) (panelLoc.y + issue.screenY - 160));
+        Rectangle screenBounds = (parentWin != null && parentWin.getGraphicsConfiguration() != null)
+                ? parentWin.getGraphicsConfiguration().getBounds()
+                : new Rectangle(Toolkit.getDefaultToolkit().getScreenSize());
+
+        if (popupY + 160 > screenBounds.y + screenBounds.height) {
+            popupY = Math.max(screenBounds.y + 10, (int) (panelLoc.y + issue.screenY - 160));
         }
-        if (popupX + 260 > screenDim.width) {
-            popupX = Math.max(10, screenDim.width - 270);
+        if (popupX + 260 > screenBounds.x + screenBounds.width) {
+            popupX = Math.max(screenBounds.x + 10, screenBounds.x + screenBounds.width - 270);
         }
-        if (popupX < 10) popupX = 10;
+        if (popupX < screenBounds.x + 10) popupX = screenBounds.x + 10;
 
         spellSuggestionPopup.showProgressive(new Point(popupX, popupY));
     }

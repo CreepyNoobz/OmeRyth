@@ -622,7 +622,7 @@ public class SpeechWorkflowService {
             if (wordsIdx != -1) {
                 int arrStart = jsonStr.indexOf('[', wordsIdx);
                 if (arrStart != -1) {
-                    int arrEnd = jsonStr.indexOf(']', arrStart);
+                    int arrEnd = findJsonArrayEnd(jsonStr, arrStart);
                     if (arrEnd != -1) {
                         String wordsArrayStr = jsonStr.substring(arrStart, arrEnd + 1);
                         Matcher objM = Pattern.compile("\\{([^}]+)\\}").matcher(wordsArrayStr);
@@ -664,7 +664,7 @@ public class SpeechWorkflowService {
             if (sepsIdx != -1) {
                 int arrStart = jsonStr.indexOf('[', sepsIdx);
                 if (arrStart != -1) {
-                    int arrEnd = jsonStr.indexOf(']', arrStart);
+                    int arrEnd = findJsonArrayEnd(jsonStr, arrStart);
                     if (arrEnd != -1) {
                         String sepsArrayStr = jsonStr.substring(arrStart, arrEnd + 1);
                         Matcher objM = Pattern.compile("\\{([^}]+)\\}").matcher(sepsArrayStr);
@@ -735,9 +735,40 @@ public class SpeechWorkflowService {
         return list;
     }
 
+    private static int findJsonArrayEnd(String json, int startBracketIdx) {
+        if (json == null || startBracketIdx < 0 || startBracketIdx >= json.length()) return -1;
+        int depth = 0;
+        boolean inString = false;
+        boolean escape = false;
+        for (int i = startBracketIdx; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (inString) {
+                if (escape) {
+                    escape = false;
+                } else if (c == '\\') {
+                    escape = true;
+                } else if (c == '"') {
+                    inString = false;
+                }
+            } else {
+                if (c == '"') {
+                    inString = true;
+                } else if (c == '[') {
+                    depth++;
+                } else if (c == ']') {
+                    depth--;
+                    if (depth == 0) {
+                        return i;
+                    }
+                }
+            }
+        }
+        return -1;
+    }
+
     private static String unescape(String s) {
         if (s == null) return "";
-        return s.replace("\\\"", "\"").replace("\\n", "\n").replace("\\\\", "\\");
+        return s.replace("\\\\", "\u0000").replace("\\\"", "\"").replace("\\n", "\n").replace("\u0000", "\\");
     }
 
     private synchronized void registerProcess(Process p) {

@@ -4,6 +4,8 @@ import app.utils.KeyBoardListener;
 import app.ui.TimelinePanel;
 
 import javax.swing.JFrame;
+import javax.swing.JRootPane;
+import javax.swing.JScrollBar;
 import javax.swing.SwingUtilities;
 import java.awt.AWTEvent;
 import java.awt.Component;
@@ -47,8 +49,13 @@ public class MainWindowEventBinder {
                 MouseEvent me = (MouseEvent) event;
                 if (me.getID() == MouseEvent.MOUSE_PRESSED && timelinePanel.isEditing()) {
                     Component src = me.getComponent();
-                    if (src != timelinePanel && !SwingUtilities.isDescendingFrom(src, timelinePanel)) {
-                        timelinePanel.stopTyping();
+                    if (src != null && src != timelinePanel && !SwingUtilities.isDescendingFrom(src, timelinePanel)) {
+                        String className = src.getClass().getName();
+                        if (src instanceof JRootPane || className.contains("SplitPaneDivider") || src instanceof JScrollBar) {
+                            // Conserver le mode édition lors d'un simple ajustement de bordure ou de séparateur
+                        } else {
+                            timelinePanel.stopTyping();
+                        }
                     }
                 }
             }

@@ -73,6 +73,14 @@ public class DetxManager {
             secs += 1;
             frames = 0;
         }
+        if (secs >= 60) {
+            minutes += secs / 60;
+            secs %= 60;
+        }
+        if (minutes >= 60) {
+            hours += minutes / 60;
+            minutes %= 60;
+        }
         return String.format("%02d:%02d:%02d:%02d", hours, minutes, secs, frames);
     }
 

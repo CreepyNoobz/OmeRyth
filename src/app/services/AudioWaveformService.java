@@ -40,6 +40,7 @@ public class AudioWaveformService {
     private AudioWaveformData cachedData;
     private String cachedFilePath;
     private Thread currentWorker;
+    private volatile Process activeFfmpegProcess = null;
 
     /**
      * Lance l'extraction asynchrone de la forme d'onde dans un fil d'exécution démon d'arrière-plan.
@@ -66,6 +67,10 @@ public class AudioWaveformService {
 
         if (currentWorker != null && currentWorker.isAlive()) {
             currentWorker.interrupt();
+            Process p = activeFfmpegProcess;
+            if (p != null && p.isAlive()) {
+                try { p.destroyForcibly(); } catch (Throwable ignored) {}
+            }
         }
 
         currentWorker = new Thread(() -> {
@@ -105,6 +110,7 @@ public class AudioWaveformService {
         int peakCount = 0;
         try {
             Process p = pb.start();
+            this.activeFfmpegProcess = p;
             try (InputStream is = p.getInputStream()) {
                 byte[] readBuffer = new byte[65536];
                 int bytesRead;
@@ -196,6 +202,10 @@ public class AudioWaveformService {
             } catch (Exception e) {
                 p.destroyForcibly();
                 return null;
+            } finally {
+                if (activeFfmpegProcess == p) {
+                    activeFfmpegProcess = null;
+                }
             }
         } catch (Exception e) {
             return null;

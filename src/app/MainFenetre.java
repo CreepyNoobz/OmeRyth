@@ -262,7 +262,7 @@ public class MainFenetre extends JFrame {
         if (initialFilePath != null && !initialFilePath.trim().isEmpty()) {
             File f = new File(initialFilePath);
             if (f.exists() && f.isFile()) {
-                SwingUtilities.invokeLater(() -> ouvrirFichierProjet(f));
+                SwingUtilities.invokeLater(() -> ouvrirFichierExterne(f));
             } else {
                 tryRecoverAutosaveOnStartup();
             }
@@ -830,6 +830,19 @@ public class MainFenetre extends JFrame {
         try { timelinePanel.clearDirty(); } catch (Throwable ignored) {}
         updateTitle();
     }
+
+    /** Ouvre un fichier externe (projet .ryth/.detx ou directement une vidéo .mp4/.mkv etc.) */
+    public void ouvrirFichierExterne(File f) {
+        if (f == null || !f.exists()) return;
+        String name = f.getName().toLowerCase();
+        if (name.endsWith(".mp4") || name.endsWith(".mkv") || name.endsWith(".avi") ||
+            name.endsWith(".mov") || name.endsWith(".webm") || name.endsWith(".flv") ||
+            name.endsWith(".wmv") || name.endsWith(".m4v") || name.endsWith(".ts")) {
+            openDroppedMedia(f);
+        } else {
+            ouvrirFichierProjet(f);
+        }
+    }
     // ===== Lecture vidéo =====
     /** Load and prepare a video file into the media player and timeline. */
     public void loadVideo(File videoFile) {
@@ -1058,6 +1071,9 @@ public class MainFenetre extends JFrame {
         if (maxNeededBand >= timelinePanel.getBandCount()) {
             timelinePanel.setBandCount(maxNeededBand + 1);
         }
+
+        // Enregistrer un instantané Undo avant toute modification destructive de la timeline
+        timelinePanel.recordUndoSnapshot();
 
         // Nettoyer les bandes de destination pour éviter tout chevauchement ou doublon lors d'un réimport
         for (int b = baseTargetBand; b <= maxNeededBand; b++) {

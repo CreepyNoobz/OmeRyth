@@ -922,14 +922,16 @@ public class SpellGrammarService {
         } catch (Exception ignored) {}
 
         // 2. Tenter via fichiers locaux
-        File[] candidates = {
+        List<File> candidatesList = new ArrayList<>(Arrays.asList(
             new File("bin" + resourcePath),
             new File("src" + resourcePath),
             new File(fallbackPath),
-            new File("dictionaries/" + new File(resourcePath).getName()),
-            new File("test_dict.txt")
-        };
-        for (File f : candidates) {
+            new File("dictionaries/" + new File(resourcePath).getName())
+        ));
+        if (fallbackPath != null && fallbackPath.contains("fr")) {
+            candidatesList.add(new File("test_dict.txt"));
+        }
+        for (File f : candidatesList) {
             if (f.exists() && f.isFile()) {
                 try (InputStream is = new FileInputStream(f)) {
                     readDictionaryStream(is, targetDict);
