@@ -164,8 +164,6 @@ FRENCH_PHONETIC_CORRECTIONS = [
     (re.compile(r"\b([Ss])\s*['’]\s*il\s+vous\s+pla[iî]t\b", re.IGNORECASE), "s'il vous plaît"),
     (re.compile(r"\b([Ss])\s*['’]\s*il\b", re.IGNORECASE), "s'il"),
     (re.compile(r"\b([Ll])\s*['’]\s*entends?\b", re.IGNORECASE), "l'entends"),
-    (re.compile(r"\b([Ee]t)\s+[Ee]t\s+euh\b", re.IGNORECASE), "Et euh"),
-    (re.compile(r"\b([Ee]t)\s+[Ee]t\b", re.IGNORECASE), "Et"),
     (re.compile(r"\b([Ee]t)\s+uhm\b", re.IGNORECASE), "Et euh"),
     # Mots français articulés / syllabes découpées sur plusieurs temps
     (re.compile(r"\bou\s+bli\s*[eéè](e?s?)\b", re.IGNORECASE), r"oublié\1"),
@@ -375,53 +373,68 @@ def detect_silence_intervals(audio, sr: int = 16000, min_silence_sec: float = 0.
     return silence_ranges
 
 
-def trim_speech_start_acoustically(audio_data, start_sec: float, end_sec: float, sr: int = 16000, blank_thresh_sec: float = 0.10, frame_ms: int = 20) -> float:
+def detect_vocal_onset(audio, start_sec: float, prev_end_sec: float = 0.0, sr: int = 16000, max_lookback: float = 0.40) -> float:
     """
-    Vérifie le signal audio pour détecter tout blanc / silence au début d'une réplique ou d'un mot.
-    Si la voix commence plus tard que l'horodatage Whisper (ex: latence attentionnelle ou silence pré-vocal),
-    rabat précisément le début de réplique sur la première trame vocale active (- marge naturelle de 0.04s).
+    Rabat avec haute précision le début d'une réplique ou d'un mot sur l'attaque acoustique réelle
+    de la voix (consonne d'attaque, souffle, montée d'énergie) située dans la pause précédant start_sec.
+    Corrige le retard systématique de 0.08s à 0.25s (typiquement ~0.1s) des horodatages Whisper.
     """
-    if audio_data is None or sr <= 0 or end_sec <= start_sec + 0.10:
-        return round(start_sec, 2)
+    if audio is None or len(audio) == 0 or sr <= 0 or start_sec <= 0.04:
+        return max(0.0, round(float(start_sec), 2))
+
+    min_bound = max(0.0, float(prev_end_sec) + 0.04) if prev_end_sec > 0 else 0.0
+    search_start = max(min_bound, float(start_sec) - max_lookback)
+    search_end = min(len(audio) / sr, float(start_sec) + 0.10)
+
+    if search_end <= search_start + 0.04:
+        return max(0.0, round(float(start_sec), 2))
+
     import numpy as np
+    idx_s = int(search_start * sr)
+    idx_e = int(search_end * sr)
+    chunk = audio[idx_s:idx_e]
 
-    s_idx = max(0, int(start_sec * sr))
-    e_idx = min(len(audio_data), int(end_sec * sr))
-    if e_idx <= s_idx:
-        return round(start_sec, 2)
+    flen = int(sr * 0.020)  # 20ms
+    hop = int(sr * 0.005)   # 5ms pour une précision temporelle chirurgicale
+    n_frames = max(1, 1 + (len(chunk) - flen) // hop)
 
-    chunk = audio_data[s_idx:e_idx]
-    frame_len = int(sr * (frame_ms / 1000.0))
-    hop_len = frame_len // 2
-    num_frames = max(1, 1 + (len(chunk) - frame_len) // hop_len)
-
-    rms = np.zeros(num_frames, dtype=np.float32)
-    for i in range(num_frames):
-        st = i * hop_len
-        en = st + frame_len
+    rms = np.zeros(n_frames, dtype=np.float32)
+    times = np.zeros(n_frames, dtype=np.float32)
+    for i in range(n_frames):
+        st = i * hop
+        en = st + flen
         c = chunk[st:en]
         rms[i] = np.sqrt(np.mean(c ** 2)) if len(c) > 0 else 0.0
+        times[i] = search_start + (st + flen / 2.0) / sr
 
-    p10 = float(np.percentile(rms, 10))
-    p85 = float(np.percentile(rms, 85))
-    silence_thresh = max(0.003, p10 + 0.08 * (p85 - p10))
+    if len(rms) < 5:
+        return max(0.0, round(float(start_sec), 2))
 
-    blank_frames = max(1, int(blank_thresh_sec / (hop_len / sr)))
+    # Plancher de silence dans la pause précédant la parole
+    silence_floor = float(np.percentile(rms, 10))
+    peak_voice = float(np.max(rms))
 
-    silent_count = 0
-    first_voice_frame = 0
-    for f in range(num_frames):
-        if rms[f] < silence_thresh:
-            silent_count += 1
-        else:
-            first_voice_frame = f
-            break
+    if peak_voice <= silence_floor * 1.5 or peak_voice < 0.008:
+        return max(0.0, round(float(start_sec), 2))
 
-    if silent_count >= blank_frames and first_voice_frame > 0:
-        trimmed_sec = start_sec + (first_voice_frame * hop_len / sr) - 0.04
-        return round(max(start_sec, min(end_sec - 0.10, trimmed_sec)), 2)
+    # Seuil d'attaque : dès que l'énergie décolle au-dessus du bruit de fond
+    onset_thresh = max(silence_floor * 2.0, silence_floor + 0.12 * (peak_voice - silence_floor))
 
-    return round(start_sec, 2)
+    whisper_idx = int(np.argmin(np.abs(times - start_sec)))
+
+    onset_idx = whisper_idx
+    while onset_idx > 0 and rms[onset_idx - 1] >= onset_thresh:
+        onset_idx -= 1
+
+    # Marge de confort de 20ms pour inclure le tout premier souffle de l'attaque
+    snapped = float(times[onset_idx]) - 0.02
+    snapped = max(float(min_bound), min(float(start_sec), snapped))
+    return max(0.0, round(float(snapped), 2))
+
+
+def trim_speech_start_acoustically(audio_data, start_sec: float, end_sec: float, sr: int = 16000, blank_thresh_sec: float = 0.10, frame_ms: int = 20) -> float:
+    """Alias rétro-compatible redirigeant vers detect_vocal_onset."""
+    return detect_vocal_onset(audio_data, start_sec, prev_end_sec=max(0.0, start_sec - 0.40), sr=sr)
 
 
 def trim_speech_end_acoustically(audio_data, start_sec: float, end_sec: float, sr: int = 16000, blank_thresh_sec: float = 0.18, frame_ms: int = 20) -> float:
@@ -896,7 +909,7 @@ def segment_words_into_clean_phrases(words: list, silence_intervals: list = None
         if silence_intervals:
             for s_start, s_end in silence_intervals:
                 if s_start >= (prev_end - 0.05) and s_end <= (w_start + 0.05):
-                    if (s_end - s_start) >= 0.20:
+                    if (s_end - s_start) >= 0.30:
                         has_acoustic_silence = True
                         break
 
@@ -1027,6 +1040,20 @@ def segment_words_into_clean_phrases(words: list, silence_intervals: list = None
                     "text": cleaned,
                     "words": phrase_words,
                 })
+
+    # Calage d'attaque acoustique : avance le début de chaque phrase sur l'émission vocale réelle
+    if audio_data is not None and sr > 0:
+        prev_ph_end = 0.0
+        for ph in phrases:
+            orig_s = ph["start"]
+            snapped_s = detect_vocal_onset(audio_data, orig_s, prev_end_sec=prev_ph_end, sr=sr)
+            ph["start"] = snapped_s
+            p_ws = ph.get("words", [])
+            if p_ws:
+                p_ws[0]["start"] = snapped_s
+                if p_ws[0]["end"] <= snapped_s + 0.04:
+                    p_ws[0]["end"] = round(snapped_s + 0.10, 2)
+            prev_ph_end = ph["end"]
 
     return phrases
 
@@ -1286,6 +1313,16 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
                     min_cluster_size = min(counts)
                     if min_cluster_size < 1 or (n_p >= 8 and min_cluster_size < 2 and (min_cluster_size / n_p) < 0.05):
                         continue
+                    # Un cluster composé d'une seule réplique brève est quasi toujours un faux locuteur
+                    bad_small = False
+                    for c in set(lbls):
+                        members = [idx for idx, l in enumerate(lbls) if l == c]
+                        tot_dur_c = sum(phrase_features[idx]["duration"] for idx in members)
+                        if len(members) < 2 and tot_dur_c < 1.2:
+                            bad_small = True
+                            break
+                    if bad_small:
+                        continue
 
                     centroids = []
                     for c in set(lbls):
@@ -1307,7 +1344,7 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
 
                     # Un partitionnement est valide dès lors que la silhouette est positive et bien détachée (>= 0.15)
                     # et que les centroïdes ne sont pas superposés (> 0.008)
-                    if sil >= 0.15 and min_c_dist > 0.008:
+                    if sil >= 0.35 and min_c_dist > 0.06:
                         combined_eval = sil + min_c_dist * 3.0
                         if combined_eval > best_score:
                             best_score = combined_eval
@@ -1529,123 +1566,186 @@ def resolve_orphan_phrases(phrases: list, max_duration: float = 6.5) -> list:
 
 _KNOWN_HALLUCINATIONS = (
     "merci d'avoir regardé", "merci davoir regardé", "sous-titrage", "sous-titres", "sous titres",
-    "abonnez-vous", "abonnez vous", "à la prochaine", "thanks for watching", "thank you for watching",
+    "abonnez-vous", "abonnez vous", "thanks for watching", "thank you for watching",
     "please subscribe", "subtitles by", "amara.org", "www.",
 )
 
 
-def is_known_hallucination(text: str, prompt: str = None) -> bool:
-    """Détecte les hallucinations typiques de Whisper (outros YouTube, sous-titrage, fuite du prompt)."""
+INFORMAL_PROMPTS = {
+    "fr": "Nan, euh, ouais !",
+    "en": "Nah, uh, yeah!",
+}
+
+
+def is_known_hallucination(text: str) -> bool:
+    """Détecte les hallucinations typiques de Whisper (outros YouTube, écho du prompt...)."""
     t = (text or "").strip().lower()
     if not t:
         return True
     if any(h in t for h in _KNOWN_HALLUCINATIONS):
         return True
-    if prompt:
-        norm_t = re.sub(r"[^\w]", "", t)
-        norm_p = re.sub(r"[^\w]", "", prompt.lower())
-        if len(norm_t) >= 12 and norm_t in norm_p:
+    norm_t = re.sub(r"[^\w]", "", t)
+    for pr in INFORMAL_PROMPTS.values():
+        if norm_t == re.sub(r"[^\w]", "", pr.lower()):
             return True
     return False
 
 
-def find_uncovered_speech_regions(audio, sr: int, words: list, min_len: float = 0.25, margin: float = 0.12) -> list:
+def prepare_whisper_audio(audio, sr: int):
     """
-    Repère les zones où il y a clairement du signal vocal (énergie nettement au-dessus du bruit de fond)
-    mais où aucun mot n'a été transcrit : typiquement rires, interjections ('nannn'), mots déformés
-    que le VAD ou Whisper ont ignorés. Retourne [(start_sec, end_sec), ...].
+    Prépare le signal envoyé à Whisper : mono float32 16 kHz, sans composante continue,
+    avec amplification douce (max x6) des enregistrements très faibles. Jamais de compression
+    ni de filtrage destructif : les rires, souffles et interjections restent intacts.
     """
-    if audio is None or len(audio) < sr or sr <= 0:
+    a = np.asarray(audio, dtype=np.float32)
+    if a.size == 0:
+        return np.zeros(16000, dtype=np.float32), 16000
+    if sr != 16000:
+        try:
+            from math import gcd
+            import scipy.signal as ss
+            g = gcd(int(sr), 16000)
+            a = ss.resample_poly(a, 16000 // g, int(sr) // g).astype(np.float32)
+        except Exception:
+            n = int(len(a) * 16000 / sr)
+            a = np.interp(np.linspace(0, len(a) - 1, n), np.arange(len(a)), a).astype(np.float32)
+        sr = 16000
+    a = a - float(np.mean(a))
+    peak = float(np.percentile(np.abs(a), 99.8))
+    if 1e-4 < peak < 0.25:
+        a = a * min(6.0, 0.5 / peak)
+    return np.clip(a, -1.0, 1.0).astype(np.float32), sr
+
+
+def sanitize_words(words: list) -> list:
+    """
+    Nettoie la liste de mots : ordre chronologique strict, durées valides, pas de mot vide,
+    pas de mot étiré sur un long silence (Whisper étire parfois un mot jusqu'au mot suivant).
+    """
+    out = []
+    for w in sorted(words, key=lambda x: (float(x["start"]), float(x["end"]))):
+        txt = str(w.get("word", "")).strip()
+        if not txt or not any(c.isalnum() for c in txt):
+            continue
+        s = max(0.0, float(w["start"]))
+        e = float(w["end"])
+        if e <= s + 0.001:
+            e = s + 0.08
+        # Durée plausible : 1.2 s + 0.1 s par lettre (laisse de la place aux mots étirés « nannnn »)
+        max_dur = 1.2 + 0.10 * len(norm_word(txt))
+        if e - s > max_dur:
+            e = s + max_dur
+        if out:
+            prev = out[-1]
+            if s < prev["end"]:
+                # chevauchement : on rogne la fin du précédent plutôt que de décaler le mot courant
+                if prev["end"] - s < (prev["end"] - prev["start"]) - 0.04:
+                    prev["end"] = s
+                else:
+                    s = prev["end"]
+                    if e <= s + 0.04:
+                        e = s + 0.08
+        out.append({"word": txt, "start": round(s, 3), "end": round(e, 3)})
+    return out
+
+
+def find_uncovered_speech_regions(audio, sr: int, words: list, min_len: float = 0.35, margin: float = 0.15) -> list:
+    """
+    Repère les zones nettement vocales (énergie proche de celle des mots déjà transcrits,
+    spectre dominé par la bande de la voix 200-3400 Hz) où aucun mot n'a été transcrit :
+    rires parlés, interjections, mots déformés que le VAD a ignorés.
+    """
+    if audio is None or sr <= 0 or len(audio) < sr or not words:
         return []
     frame = int(sr * 0.03)
     hop = int(sr * 0.015)
     n = 1 + (len(audio) - frame) // hop
-    if n < 4:
+    if n < 8:
         return []
-    # RMS vectorisé
     idx = np.arange(frame)[None, :] + (np.arange(n) * hop)[:, None]
-    rms = np.sqrt(np.mean(audio[idx] ** 2, axis=1))
-    floor = float(np.percentile(rms, 20))
-    peak = float(np.percentile(rms, 95))
-    if peak < 0.01:
-        return []
-    thresh = max(0.012, floor + 0.20 * (peak - floor))
-    active = rms > thresh
+    frames = audio[idx]
+    rms = np.sqrt(np.mean(frames ** 2, axis=1))
 
-    # Couverture par les mots déjà transcrits
     covered = np.zeros(n, dtype=bool)
     for w in words:
         s = int(max(0.0, float(w["start"]) - margin) * sr / hop)
         e = int((float(w["end"]) + margin) * sr / hop) + 1
         covered[max(0, s):min(n, e)] = True
+    if not covered.any():
+        return []
 
-    todo = active & ~covered
+    ref = float(np.median(rms[covered]))   # niveau typique de la voix déjà transcrite
+    floor = float(np.percentile(rms, 20))
+    thresh = max(0.015, floor * 3.0, 0.40 * ref)
+    todo = (rms > thresh) & ~covered
+
     regions = []
     start = None
-    gap_allow = 0
+    holes = 0
     for i in range(n):
         if todo[i]:
             if start is None:
                 start = i
-            gap_allow = 0
+            holes = 0
         elif start is not None:
-            gap_allow += 1
-            if gap_allow > 8:  # ~120 ms de trou toléré dans une même zone
-                end = i - gap_allow
+            holes += 1
+            if holes > 6:
+                end = i - holes
                 if (end - start) * hop / sr >= min_len:
                     regions.append((start * hop / sr, (end + 1) * hop / sr))
                 start = None
-                gap_allow = 0
-    if start is not None:
-        end = n - 1
-        if (end - start) * hop / sr >= min_len:
-            regions.append((start * hop / sr, (end + 1) * hop / sr))
-    return regions
+                holes = 0
+    if start is not None and (n - 1 - start) * hop / sr >= min_len:
+        regions.append((start * hop / sr, n * hop / sr))
+
+    # Filtre spectral : la voix doit dominer (rejette musique basse fréquence, bruits secs)
+    kept = []
+    for r_s, r_e in regions:
+        seg = audio[int(r_s * sr):int(r_e * sr)]
+        if len(seg) < 256:
+            continue
+        spec = np.abs(np.fft.rfft(seg * np.hanning(len(seg)))) ** 2
+        freqs = np.fft.rfftfreq(len(seg), 1.0 / sr)
+        total = float(np.sum(spec)) + 1e-12
+        voice = float(np.sum(spec[(freqs >= 200) & (freqs <= 3400)]))
+        if voice / total >= 0.55:
+            kept.append((r_s, r_e))
+    return kept
 
 
-def recover_missed_speech(model, audio, sr: int, words: list, lang, prompt: str = None, lang_hint: str = "fr") -> list:
+def recover_missed_speech(model, audio, sr: int, words: list, lang, lang_hint: str, beam: int) -> list:
     """
-    Seconde passe sans VAD sur les zones vocales non transcrites pour capter les mots
-    peu intelligibles (rires parlés, 'nannn', onomatopées). Retourne la liste de nouveaux mots.
+    Seconde passe prudente (sans VAD) sur les zones vocales non transcrites.
+    Un résultat n'est gardé que s'il est court, confiant et pas une hallucination connue.
     """
+    if sr != 16000:
+        return []
     regions = find_uncovered_speech_regions(audio, sr, words)
     if not regions:
         return []
-    # Whisper veut du 16 kHz
-    if sr != 16000:
-        return []
     new_words = []
     total = len(audio) / sr
-    for r_start, r_end in regions[:60]:
-        pad = 0.25
-        s = max(0.0, r_start - pad)
-        e = min(total, r_end + pad)
+    for r_start, r_end in regions[:40]:
+        s = max(0.0, r_start - 0.20)
+        e = min(total, r_end + 0.20)
         chunk = np.ascontiguousarray(audio[int(s * sr):int(e * sr)], dtype=np.float32)
         if len(chunk) < int(0.3 * sr):
             continue
         try:
             segs, _info = model.transcribe(
-                chunk,
-                language=lang,
-                beam_size=3,
-                best_of=3,
-                word_timestamps=True,
-                vad_filter=False,
-                condition_on_previous_text=False,
-                initial_prompt=prompt,
-                no_speech_threshold=0.95,
-                log_prob_threshold=-2.0,
-                compression_ratio_threshold=2.6,
-                temperature=[0.0, 0.3, 0.6],
+                chunk, language=lang, beam_size=beam, best_of=beam, word_timestamps=True,
+                vad_filter=False, condition_on_previous_text=False,
+                no_speech_threshold=0.6, log_prob_threshold=-1.0, compression_ratio_threshold=2.4,
+                temperature=[0.0, 0.2, 0.4],
             )
             for seg in segs:
-                txt = (seg.text or "").strip()
-                if getattr(seg, "no_speech_prob", 0.0) > 0.92:
+                if getattr(seg, "no_speech_prob", 0.0) > 0.6 or getattr(seg, "avg_logprob", 0.0) < -1.0:
                     continue
-                if getattr(seg, "avg_logprob", 0.0) < -1.8:
+                cleaned = clean_text(seg.text or "", lang_hint)
+                if not cleaned or is_known_hallucination(cleaned):
                     continue
-                cleaned = clean_text(txt, lang_hint)
-                if not cleaned or is_known_hallucination(cleaned, prompt):
+                toks = [t for t in cleaned.split() if any(c.isalnum() for c in t)]
+                if not toks or len(toks) > 6:
                     continue
                 for w in (seg.words or []):
                     w_str = (w.word or "").strip()
@@ -1655,7 +1755,6 @@ def recover_missed_speech(model, audio, sr: int, words: list, lang, prompt: str 
                     we = s + float(w.end if w.end is not None else seg.end)
                     if we <= ws + 0.001:
                         we = ws + 0.08
-                    # Ne pas empiéter sur des mots déjà transcrits
                     if any(float(x["start"]) < we - 0.05 and float(x["end"]) > ws + 0.05 for x in words):
                         continue
                     new_words.append({"word": w_str, "start": ws, "end": we})
@@ -1664,16 +1763,49 @@ def recover_missed_speech(model, audio, sr: int, words: list, lang, prompt: str 
     return new_words
 
 
+def build_transcribe_options(lang_param, beam: int) -> dict:
+    """
+    Options de décodage fiables : séquentiel (le mode batch dégrade les mots très courts),
+    aucun prompt (un prompt provoque des hallucinations), VAD modéré, repli en température.
+    """
+    return dict(
+        language=lang_param,
+        beam_size=beam,
+        best_of=beam,
+        patience=1.0,
+        word_timestamps=True,
+        vad_filter=True,
+        vad_parameters=dict(
+            threshold=0.30,
+            min_speech_duration_ms=80,
+            min_silence_duration_ms=600,
+            speech_pad_ms=300,
+        ),
+        condition_on_previous_text=False,
+        initial_prompt=INFORMAL_PROMPTS.get(lang_param),
+        no_speech_threshold=0.6,
+        log_prob_threshold=-1.0,
+        compression_ratio_threshold=2.4,
+        hallucination_silence_threshold=2.0,
+        temperature=[0.0, 0.2, 0.4, 0.6],
+    )
+
+
+def finalize_phrase_text(text: str) -> str:
+    """Retire la virgule/point-virgule traînants en fin de réplique (conserve ? ! … .)."""
+    return re.sub(r"[\s,;]+$", "", text).strip()
+
+
 def main():
     parser = argparse.ArgumentParser(description="OmeRyth STT Worker – Haute Précision")
     parser.add_argument("--audio", required=True, help="Chemin du fichier audio WAV")
-    parser.add_argument("--num-speakers", type=int, default=0, help="Nombre de locuteurs attendus (0 = Auto-détection de tous les personnages)")
+    parser.add_argument("--num-speakers", type=int, default=0, help="Nombre de locuteurs attendus (0 = auto)")
     parser.add_argument("--lang", default="fr", help="Code langue (fr, en, auto)")
-    parser.add_argument("--model", default="small", help="Modèle faster-whisper (tiny, base, small, medium)")
+    parser.add_argument("--model", default="small", help="Modèle faster-whisper (tiny, base, small, medium, large-v2, large-v3)")
     parser.add_argument("--threads", type=int, default=4, help="Nombre de threads CPU")
     parser.add_argument("--device", default="auto", help="Périphérique de calcul (auto, cuda, cpu)")
     parser.add_argument("--compute-type", default="auto", help="Type de calcul (auto, float16, int8_float16, int8)")
-    parser.add_argument("--batch-size", type=int, default=16, help="Taille des batchs pour GPU Tensor Cores (1-32)")
+    parser.add_argument("--batch-size", type=int, default=16, help="(conservé pour compatibilité, inutilisé)")
     parser.add_argument("--output", required=True, help="Fichier JSON de sortie principal")
     parser.add_argument("--report", required=True, help="Fichier JSON de rapport complet")
     args = parser.parse_args()
@@ -1681,38 +1813,34 @@ def main():
     start_time = time.time()
     print_progress(5, 100, "Initialisation du moteur STT...")
 
-    # ── Import de faster-whisper ──
     try:
         from faster_whisper import WhisperModel
     except ImportError as e:
         print_error(f"Bibliothèque faster-whisper manquante : {e}")
         sys.exit(1)
 
-    # ── Configuration ──
     model_name = args.model.lower().strip()
     if model_name not in ("tiny", "base", "small", "medium", "large-v2", "large-v3"):
         model_name = "small"
-
     cpu_threads = max(1, min(args.threads, 16))
     lang_param = None if args.lang.lower() == "auto" else args.lang.lower()
 
-    # ── Vérification du fichier audio ──
     if not os.path.exists(args.audio):
         print_error(f"Fichier audio introuvable : {args.audio}")
         sys.exit(1)
 
-    # ── Analyse acoustique des pauses et silences (>= 0.10s) dans le signal audio ──
-    audio_data, audio_sr = load_audio(args.audio)
+    # ── Audio : chargement + préparation 16 kHz ──
+    raw_audio, raw_sr = load_audio(args.audio)
+    audio_data, audio_sr = prepare_whisper_audio(raw_audio, raw_sr)
+    total_duration = len(audio_data) / float(audio_sr)
     silence_intervals = detect_silence_intervals(audio_data, sr=audio_sr, min_silence_sec=0.10)
     if silence_intervals:
-        print_info(f"Analyse vocale : {len(silence_intervals)} temps morts/silences (>= 0.10s) détectés pour découpage.")
+        print_info(f"Analyse vocale : {len(silence_intervals)} temps morts/silences détectés pour découpage.")
 
-    # ── Détection automatique de l'accélération GPU NVIDIA CUDA ──
+    # ── Choix du périphérique ──
     req_device = args.device.lower().strip()
     req_compute = args.compute_type.lower().strip()
-    device = "cpu"
-    compute_type = "int8"
-
+    device, compute_type = "cpu", "int8"
     if req_device in ("auto", "cuda"):
         try:
             import ctranslate2
@@ -1730,201 +1858,108 @@ def main():
                 else:
                     compute_type = "float32"
         except Exception:
-            device = "cpu"
-            compute_type = "int8"
+            device, compute_type = "cpu", "int8"
     else:
-        device = "cpu"
         compute_type = "int8" if req_compute == "auto" else req_compute
 
-    # ── Inférence & transcription haute résilience avec repli automatique CPU ──
-    batch_size = max(1, min(args.batch_size, 32))
-
-    # Paramètres Silero VAD pour couper net le bruit de fond et le silence pré-vocal sans jamais tronquer les amorces douces
-    vad_parameters = dict(
-        threshold=0.20,
-        min_speech_duration_ms=30,
-        min_silence_duration_ms=400,
-        speech_pad_ms=400,
-    )
-
-    # Décodage haute précision optimisé pour le doublage et la bande rythmo :
-    # vad_filter=True avec Silero VAD élimine toute hallucination sur les silences ou bruits de fond
-    beam_size = 4
-
-    # Prompt informel : pousse Whisper à écrire les interjections, mots déformés, rires parlés
-    # et le langage familier au lieu de les ignorer. Les fuites éventuelles sont filtrées ensuite.
-    if lang_param == "fr" or lang_param is None:
-        informal_prompt = "Euh, nan ! Nannnn, mais arrête, hein ? Ouais, bah, genre, han, ah ouais, mdr, wesh, putain, trop bien."
-    elif lang_param == "en":
-        informal_prompt = "Um, nah! Nooo, come on, huh? Yeah, well, like, ha, oh yeah, dude, damn."
-    else:
-        informal_prompt = None
-
-    transcribe_kwargs = dict(
-        language=lang_param,
-        beam_size=beam_size,
-        best_of=beam_size,
-        patience=1.0,
-        word_timestamps=True,
-        vad_filter=True,
-        vad_parameters=vad_parameters,
-        condition_on_previous_text=False,
-        initial_prompt=informal_prompt,
-        no_speech_threshold=0.85,
-        log_prob_threshold=-1.6,
-        compression_ratio_threshold=2.6,
-        hallucination_silence_threshold=2.0,
-        temperature=[0.0, 0.2, 0.4, 0.6],
-    )
+    informal_lang_hint = lang_param or "fr"
 
     def perform_transcription(dev, comp_type):
         local_cache = os.path.abspath("whisper/cache")
         download_root = local_cache if os.path.isdir(local_cache) else None
-
         print_progress(10, 100, f"Chargement du modèle {model_name.upper()} sur {dev.upper()} ({comp_type})...")
-
-        mdl = WhisperModel(
-            model_name,
-            device=dev,
-            compute_type=comp_type,
-            cpu_threads=cpu_threads,
-            download_root=download_root,
-        )
-
-        pipe = mdl
-        use_batch = False
-        if dev == "cuda":
-            try:
-                from faster_whisper import BatchedInferencePipeline
-                pipe = BatchedInferencePipeline(model=mdl)
-                use_batch = True
-                print_progress(15, 100, f"Accélération Tensor Cores active (Batch size {batch_size}, {comp_type})...")
-            except Exception:
-                pipe = mdl
-                use_batch = False
-
-        kwargs = dict(transcribe_kwargs)
-        if dev == "cuda":
-            kwargs["beam_size"] = 4
-            kwargs["best_of"] = 4
-        else:
-            kwargs["beam_size"] = 2 if model_name in ("tiny", "base") else 3
-            kwargs["best_of"] = kwargs["beam_size"]
-        if use_batch:
-            kwargs["batch_size"] = batch_size
+        mdl = WhisperModel(model_name, device=dev, compute_type=comp_type,
+                           cpu_threads=cpu_threads, download_root=download_root)
+        beam = 5 if dev == "cuda" else (2 if model_name in ("tiny", "base") else 3)
+        opts = build_transcribe_options(lang_param, beam)
 
         print_progress(20, 100, f"Transcription en cours ({model_name.upper()} sur {dev.upper()})...")
-
-        seg_iter, inf = pipe.transcribe(args.audio, **kwargs)
+        seg_iter, inf = mdl.transcribe(audio_data, **opts)
         det_lang = inf.language if inf.language else (lang_param or "fr")
-        tot_dur = inf.duration if hasattr(inf, "duration") and inf.duration else 0.0
+        tot_dur = total_duration
 
         collected_words = []
-        raw_count = 0
+        seg_counter = 0
         last_pct = 20
 
         for segment in seg_iter:
-            raw_count += 1
-            seg_text = segment.text.strip() if segment.text else ""
+            seg_text = (segment.text or "").strip()
             if not seg_text or not any(c.isalnum() for c in seg_text):
                 continue
-
-            # Nettoyer un éventuel préfixe parasite résiduel (ex: "Transcription : ...")
-            seg_text = clean_text(seg_text, det_lang)
-            if not seg_text or not any(c.isalnum() for c in seg_text):
+            cleaned_seg = clean_text(seg_text, det_lang)
+            if not cleaned_seg or not any(c.isalnum() for c in cleaned_seg):
                 continue
-
-            norm_seg = re.sub(r"[^\w]", "", seg_text).lower()
+            norm_seg = re.sub(r"[^\w]", "", cleaned_seg).lower()
             if norm_seg in _PROMPT_LEAK_WORDS or norm_seg == "transcription" or "amaraorg" in norm_seg:
                 continue
-            if is_known_hallucination(seg_text, informal_prompt):
+            if is_known_hallucination(cleaned_seg):
                 continue
 
             if tot_dur > 0:
                 cur_sec = min(segment.end, tot_dur)
-                calc_pct = int(20 + (cur_sec / tot_dur) * 70)
-                if calc_pct > last_pct:
-                    last_pct = calc_pct
-                    cur_str = format_timecode(cur_sec)[:8]
-                    tot_str = format_timecode(tot_dur)[:8]
-                    print_progress(calc_pct, 100, f"Transcription en cours ({cur_str} / {tot_str})...")
+                pct = int(20 + (cur_sec / tot_dur) * 65)
+                if pct > last_pct:
+                    last_pct = pct
+                    print_progress(pct, 100, f"Transcription en cours ({format_timecode(cur_sec)[:8]} / {format_timecode(tot_dur)[:8]})...")
 
             seg_words = []
-            if segment.words and len(segment.words) > 0:
-                for w in segment.words:
-                    w_str = w.word.strip() if w.word else ""
-                    if w_str and any(c.isalnum() for c in w_str):
-                        clean_w = re.sub(r"[^\w]", "", w_str).lower()
-                        if clean_w in ("transcription", "transcriptionfidele", "transcriptionfidèle") or clean_w in _PROMPT_LEAK_WORDS:
-                            continue
-                        w_start = float(w.start) if w.start is not None else float(segment.start)
-                        w_end = float(w.end) if w.end is not None else float(segment.end)
-                        if w_end <= w_start + 0.001:
-                            # Interjection très brève (nan, ah, hein...) : on la garde avec une durée minimale
-                            w_end = w_start + 0.08
-                        seg_words.append({
-                            "word": w_str,
-                            "start": w_start,
-                            "end": w_end,
-                        })
+            for w in (segment.words or []):
+                w_str = (w.word or "").strip()
+                if w_str and not any(c.isalnum() for c in w_str):
+                    # Ponctuation isolée (« ! », « ? », « … » en français) : rattachée au mot précédent
+                    if seg_words and re.fullmatch(r"[?!.…,;:]+", w_str):
+                        seg_words[-1]["word"] = seg_words[-1]["word"].rstrip(",;:") + w_str
+                    continue
+                if not w_str:
+                    continue
+                clean_w = re.sub(r"[^\w]", "", w_str).lower()
+                if clean_w in _PROMPT_LEAK_WORDS or clean_w in ("transcription", "transcriptionfidele"):
+                    continue
+                w_start = float(w.start) if w.start is not None else float(segment.start)
+                w_end = float(w.end) if w.end is not None else float(segment.end)
+                seg_words.append({"word": w_str, "start": w_start, "end": w_end})
 
-            # Repli systématique si segment.words n'a donné aucun mot valide : découper seg_text
-            if not seg_words and seg_text and any(c.isalnum() for c in seg_text):
-                tokens = [t for t in seg_text.split() if any(c.isalnum() for c in t)]
-                if tokens:
+            if not seg_words:
+                # Repli : répartir le texte nettoyé sur la durée du segment
+                toks = [t for t in cleaned_seg.split() if any(c.isalnum() for c in t)]
+                if toks:
                     seg_dur = max(0.1, float(segment.end) - float(segment.start))
-                    step = seg_dur / len(tokens)
-                    for i, token in enumerate(tokens):
-                        seg_words.append({
-                            "word": token,
-                            "start": float(segment.start) + i * step,
-                            "end": float(segment.start) + (i + 1) * step,
-                        })
-
+                    step = seg_dur / len(toks)
+                    for i, tok in enumerate(toks):
+                        seg_words.append({"word": tok,
+                                          "start": float(segment.start) + i * step,
+                                          "end": float(segment.start) + (i + 1) * step})
             if not seg_words:
                 continue
 
-            seg_words = merge_split_french_words(seg_words)
+            seg_words = sanitize_words(merge_split_french_words(seg_words))
             collected_words.extend(seg_words)
 
-            # Découpage direct en phrases nettes avec détection des alternances de répliques
-            live_phrases = segment_words_into_clean_phrases(
-                seg_words,
-                silence_intervals=silence_intervals,
-                pause_threshold=0.38,
-                lang=det_lang,
-                audio_data=audio_data,
-                sr=audio_sr
-            )
-            for lp in live_phrases:
-                raw_count += 1
+            for lp in segment_words_into_clean_phrases(
+                    [dict(x) for x in seg_words], silence_intervals=silence_intervals,
+                    pause_threshold=0.45, lang=det_lang, audio_data=audio_data, sr=audio_sr):
+                seg_counter += 1
                 print_live_segment({
-                    "id": raw_count,
-                    "speaker": "SPEAKER_00",
-                    "start": lp["start"],
-                    "end": lp["end"],
-                    "text": lp["text"],
-                    "words": lp.get("words", []),
+                    "id": seg_counter, "speaker": "SPEAKER_00",
+                    "start": lp["start"], "end": lp["end"],
+                    "text": lp["text"], "words": lp.get("words", []),
                 })
 
-        # Passe de rattrapage : zones vocales ignorées (rires parlés, 'nannn', interjections)
+        # Passe de rattrapage prudente : interjections / rires parlés ignorés par le VAD
         try:
-            print_progress(88, 100, "Rattrapage des mots peu intelligibles (rires, interjections)...")
-            recovered = recover_missed_speech(mdl, audio_data, audio_sr, collected_words, lang_param or det_lang,
-                                              informal_prompt, det_lang)
+            print_progress(86, 100, "Rattrapage des interjections et mots peu intelligibles...")
+            recovered = recover_missed_speech(mdl, audio_data, audio_sr, collected_words,
+                                              lang_param or det_lang, det_lang, beam)
             if recovered:
                 print_info(f"Rattrapage : {len(recovered)} mot(s) supplémentaire(s) capté(s).")
                 collected_words.extend(recovered)
-                collected_words.sort(key=lambda x: (float(x["start"]), float(x["end"])))
         except Exception as rec_err:
             print_info(f"Rattrapage ignoré : {rec_err}")
 
-        # Élimination des micro-dédoublements de tokens accidentels (< 0.09s)
+        collected_words = sanitize_words(collected_words)
         collected_words = deduplicate_adjacent_words(collected_words)
-        collected_words = merge_split_french_words(collected_words)
-        return collected_words, det_lang, raw_count
-
-
+        collected_words = sanitize_words(merge_split_french_words(collected_words))
+        return collected_words, det_lang, seg_counter
 
     all_words = []
     detected_lang = lang_param or "fr"
@@ -1935,76 +1970,56 @@ def main():
     if device == "cuda":
         try:
             all_words, detected_lang, raw_segment_count = perform_transcription("cuda", compute_type)
-            used_device = "cuda"
-            used_compute_type = compute_type
+            used_device, used_compute_type = "cuda", compute_type
         except Exception as e:
-            print_info(f"Notification CUDA ({e}) : bascule automatique transparente sur CPU Multi-cœurs...")
+            print_info(f"Notification CUDA ({e}) : bascule automatique sur CPU...")
             try:
                 all_words, detected_lang, raw_segment_count = perform_transcription("cpu", "int8")
-                used_device = "cpu"
-                used_compute_type = "int8"
+                used_device, used_compute_type = "cpu", "int8"
             except Exception as e2:
                 print_error(f"Échec de la transcription sur CPU : {e2}")
                 sys.exit(1)
     else:
         try:
             all_words, detected_lang, raw_segment_count = perform_transcription("cpu", compute_type)
-            used_device = "cpu"
             used_compute_type = compute_type
         except Exception as e:
             print_error(f"Échec de la transcription : {e}")
             sys.exit(1)
 
+    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(args.report)), exist_ok=True)
+
     if not all_words:
         print_progress(100, 100, "Aucune parole détectée dans le fichier.")
-        os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
         with open(args.output, "w", encoding="utf-8") as f:
             json.dump({"segments": []}, f, ensure_ascii=False, indent=2)
-        os.makedirs(os.path.dirname(os.path.abspath(args.report)), exist_ok=True)
         with open(args.report, "w", encoding="utf-8") as f:
-            json.dump({
-                "metadata": {
-                    "engine": "OmeRyth STT (faster-whisper + Silero VAD)",
-                    "audio_file": os.path.abspath(args.audio),
-                    "model": model_name,
-                    "language": detected_lang,
-                    "total_segments": 0,
-                },
-                "segments": [],
-            }, f, ensure_ascii=False, indent=2)
+            json.dump({"metadata": {"engine": "OmeRyth STT (faster-whisper)", "audio_file": os.path.abspath(args.audio),
+                                    "model": model_name, "language": detected_lang, "total_segments": 0},
+                       "segments": []}, f, ensure_ascii=False, indent=2)
         sys.exit(0)
 
-    # ── 1. Découpage en répliques naturelles et complètes avec détection des dialogues ──
-    print_progress(70, 100, "Découpage en phrases naturelles pour la bande rythmo...")
-
-    all_words = merge_split_french_words(all_words)
+    # ── 1. Découpage en répliques ──
+    print_progress(88, 100, "Découpage en phrases naturelles pour la bande rythmo...")
     phrases = segment_words_into_clean_phrases(
-        all_words,
-        silence_intervals=silence_intervals,
-        pause_threshold=0.38,
-        lang=detected_lang,
-        audio_data=audio_data,
-        sr=audio_sr
-    )
+        all_words, silence_intervals=silence_intervals, pause_threshold=0.45,
+        lang=detected_lang, audio_data=audio_data, sr=audio_sr)
 
-    # ── 2. Diarisation vocale haute précision sur phrases complètes (Pitch F0 + MFCCs) ──
+    # ── 2. Diarisation ──
     num_spk = args.num_speakers
     if num_spk != 1 and len(phrases) > 1:
-        spk_label = "Auto-détection de tous les personnages" if num_spk <= 0 else f"{num_spk} locuteurs"
-        print_progress(80, 100, f"Diarisation des répliques ({spk_label}, analyse pitch F0 & timbre)...")
+        print_progress(91, 100, "Diarisation des répliques (pitch F0 & timbre)...")
         phrases = diarize_clean_phrases(args.audio, phrases, num_spk)
     else:
         for p in phrases:
             p["speaker"] = "SPEAKER_00"
 
-    # ── 3. Fusion des micro-fragments contigus d'un même personnage (< 0.15s sans silence) ──
-    phrases = merge_consecutive_same_speaker_phrases(phrases, silence_intervals=silence_intervals, max_gap=0.15, max_duration=6.5, max_words=25)
-
-    # ── 3b. Rattachement des mots de liaison orphelins (ex: 'Et' isolé de 0.16s entre deux répliques) ──
+    # ── 3. Fusion des micro-fragments et mots orphelins ──
+    phrases = merge_consecutive_same_speaker_phrases(phrases, silence_intervals=silence_intervals,
+                                                     max_gap=0.15, max_duration=6.5, max_words=25)
     phrases = resolve_orphan_phrases(phrases, max_duration=6.5)
 
-
-    # Filtrer rigoureusement toute réplique vide ou ne contenant aucun caractère alphanumérique
     phrases = [p for p in phrases if p.get("text") and any(c.isalnum() for c in p["text"])]
     for p in phrases:
         p_words = [w for w in p.get("words", []) if w.get("word") and any(c.isalnum() for c in w["word"])]
@@ -2013,84 +2028,83 @@ def main():
             if toks:
                 dur = max(0.1, p["end"] - p["start"])
                 step = dur / len(toks)
-                p_words = [
-                    {
-                        "word": t,
-                        "start": round(p["start"] + i * step, 2),
-                        "end": round(p["start"] + (i + 1) * step, 2)
-                    }
-                    for i, t in enumerate(toks)
-                ]
+                p_words = [{"word": t, "start": round(p["start"] + i * step, 2),
+                            "end": round(p["start"] + (i + 1) * step, 2)} for i, t in enumerate(toks)]
         p["words"] = p_words
-
-    # Éliminer les éventuelles répliques sans mots après validation
     phrases = [p for p in phrases if p.get("words")]
 
-    # ── 4. Construction des segments finaux et streaming direct ──
-    print_progress(90, 100, "Génération des repères et envoi vers OmeRyth...")
-
+    # ── 4. Segments finaux ──
+    print_progress(95, 100, "Génération des repères et envoi vers OmeRyth...")
     final_segments = []
-    for idx, phrase in enumerate(phrases):
-        p_words = phrase.get("words", [])
-        if p_words:
-            p_start = round(float(p_words[0]["start"]), 2)
-            p_end = round(max(p_start + 0.15, float(p_words[-1]["end"])), 2)
-            for w in p_words:
-                w["start"] = round(float(w["start"]), 2)
-                w["end"] = round(float(w["end"]), 2)
-        else:
-            p_start = round(float(phrase["start"]), 2)
-            p_end = round(max(p_start + 0.15, float(phrase["end"])), 2)
+    prev_end = 0.0
+    for phrase in phrases:
+        p_words = phrase["words"]
+        raw_start = round(max(0.0, float(p_words[0]["start"])), 2)
+        # Calage acoustique ultra-précis sur l'attaque réelle de la voix
+        p_start = detect_vocal_onset(audio_data, raw_start, prev_end_sec=prev_end, sr=audio_sr)
+        p_end = round(max(p_start + 0.15, float(p_words[-1]["end"])), 2)
 
+        if p_words:
+            p_words[0]["start"] = p_start
+            if p_words[0]["end"] <= p_start + 0.04:
+                p_words[0]["end"] = round(p_start + 0.10, 2)
+
+        # Caler également chaque mot interne s'il suit une pause (>= 0.18s)
+        for w_idx in range(1, len(p_words)):
+            w = p_words[w_idx]
+            prev_w = p_words[w_idx - 1]
+            w_s = round(float(w["start"]), 2)
+            prev_e = round(float(prev_w["end"]), 2)
+            if (w_s - prev_e) >= 0.18:
+                w_snapped = detect_vocal_onset(audio_data, w_s, prev_end_sec=prev_e, sr=audio_sr)
+                w["start"] = w_snapped
+            else:
+                w["start"] = max(prev_e, w_s)
+            w["end"] = round(max(float(w["end"]), float(w["start"]) + 0.05), 2)
+
+        text = finalize_phrase_text(phrase["text"])
+        if not text:
+            continue
         seg_data = {
-            "id": idx + 1,
+            "id": len(final_segments) + 1,
             "speaker": phrase.get("speaker", "SPEAKER_00"),
             "start": p_start,
             "end": p_end,
             "start_timecode": format_timecode(p_start),
             "end_timecode": format_timecode(p_end),
             "duration": round(max(0.1, p_end - p_start), 3),
-            "text": phrase["text"],
+            "text": text,
             "words": p_words,
-            "separators": compute_rhythmic_separators(phrase["text"], p_words),
+            "separators": compute_rhythmic_separators(text, p_words),
         }
         final_segments.append(seg_data)
-
-        # Envoi en direct vers Java pour affichage dans le tableau
+        prev_end = p_end
         print_segment(seg_data)
 
     print_progress(98, 100, "Sauvegarde du rapport final...")
-
-    # ── Écriture du JSON principal pour injection OmeRyth ──
-    output_payload = {"segments": final_segments}
-    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:
-        json.dump(output_payload, f, ensure_ascii=False, indent=2)
+        json.dump({"segments": final_segments}, f, ensure_ascii=False, indent=2)
 
-    # ── Écriture du rapport détaillé ──
     processing_time = round(time.time() - start_time, 2)
-    report_payload = {
-        "metadata": {
-            "engine": "OmeRyth STT (faster-whisper + Silero VAD + Word Timestamps)",
-            "audio_file": os.path.abspath(args.audio),
-            "model": model_name,
-            "language": detected_lang,
-            "device": used_device,
-            "compute_type": used_compute_type,
-            "threads": cpu_threads,
-            "total_segments": len(final_segments),
-            "total_words": len(all_words),
-            "raw_whisper_segments": raw_segment_count,
-            "processing_time_seconds": processing_time,
-            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        },
-        "full_transcript": " ".join(s["text"] for s in final_segments),
-        "segments": final_segments,
-    }
-
-    os.makedirs(os.path.dirname(os.path.abspath(args.report)), exist_ok=True)
     with open(args.report, "w", encoding="utf-8") as f:
-        json.dump(report_payload, f, ensure_ascii=False, indent=2)
+        json.dump({
+            "metadata": {
+                "engine": "OmeRyth STT (faster-whisper séquentiel + Silero VAD + Word Timestamps)",
+                "audio_file": os.path.abspath(args.audio),
+                "model": model_name,
+                "language": detected_lang,
+                "device": used_device,
+                "compute_type": used_compute_type,
+                "threads": cpu_threads,
+                "total_segments": len(final_segments),
+                "total_words": len(all_words),
+                "raw_whisper_segments": raw_segment_count,
+                "processing_time_seconds": processing_time,
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            },
+            "full_transcript": " ".join(s["text"] for s in final_segments),
+            "segments": final_segments,
+        }, f, ensure_ascii=False, indent=2)
 
     print_progress(100, 100, f"Transcription terminée ! {len(final_segments)} répliques détectées en {processing_time}s")
 
