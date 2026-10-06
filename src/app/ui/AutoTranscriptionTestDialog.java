@@ -457,7 +457,8 @@ public class AutoTranscriptionTestDialog extends JDialog {
 
             @Override
             public void onSegmentFound(SpeechWorkflowService.TranscriptionSegment segment) {
-                if (segment == null || !SpeechWorkflowService.hasAlphanumeric(segment.getText())) {
+                if (segment == null || !SpeechWorkflowService.hasAlphanumeric(segment.getText())
+                        || SpeechWorkflowService.isPromptLeakOrHallucination(segment.getText())) {
                     return;
                 }
                 liveSegments.add(segment);
@@ -777,7 +778,8 @@ public class AutoTranscriptionTestDialog extends JDialog {
             int baseBand = comboBandTarget.getSelectedIndex();
             boolean multiBand = checkMultiBandPerSpeaker.isSelected();
             for (SpeechWorkflowService.TranscriptionSegment seg : segments) {
-                if (seg == null || !SpeechWorkflowService.hasAlphanumeric(seg.getText())) {
+                if (seg == null || !SpeechWorkflowService.hasAlphanumeric(seg.getText())
+                        || SpeechWorkflowService.isPromptLeakOrHallucination(seg.getText())) {
                     continue;
                 }
                 String durationStr = String.format("%.2f", seg.getDuration());

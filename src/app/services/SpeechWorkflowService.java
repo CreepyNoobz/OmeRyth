@@ -597,6 +597,29 @@ public class SpeechWorkflowService {
         return false;
     }
 
+    public static boolean isPromptLeakOrHallucination(String text) {
+        if (text == null || text.isBlank()) return true;
+        String clean = text.trim().toLowerCase();
+        clean = clean.replaceAll("^[\\p{Punct}\\s]+|[\\p{Punct}\\s]+$", "");
+        return clean.equals("transcription") || clean.equals("transcription fidele") || clean.equals("transcription fidèle")
+                || clean.equals("transcription automatique") || clean.equals("transcription whisper") || clean.equals("transcription whisperx")
+                || clean.equals("bande rythmo") || clean.equals("pour bande rythmo") || clean.equals("doublage")
+                || clean.equals("sous-titres") || clean.equals("sous-titrage")
+                || clean.equals("sous-titres realises") || clean.equals("sous-titres réalisés")
+                || clean.equals("whisper") || clean.equals("whisperx")
+                || clean.contains("amara.org") || clean.contains("amaraorg")
+                || clean.contains("conserver impérativement") || clean.contains("bégaiements exacts")
+                || clean.equals("transcription fidèle pour bande rythmo")
+                || clean.equals("transcription fidele pour bande rythmo");
+    }
+
+    public static String cleanPromptLeakPrefix(String text) {
+        if (text == null) return "";
+        String s = text.replaceFirst("^(?i)(?:transcription(?:\\s+(?:fid[eèé]le|automatique|whisperx?))?|bande\\s+rythmo|doublage|sous-titres?(?:\\s+r[eé]alis[eé]s?.*)?)\\s*[:\\.\\-–—]?\\s*", "").trim();
+        s = s.replaceFirst("^(?i)(?:pour\\s+bande\\s+rythmo(?:\\s+et\\s+doublage)?|et\\s+doublage|doublage)\\s*[:\\.\\-–—]?\\s*", "").trim();
+        return s;
+    }
+
     public static TranscriptionSegment parseSingleSegment(String jsonStr) {
         try {
             Matcher idM = Pattern.compile("\"id\"\\s*:\\s*(\\d+)").matcher(jsonStr);
@@ -610,8 +633,10 @@ public class SpeechWorkflowService {
             double start = startM.find() ? Double.parseDouble(startM.group(1)) : 0.0;
             double end = endM.find() ? Double.parseDouble(endM.group(1)) : 0.0;
             String text = textM.find() ? unescape(textM.group(1)).trim() : "";
+            text = cleanPromptLeakPrefix(text);
+            text = text.replaceAll("(^|\\s)['’](\\w+)", "$1$2").trim();
 
-            if (!hasAlphanumeric(text)) {
+            if (!hasAlphanumeric(text) || isPromptLeakOrHallucination(text)) {
                 return null;
             }
 
@@ -644,6 +669,16 @@ public class SpeechWorkflowService {
                 }
             }
 
+            // Nettoyage des éventuels mots parasites résiduels en tête (fuites de prompt ou "transcription")
+            while (!seg.words.isEmpty()) {
+                String fw = seg.words.get(0).word.replaceAll("^[\\p{Punct}\\s]+|[\\p{Punct}\\s]+$", "").toLowerCase();
+                if (fw.equals("transcription") || isPromptLeakOrHallucination(fw)) {
+                    seg.words.remove(0);
+                } else {
+                    break;
+                }
+            }
+
             // Si la liste des mots est vide, découper automatiquement le texte pour garantir la présence des mots
             if (seg.words.isEmpty() && hasAlphanumeric(text)) {
                 String[] tokens = text.split("\\s+");
@@ -657,6 +692,11 @@ public class SpeechWorkflowService {
                         seg.words.add(new WordTiming(tok, wStart, wEnd));
                     }
                 }
+            }
+
+            if (!seg.words.isEmpty()) {
+                seg.startSeconds = seg.words.get(0).start;
+                seg.endSeconds = Math.max(seg.startSeconds + 0.15, seg.words.get(seg.words.size() - 1).end);
             }
 
             // Extraction des séparateurs rythmiques internes (INNER)
@@ -729,10 +769,54 @@ public class SpeechWorkflowService {
             e.printStackTrace();
         }
 
-        if (list.isEmpty() && fallback != null && !fallback.isEmpty()) {
-            return new ArrayList<>(fallback);
+        List<TranscriptionSegment> result = (list.isEmpty() && fallback != null && !fallback.isEmpty())
+                ? new ArrayList<>(fallback)
+                : list;
+        return sanitizeAndMergeCompoundWords(result);
+    }
+
+    /**
+     * Garantit que les mots composés français (ex: "aujourd'hui") et contractions avec élision
+     * ne sont jamais scindés entre plusieurs segments ou badges de locuteurs distincts.
+     */
+    public static List<TranscriptionSegment> sanitizeAndMergeCompoundWords(List<TranscriptionSegment> segments) {
+        if (segments == null || segments.isEmpty()) return segments != null ? segments : new ArrayList<>();
+        List<TranscriptionSegment> merged = new ArrayList<>();
+        for (TranscriptionSegment seg : segments) {
+            if (seg == null || seg.text == null || !hasAlphanumeric(seg.text)) continue;
+            seg.text = seg.text.replaceAll("(^|\\s)['’](\\w+)", "$1$2").trim();
+
+            if (!merged.isEmpty()) {
+                TranscriptionSegment prev = merged.get(merged.size() - 1);
+                String prevNorm = prev.text.toLowerCase().replaceAll("[^a-z0-9]", "");
+                String currNorm = seg.text.toLowerCase().replaceAll("[^a-z0-9]", "");
+                String prevRaw = prev.text.trim();
+                String currRaw = seg.text.trim();
+
+                boolean isAujourdHui = prevNorm.endsWith("aujourd") && (currNorm.startsWith("hui") || currNorm.equals("hui"));
+                boolean isElision = prevRaw.matches(".*\\b([cCdDjJlLmMntTsqQ]|qu|Qu)['’]$");
+
+                if (isAujourdHui || isElision) {
+                    if (isAujourdHui) {
+                        String punct = currRaw.replaceAll("^['’a-zA-Z0-9à-ÿÀ-Ý]+", "");
+                        prev.text = prevRaw.replaceAll("(?i)['’]?\\baujourd\\b", "aujourd'hui") + punct;
+                    } else {
+                        prev.text = prevRaw + currRaw.replaceAll("^['’]+", "");
+                    }
+                    prev.endSeconds = Math.max(prev.endSeconds, seg.endSeconds);
+                    if (seg.words != null && !seg.words.isEmpty()) {
+                        if (prev.words == null) prev.words = new ArrayList<>();
+                        prev.words.addAll(seg.words);
+                    }
+                    continue;
+                }
+            }
+            merged.add(seg);
         }
-        return list;
+        for (int i = 0; i < merged.size(); i++) {
+            merged.get(i).id = i + 1;
+        }
+        return merged;
     }
 
     private static int findJsonArrayEnd(String json, int startBracketIdx) {

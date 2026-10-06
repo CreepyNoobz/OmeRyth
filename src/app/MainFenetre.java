@@ -1102,20 +1102,17 @@ public class MainFenetre extends JFrame {
             // Déduplication de segments superposés ou identiques et ajustement précis des bornes
             java.util.List<SpeechWorkflowService.TranscriptionSegment> cleanBandSegments = new ArrayList<>();
             for (SpeechWorkflowService.TranscriptionSegment seg : bandSegments) {
-                if (seg.getText() == null || !SpeechWorkflowService.hasAlphanumeric(seg.getText())) continue;
+                if (seg.getText() == null || !SpeechWorkflowService.hasAlphanumeric(seg.getText()) || SpeechWorkflowService.isPromptLeakOrHallucination(seg.getText())) continue;
+                seg.text = seg.text.replaceAll("(^|\\s)['’](\\w+)", "$1$2").trim();
 
                 // Calage acoustique précis :
                 // 1. Le début du segment ne doit pas commencer avant la première parole effective
                 // 2. La fin du segment ne doit pas déborder au-delà du dernier mot prononcé
                 if (seg.words != null && !seg.words.isEmpty()) {
                     SpeechWorkflowService.WordTiming firstWord = seg.words.get(0);
-                    if (firstWord.start > seg.startSeconds) {
-                        seg.startSeconds = Math.max(seg.startSeconds, firstWord.start - 0.04);
-                    }
                     SpeechWorkflowService.WordTiming lastWord = seg.words.get(seg.words.size() - 1);
-                    if (lastWord.end > seg.startSeconds && lastWord.end < seg.endSeconds) {
-                        seg.endSeconds = Math.min(seg.endSeconds, lastWord.end + 0.08);
-                    }
+                    seg.startSeconds = firstWord.start;
+                    seg.endSeconds = Math.max(seg.startSeconds + 0.15, lastWord.end);
                 }
 
                 if (!cleanBandSegments.isEmpty()) {
@@ -1130,6 +1127,30 @@ public class MainFenetre extends JFrame {
                     if (seg.getStartSeconds() < prevSeg.getEndSeconds() - 0.1 && seg.getText().trim().equalsIgnoreCase(prevSeg.getText().trim())) {
                         continue;
                     }
+
+                    // Sécurité anti-scission de mots composés français (ex: "aujourd" + "hui") ou contractions avec élision
+                    String prevNorm = prevSeg.getText().trim().toLowerCase().replaceAll("[^a-z0-9]", "");
+                    String currNorm = seg.getText().trim().toLowerCase().replaceAll("[^a-z0-9]", "");
+                    String prevRaw = prevSeg.getText().trim();
+                    String currRaw = seg.getText().trim();
+                    boolean isAujourdHui = prevNorm.endsWith("aujourd") && (currNorm.startsWith("hui") || currNorm.equals("hui"));
+                    boolean isElision = prevRaw.matches(".*\\b([cCdDjJlLmMntTsqQ]|qu|Qu)['’]$");
+
+                    if (isAujourdHui || isElision) {
+                        if (isAujourdHui) {
+                            String punct = currRaw.replaceAll("^['’a-zA-Z0-9à-ÿÀ-Ý]+", "");
+                            prevSeg.text = prevRaw.replaceAll("(?i)['’]?\\baujourd\\b", "aujourd'hui") + punct;
+                        } else {
+                            prevSeg.text = prevRaw + currRaw.replaceAll("^['’]+", "");
+                        }
+                        prevSeg.endSeconds = Math.max(prevSeg.endSeconds, seg.endSeconds);
+                        if (seg.words != null && !seg.words.isEmpty()) {
+                            if (prevSeg.words == null) prevSeg.words = new ArrayList<>();
+                            prevSeg.words.addAll(seg.words);
+                        }
+                        continue;
+                    }
+
                     // Éviter le débordement du segment précédent sur le début du nouveau
                     if (prevSeg.endSeconds > seg.startSeconds - 0.05) {
                         prevSeg.endSeconds = Math.max(prevSeg.startSeconds + 0.20, seg.startSeconds - 0.05);

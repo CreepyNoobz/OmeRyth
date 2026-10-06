@@ -1422,6 +1422,58 @@ public class SmokeTests {
             System.out.println("Vérification Sortie du mode édition avec Échap : VALIDÉ !");
         }
 
+        // Test Reconnexion automatique des mots composés ("aujourd'hui") et contractions ("d'accord")
+        {
+            java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> segs = new java.util.ArrayList<>();
+            segs.add(new app.services.SpeechWorkflowService.TranscriptionSegment(1, "SPEAKER_00", 1.0, 1.8, "mauvaises 'aujourd"));
+            segs.add(new app.services.SpeechWorkflowService.TranscriptionSegment(2, "SPEAKER_01", 1.9, 2.3, "'hui,"));
+            segs.add(new app.services.SpeechWorkflowService.TranscriptionSegment(3, "SPEAKER_00", 2.5, 2.7, "d'"));
+            segs.add(new app.services.SpeechWorkflowService.TranscriptionSegment(4, "SPEAKER_01", 2.8, 3.2, "accord"));
+
+            java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> merged =
+                    app.services.SpeechWorkflowService.sanitizeAndMergeCompoundWords(segs);
+
+            assertTrue(merged.size() == 2, "Les 4 fragments doivent être fusionnés en 2 segments complets");
+            assertTrue(merged.get(0).text.equals("mauvaises aujourd'hui,"), "Le mot aujourd'hui doit être recomposé avec sa virgule");
+            assertTrue(merged.get(0).speaker.equals("SPEAKER_00"), "Le locuteur du segment fusionné doit rester SPEAKER_00");
+            assertTrue(merged.get(0).endSeconds == 2.3, "La fin du segment doit être celle du fragment 'hui");
+            assertTrue(merged.get(1).text.equals("d'accord"), "La contraction d'accord doit être reconnectée");
+            assertTrue(merged.get(1).speaker.equals("SPEAKER_00"), "Le locuteur de d'accord doit rester celui de l'amorce");
+
+            System.out.println("Vérification Reconnexion automatique 'aujourd'hui' & 'd'accord' : VALIDÉ !");
+        }
+
+        // Test Détection et élimination absolue des fuites de prompt / "transcription"
+        {
+            assertTrue(app.services.SpeechWorkflowService.isPromptLeakOrHallucination("Transcription"), "Le mot 'Transcription' seul doit être détecté comme fuite");
+            assertTrue(app.services.SpeechWorkflowService.isPromptLeakOrHallucination("Transcription fidèle"), "'Transcription fidèle' doit être détecté comme fuite");
+            assertTrue(app.services.SpeechWorkflowService.isPromptLeakOrHallucination("transcription automatique"), "'transcription automatique' doit être détecté comme fuite");
+            assertTrue(app.services.SpeechWorkflowService.isPromptLeakOrHallucination("Bande rythmo"), "'Bande rythmo' doit être détecté comme fuite");
+            assertTrue(app.services.SpeechWorkflowService.isPromptLeakOrHallucination("Sous-titres réalisés par amara.org"), "Les crédits sous-titres doivent être détectés");
+            assertTrue(!app.services.SpeechWorkflowService.isPromptLeakOrHallucination("Bonjour tout le monde"), "Une phrase réelle ne doit pas être rejetée");
+            assertTrue(!app.services.SpeechWorkflowService.isPromptLeakOrHallucination("C'est pas facile de caler les mots"), "Une phrase avec contractions ne doit pas être rejetée");
+
+            // Test nettoyage préfixe de prompt
+            String cleanedPrefix = app.services.SpeechWorkflowService.cleanPromptLeakPrefix("Transcription : Bonjour tout le monde");
+            assertTrue("Bonjour tout le monde".equals(cleanedPrefix), "Le préfixe 'Transcription :' doit être retiré");
+
+            // Test parseSingleSegment sur fuite pure -> doit retourner null
+            String leakJson = "{\"id\": 1, \"speaker\": \"SPEAKER_00\", \"start\": 0.0, \"end\": 1.2, \"text\": \"Transcription fidèle pour bande rythmo\"}";
+            app.services.SpeechWorkflowService.TranscriptionSegment nullSeg = app.services.SpeechWorkflowService.parseSingleSegment(leakJson);
+            assertTrue(nullSeg == null, "Un segment ne contenant que des consignes de prompt doit être totalement ignoré (null)");
+
+            // Test parseSingleSegment sur parole réelle avec mot parasite en tête -> mot parasite retiré et horodatage recalé
+            String realJson = "{\"id\": 2, \"speaker\": \"SPEAKER_00\", \"start\": 0.0, \"end\": 2.5, \"text\": \"Transcription : Bonjour tout le monde\", \"words\": [{\"word\": \"Transcription\", \"start\": 0.0, \"end\": 0.5}, {\"word\": \"Bonjour\", \"start\": 0.8, \"end\": 1.3}, {\"word\": \"tout\", \"start\": 1.3, \"end\": 1.6}, {\"word\": \"le\", \"start\": 1.6, \"end\": 1.8}, {\"word\": \"monde\", \"start\": 1.8, \"end\": 2.2}]}";
+            app.services.SpeechWorkflowService.TranscriptionSegment validSeg = app.services.SpeechWorkflowService.parseSingleSegment(realJson);
+            assertTrue(validSeg != null, "Le segment réel nettoyé doit être valide");
+            assertTrue("Bonjour tout le monde".equals(validSeg.text), "Le texte doit être débarrassé du préfixe parasite");
+            assertTrue(validSeg.words.size() == 4, "Le mot parasite 'Transcription' doit être retiré de la liste des mots");
+            assertTrue(validSeg.words.get(0).word.equals("Bonjour"), "Le premier mot doit être 'Bonjour'");
+            assertTrue(validSeg.startSeconds == 0.8, "Le début du segment doit être calé sur le premier mot réel (0.8s au lieu de 0.0s)");
+
+            System.out.println("Vérification Élimination des fuites 'Transcription' & Calage précis : VALIDÉ !");
+        }
+
         System.out.println("SmokeTests OK");
         System.exit(0);
     }
