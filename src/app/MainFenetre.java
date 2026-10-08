@@ -948,6 +948,16 @@ public class MainFenetre extends JFrame {
     // ===== Export vidéo bande rythmo =====
     /** Export the current timeline as a video file using the MediaWorkflowService. */
     public void exporterEnVideo() {
+        if (timer != null && timer.isRunning()) {
+            timer.toggle();
+        }
+        if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+            try {
+                if (mediaPlayerComponent.mediaPlayer().status().isPlaying()) {
+                    mediaPlayerComponent.mediaPlayer().controls().pause();
+                }
+            } catch (Throwable ignored) {}
+        }
         mediaWorkflowService.exportVideo(this, fichierSelectionne, mediaPlayerComponent, timelinePanel);
     }
 
@@ -993,6 +1003,12 @@ public class MainFenetre extends JFrame {
     // ===== Transcription Vocale =====
     /** Ouvre la fenêtre de transcription automatique et détection des voix. */
     public void ouvrirTranscriptionWhisperX() {
+        if (!DependencyManagerService.isWhisperInstalled()) {
+            boolean procede = DependencyManagerService.demanderInstallationWhisper(this);
+            if (!procede && !DependencyManagerService.isWhisperInstalled()) {
+                return;
+            }
+        }
         if (fichierSelectionne == null) {
             JOptionPane.showMessageDialog(this, "Aucune vidéo chargée. Veuillez d'abord ouvrir un projet.", "Vidéo requise", JOptionPane.WARNING_MESSAGE);
             return;

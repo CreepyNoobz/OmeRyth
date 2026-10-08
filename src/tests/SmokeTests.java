@@ -1621,16 +1621,85 @@ public class SmokeTests {
             System.out.println("Vérification Suppression Phrase Rôle avant Texte Existant (Non-suppression de la bande) : VALIDÉ !");
         }
 
-        // Test ExportVideoDialog Dimensions & Préréglages
+        // Test ExportVideoDialog Dimensions, Préréglages & Réouverture Sans Gel
         if (!java.awt.GraphicsEnvironment.isHeadless()) {
             try {
                 app.ui.ExportVideoDialog dlg = new app.ui.ExportVideoDialog(null, 1920, 100);
                 assertTrue(dlg.getPreferredSize().width >= 980, "La fenêtre d'export doit être large pour tout dérouler");
-                System.out.println("Vérification ExportVideoDialog Dimensions & Préréglages : VALIDÉ !");
+                BufferedImage fakeSnap = new BufferedImage(320, 180, BufferedImage.TYPE_INT_RGB);
+                dlg.setVideoSnapshot(fakeSnap);
+                assertTrue(dlg.getVideoSnapshot() == fakeSnap, "setVideoSnapshot doit mettre à jour l'instantané vidéo");
                 dlg.dispose();
+
+                // Réouverture consécutive pour valider l'absence de fuite ou de gel
+                app.ui.ExportVideoDialog dlg2 = new app.ui.ExportVideoDialog(null, 1920, 100);
+                dlg2.dispose();
+
+                System.out.println("Vérification ExportVideoDialog Dimensions, Préréglages & Réouverture Sans Gel : VALIDÉ !");
             } catch (java.awt.HeadlessException e) {
                 System.out.println("ExportVideoDialog ignoré en mode headless");
             }
+        }
+
+        // Test capturePreviewFrame non-bloquante de MediaWorkflowService
+        {
+            app.services.MediaWorkflowService mws = new app.services.MediaWorkflowService();
+            BufferedImage nullCap = mws.capturePreviewFrame(null, 0.0, null);
+            assertTrue(nullCap == null, "capturePreviewFrame(null) doit retourner null immédiatement sans geler");
+            File missing = new File("non_existent_video_12345.mp4");
+            BufferedImage missingCap = mws.capturePreviewFrame(missing, 1.0, null);
+            assertTrue(missingCap == null, "capturePreviewFrame sur fichier absent doit retourner null immédiatement sans exception");
+            System.out.println("Vérification capturePreviewFrame Asynchrone & Non-Bloquante : VALIDÉ !");
+        }
+
+        // Test arrondi à 0.1s lors de la mise en pause du TimerClass (barre Espace / toggle)
+        {
+            TimelinePanel snapTimeline = new TimelinePanel();
+            app.utils.TimerClass timerSnap = new app.utils.TimerClass(snapTimeline);
+
+            // Simuler lecture et temps arbitraire non aligné (2.347s -> arrondi à 2.3s)
+            timerSnap.setTime(2.347);
+            timerSnap.toggle(1); // Démarrer
+            assertTrue(timerSnap.isRunning(), "Le timer doit être en cours de lecture");
+
+            // Pause
+            timerSnap.toggle(1); // Mettre en pause
+            assertTrue(!timerSnap.isRunning(), "Le timer doit être arrêté");
+            double pausedTime = timerSnap.getTime();
+            assertTrue(Math.abs(pausedTime - 2.3) < 1e-6, "Le temps à la pause doit être arrondi à 0.1s (attendu 2.3s, obtenu " + pausedTime + "s)");
+
+            // Autre test : 4.87 -> 4.9
+            timerSnap.setTime(4.87);
+            timerSnap.toggle(1);
+            timerSnap.toggle(1);
+            assertTrue(Math.abs(timerSnap.getTime() - 4.9) < 1e-6, "Le temps à la pause doit être arrondi à 0.1s (attendu 4.9s, obtenu " + timerSnap.getTime() + "s)");
+
+            // Test KeyBoardListener togglePlayback en pause
+            app.utils.KeyBoardListener kblSnap = new app.utils.KeyBoardListener(
+                    snapTimeline, timerSnap, null,
+                    java.awt.event.KeyEvent.VK_SPACE,
+                    java.awt.event.KeyEvent.VK_RIGHT,
+                    java.awt.event.KeyEvent.VK_LEFT,
+                    java.awt.event.KeyEvent.VK_BACK_SPACE,
+                    java.awt.event.KeyEvent.VK_DIVIDE,
+                    java.awt.event.KeyEvent.VK_ADD,
+                    java.awt.event.KeyEvent.VK_SUBTRACT,
+                    null, null
+            );
+            timerSnap.setTime(7.16);
+            timerSnap.toggle(1);
+            kblSnap.togglePlayback(); // Pause via KeyBoardListener
+            assertTrue(!timerSnap.isRunning(), "Le timer doit être en pause après togglePlayback");
+            assertTrue(Math.abs(timerSnap.getTime() - 7.2) < 1e-6, "togglePlayback doit arrondir le temps à 0.1s (attendu 7.2s, obtenu " + timerSnap.getTime() + "s)");
+
+            System.out.println("Vérification Arrondi 0.1s à la Pause (Espace / toggle) : VALIDÉ !");
+        }
+
+        // Test URL de téléchargement du module Whisper
+        {
+            assertTrue("https://github.com/OmetitNoobz/Web/releases/tag/module_whisper".equals(app.services.DependencyManagerService.WHISPER_RELEASE_URL),
+                    "L'URL de téléchargement du module Whisper doit être exactement le lien du release");
+            System.out.println("Vérification Lien Release Whisper : VALIDÉ !");
         }
 
         System.out.println("SmokeTests OK");

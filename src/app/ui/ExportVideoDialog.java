@@ -132,7 +132,7 @@ public class ExportVideoDialog extends JDialog {
     private static final String MONTAGE_PRESETS_FILE = "montage_presets.properties";
 
     private final TimelinePanel timelinePanel;
-    private final BufferedImage videoSnapshot;
+    private BufferedImage videoSnapshot;
     private int bandCount = 1;
     private SingleBandPreviewPanel singleBandPreview;
 
@@ -218,8 +218,34 @@ public class ExportVideoDialog extends JDialog {
                 timelinePanel != null && timelinePanel.getHeight() > 0 ? timelinePanel.getHeight() : 100);
     }
 
+    private static class ScrollablePanel extends JPanel implements Scrollable {
+        public ScrollablePanel() {
+            super();
+        }
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 22;
+        }
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 66;
+        }
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
+    }
+
     public ExportVideoDialog(Frame owner, TimelinePanel timelinePanel, BufferedImage videoSnapshot, int currentScreenWidth, int currentScreenHeight) {
-        super(owner, "Export vidéo", true);
+        super(owner, "Exportation Vidéo & Bande Rythmo", true);
         this.timelinePanel = timelinePanel;
         this.videoSnapshot = videoSnapshot;
         this.bandCount = (timelinePanel != null) ? Math.max(1, timelinePanel.getBandCount()) : 1;
@@ -228,16 +254,27 @@ public class ExportVideoDialog extends JDialog {
         if (initW % 2 != 0) initW++;
         int initH = computeExportBandHeight(bandCount, (currentScreenHeight > 0 && currentScreenHeight <= 300) ? currentScreenHeight : 100);
         if (initH % 2 != 0) initH++;
-        this.customPresetItem = new ExportPreset("⚙️ Personnalisé (modifié)", initW, initH, 8.0, 60, true);
+        this.customPresetItem = new ExportPreset("Personnalisé (modifié)", initW, initH, 8.0, 60, true);
 
         setLayout(new BorderLayout());
-        setMinimumSize(new Dimension(980, 700));
-        setPreferredSize(new Dimension(1180, 840));
-        setSize(new Dimension(1180, 840));
+        Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
+        int dialogW = Math.min(1340, Math.max(1050, screenSize.width - 60));
+        int dialogH = Math.min(880, Math.max(740, screenSize.height - 70));
+        setPreferredSize(new Dimension(dialogW, dialogH));
+        setSize(new Dimension(dialogW, dialogH));
+        setMinimumSize(new Dimension(980, 680));
         setResizable(true);
+        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                config.approved = false;
+                dispose();
+            }
+        });
 
         tabbedPane = new JTabbedPane();
-        tabbedPane.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        tabbedPane.setFont(new Font("Segoe UI", Font.PLAIN, 12));
 
         // ==========================================
         // ONGLET 1 : BANDEAU SEUL (CLASSIQUE)
@@ -246,27 +283,27 @@ public class ExportVideoDialog extends JDialog {
 
         JPanel headerPanel1 = new JPanel(new BorderLayout(5, 5));
         headerPanel1.setBackground(new Color(30, 30, 35));
-        headerPanel1.setBorder(BorderFactory.createEmptyBorder(15, 20, 15, 20));
-        JLabel titleLabel1 = new JLabel("🎬 Exportation Bandeau Seul");
-        titleLabel1.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        headerPanel1.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 16));
+        JLabel titleLabel1 = new JLabel("Exportation Bandeau Seul");
+        titleLabel1.setFont(new Font("Segoe UI", Font.PLAIN, 15));
         titleLabel1.setForeground(Color.WHITE);
         JLabel subLabel1 = new JLabel("Exporte la bande rythmo isolée (idéal pour l'incrustation directe en régie ou sous-titrage).");
-        subLabel1.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        subLabel1.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         subLabel1.setForeground(new Color(180, 180, 190));
         headerPanel1.add(titleLabel1, BorderLayout.NORTH);
         headerPanel1.add(subLabel1, BorderLayout.SOUTH);
         tabBandeauPanel.add(headerPanel1, BorderLayout.NORTH);
 
         JPanel formPanel = new JPanel(new GridBagLayout());
-        formPanel.setBorder(BorderFactory.createEmptyBorder(15, 20, 10, 20));
+        formPanel.setBorder(BorderFactory.createEmptyBorder(12, 16, 8, 16));
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(6, 8, 6, 8);
+        gbc.insets = new Insets(5, 6, 5, 6);
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
         int row = 0;
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.3;
         JLabel lblPreset = new JLabel("Préréglage / Format :");
-        lblPreset.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        lblPreset.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         formPanel.add(lblPreset, gbc);
 
         gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 0.7;
@@ -275,22 +312,22 @@ public class ExportVideoDialog extends JDialog {
         presetControlPanel.add(comboPreset, BorderLayout.CENTER);
 
         JPanel presetButtonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
-        JButton btnBandeauMobile = new JButton("<html><span style='color:#000000; font-weight:bold;'>📱 Format Mobile (1080×1920)</span></html>");
-        btnBandeauMobile.setToolTipText("Basculer immédiatement en format Mobile 1080×1920");
-        btnBandeauMobile.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        JButton btnBandeauMobile = new JButton("Mobile 9:16");
+        btnBandeauMobile.setToolTipText("Basculer immédiatement en format Mobile 1080×1920 (TikTok, Shorts)");
+        btnBandeauMobile.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnBandeauMobile.setForeground(Color.BLACK);
         btnBandeauMobile.addActionListener(e -> applyMobileFormatDirect());
-        btnSavePreset = new JButton("<html><span style='color:#000000;'>➕ Enregistrer...</span></html>");
+        btnSavePreset = new JButton("Enregistrer...");
         btnSavePreset.setToolTipText("Enregistrer les réglages actuels sous un nouveau nom de préréglage");
         btnSavePreset.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnSavePreset.setForeground(Color.BLACK);
-        btnRenamePreset = new JButton("<html><span style='color:#000000;'>✏️ Renommer...</span></html>");
+        btnRenamePreset = new JButton("Renommer...");
         btnRenamePreset.setToolTipText("Renommer ce préréglage personnalisé");
         btnRenamePreset.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnRenamePreset.setForeground(Color.BLACK);
         btnRenamePreset.setEnabled(false);
         btnRenamePreset.addActionListener(e -> renameSelectedPreset());
-        btnDeletePreset = new JButton("<html><span style='color:#000000;'>🗑️</span></html>");
+        btnDeletePreset = new JButton("Supprimer");
         btnDeletePreset.setToolTipText("Supprimer ce préréglage personnalisé");
         btnDeletePreset.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnDeletePreset.setForeground(Color.BLACK);
@@ -304,6 +341,7 @@ public class ExportVideoDialog extends JDialog {
 
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.3;
         JLabel lblWidth = new JLabel("Largeur vidéo (px) :");
+        lblWidth.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         int origW = currentScreenWidth > 0 ? currentScreenWidth : 1920;
         if (origW % 2 != 0) origW++;
         int origH = computeExportBandHeight(bandCount, (currentScreenHeight > 0 && currentScreenHeight <= 300) ? currentScreenHeight : 100);
@@ -316,6 +354,7 @@ public class ExportVideoDialog extends JDialog {
 
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.3;
         JLabel lblHeight = new JLabel("Hauteur de la bande (px) :");
+        lblHeight.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         formPanel.add(lblHeight, gbc);
         gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 0.7;
         spinnerHeight = new JSpinner(new SpinnerNumberModel(origH, 20, 4320, 2));
@@ -323,7 +362,7 @@ public class ExportVideoDialog extends JDialog {
 
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.3;
         JLabel lblSec = new JLabel("Vision anticipée (secondes) :");
-        lblSec.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        lblSec.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         formPanel.add(lblSec, gbc);
         gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 0.7;
         spinnerVisibleSeconds = new JSpinner(new SpinnerNumberModel(8.0, 1.5, 20.0, 0.5));
@@ -331,6 +370,7 @@ public class ExportVideoDialog extends JDialog {
 
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.3;
         JLabel lblFps = new JLabel("Fluidité (FPS) :");
+        lblFps.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         formPanel.add(lblFps, gbc);
         gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 0.7;
         comboFps = new JComboBox<>(new String[]{
@@ -338,26 +378,29 @@ public class ExportVideoDialog extends JDialog {
                 "30 FPS — Standard",
                 "24 FPS — Cinéma / Doublage"
         });
+        comboFps.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         comboFps.setSelectedIndex(0);
         formPanel.add(comboFps, gbc);
 
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.3;
         JLabel lblEnc = new JLabel("Accélération :");
+        lblEnc.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         formPanel.add(lblEnc, gbc);
         gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 0.7;
         comboEncoder = new JComboBox<>(new String[]{
-                "🚀 Auto (Matériel Détecté / Recommandé)",
-                "⚡ GPU NVIDIA NVENC (NVIDIA GeForce/RTX)",
-                "⚡ GPU AMD AMF (AMD Radeon)",
-                "⚡ GPU Intel QSV (Intel Core & Intel Arc)",
-                "💻 CPU Multi-cœurs (Universel — x264 Rapide)"
+                "Auto (Matériel Détecté / Recommandé)",
+                "GPU NVIDIA NVENC (NVIDIA GeForce/RTX)",
+                "GPU AMD AMF (AMD Radeon)",
+                "GPU Intel QSV (Intel Core & Intel Arc)",
+                "CPU Multi-cœurs (Universel — x264 Rapide)"
         });
+        comboEncoder.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         comboEncoder.setSelectedIndex(0);
         formPanel.add(comboEncoder, gbc);
 
         gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
-        JLabel infoLabel = new JLabel("💡 Vous pouvez créer, nommer et sauvegarder vos configurations personnalisées.");
-        infoLabel.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+        JLabel infoLabel = new JLabel("Vous pouvez créer, nommer et sauvegarder vos configurations personnalisées.");
+        infoLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         infoLabel.setForeground(new Color(130, 185, 235));
         formPanel.add(infoLabel, gbc);
 
@@ -373,8 +416,8 @@ public class ExportVideoDialog extends JDialog {
         // ==========================================
         JPanel tabMontagePanel = createMontageTabPanel();
 
-        tabbedPane.addTab("📦 Bandeau Seul (Format d'origine OmeRyth)", tabBandeauPanel);
-        tabbedPane.addTab("🎬 Montage Vidéo + Bande (Format d'origine OmeRyth)", tabMontagePanel);
+        tabbedPane.addTab("Bandeau Seul (Format d'origine OmeRyth)", tabBandeauPanel);
+        tabbedPane.addTab("Montage Vidéo + Bande (Format d'origine OmeRyth)", tabMontagePanel);
         add(tabbedPane, BorderLayout.CENTER);
 
         // Initialisation des préréglages
@@ -407,7 +450,7 @@ public class ExportVideoDialog extends JDialog {
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 12));
         buttonPanel.setBorder(BorderFactory.createEmptyBorder(0, 15, 10, 15));
 
-        JButton btnCancel = new JButton("<html><span style='color:#000000; font-weight:500;'>Annuler</span></html>");
+        JButton btnCancel = new JButton("Annuler");
         btnCancel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         btnCancel.setForeground(Color.BLACK);
         btnCancel.addActionListener(e -> {
@@ -415,7 +458,7 @@ public class ExportVideoDialog extends JDialog {
             dispose();
         });
 
-        JButton btnExport = new JButton("<html><span style='color:#000000; font-weight:normal; font-family:Segoe UI, sans-serif;'>Lancer l'exportation vidéo...</span></html>");
+        JButton btnExport = new JButton("Lancer l'exportation vidéo...");
         btnExport.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         btnExport.setBackground(new Color(56, 189, 248)); // Sky Blue lumineux
         btnExport.setForeground(Color.BLACK); // Noir forcé
@@ -427,7 +470,23 @@ public class ExportVideoDialog extends JDialog {
         add(buttonPanel, BorderLayout.SOUTH);
 
         pack();
+        int finalW = Math.max(dialogW, getWidth());
+        int finalH = Math.max(dialogH, getHeight());
+        finalW = Math.min(finalW, screenSize.width - 40);
+        finalH = Math.min(finalH, screenSize.height - 40);
+        setSize(finalW, finalH);
         setLocationRelativeTo(owner);
+    }
+
+    public void setVideoSnapshot(BufferedImage snapshot) {
+        this.videoSnapshot = snapshot;
+        if (montageCanvas != null) {
+            montageCanvas.setVideoSnapshot(snapshot);
+        }
+    }
+
+    public BufferedImage getVideoSnapshot() {
+        return videoSnapshot;
     }
 
     private JPanel createMontageTabPanel() {
@@ -439,8 +498,8 @@ public class ExportVideoDialog extends JDialog {
         headerPanel.setBackground(new Color(24, 24, 27));
         headerPanel.setBorder(BorderFactory.createEmptyBorder(10, 15, 10, 15));
 
-        JLabel title = new JLabel("🎬 Atelier de Composition Vidéo & Bande Rythmo");
-        title.setFont(new Font("Segoe UI", Font.BOLD, 15));
+        JLabel title = new JLabel("Atelier de Composition Vidéo & Bande Rythmo");
+        title.setFont(new Font("Segoe UI", Font.PLAIN, 15));
         title.setForeground(Color.WHITE);
 
         JLabel sub = new JLabel("Déplacez et redimensionnez la Vidéo et la Bande directement à la souris sur la maquette ci-dessous.");
@@ -462,17 +521,17 @@ public class ExportVideoDialog extends JDialog {
         panel.add(montageCanvas, BorderLayout.CENTER);
 
         // Panneau latéral droit : Contrôles & Inspecteur (avec défilement fluide et largeur confortable)
-        JPanel controlsPanel = new JPanel();
+        ScrollablePanel controlsPanel = new ScrollablePanel();
         controlsPanel.setLayout(new BoxLayout(controlsPanel, BoxLayout.Y_AXIS));
-        controlsPanel.setBorder(new EmptyBorder(0, 8, 15, 8));
+        controlsPanel.setBorder(new EmptyBorder(0, 4, 8, 4));
 
         // 0. Préréglages de Montage (Sauvegarde, Renommage, Suppression)
         JPanel montagePresetPanel = new JPanel(new BorderLayout(4, 4));
         montagePresetPanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createLineBorder(new Color(63, 63, 70)),
-                "⭐ Préréglages de Montage",
+                "Préréglages de Montage",
                 TitledBorder.LEFT, TitledBorder.TOP,
-                new Font("Segoe UI", Font.BOLD, 11),
+                new Font("Segoe UI", Font.PLAIN, 11),
                 new Color(212, 212, 216)
         ));
         comboMontagePreset = new JComboBox<>(montagePresetModel);
@@ -489,21 +548,21 @@ public class ExportVideoDialog extends JDialog {
         });
         montagePresetPanel.add(comboMontagePreset, BorderLayout.CENTER);
 
-        JPanel montagePresetBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
-        btnSaveMontagePreset = new JButton("<html><span style='color:#000000;'>➕ Enregistrer...</span></html>");
+        JPanel montagePresetBtns = new JPanel(new GridLayout(1, 3, 4, 0));
+        btnSaveMontagePreset = new JButton("Enregistrer...");
         btnSaveMontagePreset.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnSaveMontagePreset.setForeground(Color.BLACK);
         btnSaveMontagePreset.setToolTipText("Enregistrer tous les réglages de ce montage sous un nouveau nom");
         btnSaveMontagePreset.addActionListener(e -> saveCurrentMontageAsPreset());
 
-        btnRenameMontagePreset = new JButton("<html><span style='color:#000000;'>✏️ Renommer...</span></html>");
+        btnRenameMontagePreset = new JButton("Renommer...");
         btnRenameMontagePreset.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnRenameMontagePreset.setForeground(Color.BLACK);
         btnRenameMontagePreset.setToolTipText("Renommer le préréglage de montage sélectionné");
         btnRenameMontagePreset.setEnabled(false);
         btnRenameMontagePreset.addActionListener(e -> renameSelectedMontagePreset());
 
-        btnDeleteMontagePreset = new JButton("<html><span style='color:#000000;'>🗑️</span></html>");
+        btnDeleteMontagePreset = new JButton("Supprimer");
         btnDeleteMontagePreset.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnDeleteMontagePreset.setForeground(Color.BLACK);
         btnDeleteMontagePreset.setToolTipText("Supprimer ce préréglage de montage");
@@ -515,92 +574,111 @@ public class ExportVideoDialog extends JDialog {
         montagePresetBtns.add(btnDeleteMontagePreset);
         montagePresetPanel.add(montagePresetBtns, BorderLayout.SOUTH);
         controlsPanel.add(montagePresetPanel);
-        controlsPanel.add(Box.createVerticalStrut(8));
+        controlsPanel.add(Box.createVerticalStrut(4));
 
         // 1. Résolution d'export
-        JPanel resPanel = new JPanel(new GridLayout(0, 1, 4, 4));
+        JPanel resPanel = new JPanel(new GridLayout(0, 1, 3, 3));
         resPanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createLineBorder(new Color(63, 63, 70)),
                 "1. Format & Résolution d'Export",
                 TitledBorder.LEFT, TitledBorder.TOP,
-                new Font("Segoe UI", Font.BOLD, 11),
+                new Font("Segoe UI", Font.PLAIN, 11),
                 new Color(212, 212, 216)
         ));
 
         comboMontageResolution = new JComboBox<>(new String[]{
-                "1920 × 1080 (16:9 Paysage Full HD — YouTube, Cinéma)",
-                "1080 × 1920 (9:16 Vertical — TikTok, Shorts, Reels)",
+                "1920 × 1080 (16:9 Paysage Full HD — YouTube)",
+                "1080 × 1920 (9:16 Vertical — TikTok, Shorts)",
                 "1280 × 720 (16:9 Paysage HD)",
                 "1080 × 1080 (1:1 Carré — Instagram)",
                 "Personnalisé..."
         });
+        comboMontageResolution.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         resPanel.add(comboMontageResolution);
 
-        JPanel dimSpinners = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
-        dimSpinners.add(new JLabel("L :"));
-        spinnerMontageWidth = new JSpinner(new SpinnerNumberModel(1920, 320, 7680, 10));
-        dimSpinners.add(spinnerMontageWidth);
-        dimSpinners.add(new JLabel("H :"));
-        spinnerMontageHeight = new JSpinner(new SpinnerNumberModel(1080, 240, 4320, 10));
-        dimSpinners.add(spinnerMontageHeight);
-        resPanel.add(dimSpinners);
+        JPanel dimSpinners = new JPanel(new GridBagLayout());
+        GridBagConstraints gbcD = new GridBagConstraints();
+        gbcD.insets = new Insets(2, 2, 2, 2);
+        gbcD.fill = GridBagConstraints.HORIZONTAL;
 
-        JPanel quickMontageRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        JButton btnMontageMobile = new JButton("<html><span style='color:#000000; font-weight:bold;'>📱 Format Mobile 9:16 (1080×1920)</span></html>");
-        btnMontageMobile.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        gbcD.gridx = 0; gbcD.weightx = 0;
+        JLabel lblL = new JLabel("L :");
+        lblL.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        dimSpinners.add(lblL, gbcD);
+
+        gbcD.gridx = 1; gbcD.weightx = 0.25;
+        spinnerMontageWidth = new JSpinner(new SpinnerNumberModel(1920, 320, 7680, 10));
+        dimSpinners.add(spinnerMontageWidth, gbcD);
+
+        gbcD.gridx = 2; gbcD.weightx = 0;
+        JLabel lblH = new JLabel("H :");
+        lblH.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        dimSpinners.add(lblH, gbcD);
+
+        gbcD.gridx = 3; gbcD.weightx = 0.25;
+        spinnerMontageHeight = new JSpinner(new SpinnerNumberModel(1080, 240, 4320, 10));
+        dimSpinners.add(spinnerMontageHeight, gbcD);
+
+        gbcD.gridx = 4; gbcD.weightx = 0.5;
+        JButton btnMontageMobile = new JButton("Mobile 9:16");
+        btnMontageMobile.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnMontageMobile.setBackground(new Color(245, 158, 11));
         btnMontageMobile.setForeground(Color.BLACK);
         btnMontageMobile.setOpaque(true);
         btnMontageMobile.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btnMontageMobile.setToolTipText("Appliquer le format vertical 1080×1920 pour TikTok / Shorts");
         btnMontageMobile.addActionListener(e -> applyMobileFormatDirect());
-        quickMontageRow.add(btnMontageMobile);
-        resPanel.add(quickMontageRow);
+        dimSpinners.add(btnMontageMobile, gbcD);
 
+        resPanel.add(dimSpinners);
         controlsPanel.add(resPanel);
-        controlsPanel.add(Box.createVerticalStrut(8));
+        controlsPanel.add(Box.createVerticalStrut(4));
 
         // 2. Modèles de disposition prédéfinis
-        JPanel templatePanel = new JPanel(new GridLayout(0, 1, 4, 4));
+        JPanel templatePanel = new JPanel(new GridLayout(0, 1, 3, 3));
         templatePanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createLineBorder(new Color(63, 63, 70)),
                 "2. Disposition Rapide (Modèles)",
                 TitledBorder.LEFT, TitledBorder.TOP,
-                new Font("Segoe UI", Font.BOLD, 11),
+                new Font("Segoe UI", Font.PLAIN, 11),
                 new Color(212, 212, 216)
         ));
 
         comboMontageTemplate = new JComboBox<>(new String[]{
-                "📐 Format d'origine OmeRyth (Vidéo en haut, Bandeau fin en bas comme à l'écran)",
-                "📐 Plein écran (Vidéo 16:9 intégrale + Bandeau incrusté en bas)",
-                "📐 Grand Bandeau Studio (Vidéo 75%, Bandeau 25%)",
-                "📐 TikTok / Shorts (Vidéo 16:9 centrée + Bandeau dessous)",
-                "📐 Égalitaire (50% Vidéo / 50% Bandeau)"
+                "Format d'origine OmeRyth (Vidéo haut, Bande bas)",
+                "Plein écran (Vidéo 16:9 intégrale + Bande incrustée)",
+                "Grand Bandeau Studio (Vidéo 75% / Bande 25%)",
+                "TikTok / Shorts (Vidéo 16:9 centrée + Bande dessous)",
+                "Égalitaire (50% Vidéo / 50% Bande)"
         });
+        comboMontageTemplate.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         templatePanel.add(comboMontageTemplate);
 
-        JButton btnApplyTemplate = new JButton("<html><span style='color:#000000;'>Appliquer la disposition</span></html>");
+        JButton btnApplyTemplate = new JButton("Appliquer la disposition");
         btnApplyTemplate.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnApplyTemplate.setForeground(Color.BLACK);
         btnApplyTemplate.addActionListener(e -> applyCurrentTemplate());
         templatePanel.add(btnApplyTemplate);
 
         controlsPanel.add(templatePanel);
-        controlsPanel.add(Box.createVerticalStrut(8));
+        controlsPanel.add(Box.createVerticalStrut(4));
 
         // 3. Inspecteur de l'élément sélectionné
-        JPanel inspectorPanel = new JPanel(new GridLayout(0, 1, 4, 4));
+        JPanel inspectorPanel = new JPanel(new GridLayout(0, 1, 3, 3));
         inspectorPanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createLineBorder(new Color(63, 63, 70)),
                 "3. Position & Taille de l'Élément Sélectionné",
                 TitledBorder.LEFT, TitledBorder.TOP,
-                new Font("Segoe UI", Font.BOLD, 11),
+                new Font("Segoe UI", Font.PLAIN, 11),
                 new Color(212, 212, 216)
         ));
 
-        JPanel togglePanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 2));
-        btnSelectVideo = new JToggleButton("🎬 Vidéo source");
+        JPanel togglePanel = new JPanel(new GridLayout(1, 2, 6, 0));
+        btnSelectVideo = new JToggleButton("Vidéo source");
+        btnSelectVideo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnSelectVideo.setForeground(Color.BLACK);
-        btnSelectBand = new JToggleButton("🎵 Bande Rythmo");
+        btnSelectBand = new JToggleButton("Bande Rythmo");
+        btnSelectBand.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnSelectBand.setForeground(Color.BLACK);
         btnSelectBand.setSelected(true);
         ButtonGroup group = new ButtonGroup();
@@ -614,32 +692,63 @@ public class ExportVideoDialog extends JDialog {
         togglePanel.add(btnSelectBand);
         inspectorPanel.add(togglePanel);
 
-        JPanel coordPanel = new JPanel(new GridLayout(2, 4, 4, 4));
-        coordPanel.add(new JLabel("X :", SwingConstants.RIGHT));
-        spinnerElemX = new JSpinner(new SpinnerNumberModel(0, -2000, 7680, 10));
-        coordPanel.add(spinnerElemX);
-        coordPanel.add(new JLabel("Y :", SwingConstants.RIGHT));
-        spinnerElemY = new JSpinner(new SpinnerNumberModel(0, -2000, 4320, 10));
-        coordPanel.add(spinnerElemY);
+        JPanel coordPanel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbcC = new GridBagConstraints();
+        gbcC.insets = new Insets(2, 3, 2, 3);
+        gbcC.fill = GridBagConstraints.HORIZONTAL;
 
-        coordPanel.add(new JLabel("Larg :", SwingConstants.RIGHT));
+        gbcC.gridy = 0;
+        gbcC.gridx = 0; gbcC.weightx = 0;
+        JLabel lblX = new JLabel("X :");
+        lblX.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        coordPanel.add(lblX, gbcC);
+
+        gbcC.gridx = 1; gbcC.weightx = 0.5;
+        spinnerElemX = new JSpinner(new SpinnerNumberModel(0, -2000, 7680, 10));
+        coordPanel.add(spinnerElemX, gbcC);
+
+        gbcC.gridx = 2; gbcC.weightx = 0;
+        JLabel lblY = new JLabel("Y :");
+        lblY.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        coordPanel.add(lblY, gbcC);
+
+        gbcC.gridx = 3; gbcC.weightx = 0.5;
+        spinnerElemY = new JSpinner(new SpinnerNumberModel(0, -2000, 4320, 10));
+        coordPanel.add(spinnerElemY, gbcC);
+
+        gbcC.gridy = 1;
+        gbcC.gridx = 0; gbcC.weightx = 0;
+        JLabel lblW = new JLabel("Larg :");
+        lblW.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        coordPanel.add(lblW, gbcC);
+
+        gbcC.gridx = 1; gbcC.weightx = 0.5;
         spinnerElemW = new JSpinner(new SpinnerNumberModel(1920, 30, 7680, 10));
-        coordPanel.add(spinnerElemW);
-        coordPanel.add(new JLabel("Haut :", SwingConstants.RIGHT));
+        coordPanel.add(spinnerElemW, gbcC);
+
+        gbcC.gridx = 2; gbcC.weightx = 0;
+        JLabel lblH2 = new JLabel("Haut :");
+        lblH2.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        coordPanel.add(lblH2, gbcC);
+
+        gbcC.gridx = 3; gbcC.weightx = 0.5;
         spinnerElemH = new JSpinner(new SpinnerNumberModel(300, 30, 4320, 10));
-        coordPanel.add(spinnerElemH);
+        coordPanel.add(spinnerElemH, gbcC);
+
         inspectorPanel.add(coordPanel);
 
-        JPanel alignPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 2));
-        JButton btnCenterH = new JButton("<html><span style='color:#000000;'>↔ Centrer</span></html>");
+        JPanel alignPanel = new JPanel(new GridLayout(1, 3, 4, 0));
+        JButton btnCenterH = new JButton("Centrer Horiz.");
         btnCenterH.setFont(new Font("Segoe UI", Font.PLAIN, 10));
         btnCenterH.setForeground(Color.BLACK);
         btnCenterH.addActionListener(e -> montageCanvas.centerSelectedHorizontally());
-        JButton btnCenterV = new JButton("<html><span style='color:#000000;'>↕ Centrer</span></html>");
+
+        JButton btnCenterV = new JButton("Centrer Vert.");
         btnCenterV.setFont(new Font("Segoe UI", Font.PLAIN, 10));
         btnCenterV.setForeground(Color.BLACK);
         btnCenterV.addActionListener(e -> montageCanvas.centerSelectedVertically());
-        JButton btnFullW = new JButton("<html><span style='color:#000000;'>⬛ Pleine Largeur</span></html>");
+
+        JButton btnFullW = new JButton("Pleine Largeur");
         btnFullW.setFont(new Font("Segoe UI", Font.PLAIN, 10));
         btnFullW.setForeground(Color.BLACK);
         btnFullW.addActionListener(e -> montageCanvas.setSelectedFullWidth());
@@ -650,7 +759,7 @@ public class ExportVideoDialog extends JDialog {
         inspectorPanel.add(alignPanel);
 
         controlsPanel.add(inspectorPanel);
-        controlsPanel.add(Box.createVerticalStrut(8));
+        controlsPanel.add(Box.createVerticalStrut(4));
 
         // 4. Fond Vidéo Flouté & Ordre des Calques
         JPanel layerPanel = new JPanel();
@@ -659,43 +768,51 @@ public class ExportVideoDialog extends JDialog {
                 BorderFactory.createLineBorder(new Color(63, 63, 70)),
                 "4. Arrière-Plan Flouté & Calques",
                 TitledBorder.LEFT, TitledBorder.TOP,
-                new Font("Segoe UI", Font.BOLD, 11),
+                new Font("Segoe UI", Font.PLAIN, 11),
                 new Color(212, 212, 216)
         ));
 
-        checkBlurBackground = new JCheckBox("✨ Vidéo source floutée en arrière-plan", false);
-        checkBlurBackground.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        checkBlurBackground = new JCheckBox("Vidéo source floutée en arrière-plan", false);
+        checkBlurBackground.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         checkBlurBackground.setForeground(new Color(56, 189, 248));
         checkBlurBackground.setToolTipText("Remplit l'arrière-plan de la vidéo exportée avec une version floutée de la vidéo source.");
         layerPanel.add(checkBlurBackground);
 
         JPanel blurParamsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
-        blurParamsPanel.add(new JLabel("Flou :"));
+        JLabel lblFlou = new JLabel("Flou :");
+        lblFlou.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        blurParamsPanel.add(lblFlou);
         spinnerBlurRadius = new JSpinner(new SpinnerNumberModel(25, 1, 60, 2));
         spinnerBlurRadius.setPreferredSize(new Dimension(50, 22));
         spinnerBlurRadius.setEnabled(false);
         blurParamsPanel.add(spinnerBlurRadius);
-        blurParamsPanel.add(new JLabel("px"));
+        JLabel lblPx = new JLabel("px");
+        lblPx.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        blurParamsPanel.add(lblPx);
 
-        blurParamsPanel.add(Box.createHorizontalStrut(6));
-        blurParamsPanel.add(new JLabel("Opacité :"));
+        blurParamsPanel.add(Box.createHorizontalStrut(8));
+        JLabel lblOp = new JLabel("Opacité :");
+        lblOp.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        blurParamsPanel.add(lblOp);
         spinnerBlurOpacity = new JSpinner(new SpinnerNumberModel(85, 10, 100, 5));
         spinnerBlurOpacity.setPreferredSize(new Dimension(50, 22));
         spinnerBlurOpacity.setEnabled(false);
         blurParamsPanel.add(spinnerBlurOpacity);
-        blurParamsPanel.add(new JLabel("%"));
+        JLabel lblPct = new JLabel("%");
+        lblPct.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        blurParamsPanel.add(lblPct);
         layerPanel.add(blurParamsPanel);
 
-        layerPanel.add(Box.createVerticalStrut(4));
+        layerPanel.add(Box.createVerticalStrut(2));
         JLabel lblLayerOrder = new JLabel("Ordre des calques (Haut = Devant / Bas = Derrière) :");
         lblLayerOrder.setFont(new Font("Segoe UI", Font.PLAIN, 10));
         lblLayerOrder.setForeground(new Color(180, 180, 190));
         layerPanel.add(lblLayerOrder);
 
         layerListModel = new DefaultListModel<>();
-        LayerItem itemBand = new LayerItem("BAND", "🎵 Bande Rythmo");
-        LayerItem itemVideo = new LayerItem("VIDEO", "🎬 Vidéo source");
-        LayerItem itemBlur = new LayerItem("BACKGROUND_BLUR", "✨ Fond Vidéo Flouté");
+        LayerItem itemBand = new LayerItem("BAND", "Bande Rythmo");
+        LayerItem itemVideo = new LayerItem("VIDEO", "Vidéo source");
+        LayerItem itemBlur = new LayerItem("BACKGROUND_BLUR", "Fond Vidéo Flouté");
         layerListModel.addElement(itemBand);
         layerListModel.addElement(itemVideo);
         layerListModel.addElement(itemBlur);
@@ -706,43 +823,30 @@ public class ExportVideoDialog extends JDialog {
         layerList.setVisibleRowCount(3);
         layerList.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         JScrollPane layerScroll = new JScrollPane(layerList);
-        layerScroll.setPreferredSize(new Dimension(240, 70));
+        layerScroll.setPreferredSize(new Dimension(220, 62));
 
-        JPanel layerListContainer = new JPanel(new BorderLayout(4, 0));
-        layerListContainer.add(layerScroll, BorderLayout.CENTER);
+        JPanel layerListContainer = new JPanel(new GridBagLayout());
+        GridBagConstraints gbcL = new GridBagConstraints();
+        gbcL.fill = GridBagConstraints.BOTH;
+        gbcL.insets = new Insets(0, 0, 0, 6);
+        gbcL.gridx = 0; gbcL.weightx = 0.72;
+        layerListContainer.add(layerScroll, gbcL);
 
-        JPanel layerBtnCol = new JPanel(new GridLayout(2, 1, 2, 2));
-        btnLayerUp = new JButton("<html><span style='color:#000000;'>▲ Monter</span></html>");
+        JPanel layerBtnCol = new JPanel(new GridLayout(2, 1, 0, 3));
+        btnLayerUp = new JButton("Monter");
         btnLayerUp.setToolTipText("Avancer ce calque vers le premier plan (au-dessus)");
-        btnLayerUp.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+        btnLayerUp.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnLayerUp.setForeground(Color.BLACK);
-        btnLayerDown = new JButton("<html><span style='color:#000000;'>▼ Descendre</span></html>");
+        btnLayerDown = new JButton("Descendre");
         btnLayerDown.setToolTipText("Reculer ce calque vers l'arrière-plan (en-dessous)");
-        btnLayerDown.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+        btnLayerDown.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnLayerDown.setForeground(Color.BLACK);
-
-        btnLayerUp.addActionListener(e -> {
-            int idx = layerList.getSelectedIndex();
-            if (idx > 0) {
-                LayerItem it = layerListModel.remove(idx);
-                layerListModel.add(idx - 1, it);
-                layerList.setSelectedIndex(idx - 1);
-                applyLayerOrderToCanvas();
-            }
-        });
-        btnLayerDown.addActionListener(e -> {
-            int idx = layerList.getSelectedIndex();
-            if (idx >= 0 && idx < layerListModel.getSize() - 1) {
-                LayerItem it = layerListModel.remove(idx);
-                layerListModel.add(idx + 1, it);
-                layerList.setSelectedIndex(idx + 1);
-                applyLayerOrderToCanvas();
-            }
-        });
-
         layerBtnCol.add(btnLayerUp);
         layerBtnCol.add(btnLayerDown);
-        layerListContainer.add(layerBtnCol, BorderLayout.EAST);
+
+        gbcL.gridx = 1; gbcL.weightx = 0.28;
+        gbcL.insets = new Insets(0, 0, 0, 0);
+        layerListContainer.add(layerBtnCol, gbcL);
         layerPanel.add(layerListContainer);
 
         Runnable updateBlurState = () -> {
@@ -760,41 +864,41 @@ public class ExportVideoDialog extends JDialog {
         spinnerBlurOpacity.addChangeListener(e -> updateBlurState.run());
 
         controlsPanel.add(layerPanel);
-        controlsPanel.add(Box.createVerticalStrut(8));
+        controlsPanel.add(Box.createVerticalStrut(4));
 
         // 5. Options d'encodage et suppression vocale
-        JPanel optionsPanel = new JPanel(new GridLayout(0, 1, 4, 4));
+        JPanel optionsPanel = new JPanel(new GridLayout(0, 1, 2, 2));
         optionsPanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createLineBorder(new Color(63, 63, 70)),
                 "5. Audio, Doublage & Qualité",
                 TitledBorder.LEFT, TitledBorder.TOP,
-                new Font("Segoe UI", Font.BOLD, 11),
+                new Font("Segoe UI", Font.PLAIN, 11),
                 new Color(212, 212, 216)
         ));
 
-        checkMontageRemoveVocals = new JCheckBox("🎤 Retirer les voix (IA Demucs - Conserver musique & ambiance)", false);
-        checkMontageRemoveVocals.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        checkMontageRemoveVocals = new JCheckBox("Retirer les voix (IA Demucs - Conserver musique)", false);
+        checkMontageRemoveVocals.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         checkMontageRemoveVocals.setForeground(new Color(245, 158, 11));
-        checkMontageRemoveVocals.setToolTipText("Supprime les dialogues via le réseau de neurones IA Demucs pour permettre aux comédiens de doubler par-dessus (conserve l'audio de base si décoché).");
+        checkMontageRemoveVocals.setToolTipText("Supprime les dialogues via le réseau de neurones IA Demucs pour permettre aux comédiens de doubler par-dessus.");
         optionsPanel.add(checkMontageRemoveVocals);
 
         JPanel antiCopyrightPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        checkAntiCopyright = new JCheckBox("🛡️ Filtre Anti-Copyright (Voile blanc) :", false);
-        checkAntiCopyright.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        checkAntiCopyright = new JCheckBox("Filtre Anti-Copyright :", false);
+        checkAntiCopyright.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         checkAntiCopyright.setForeground(new Color(56, 189, 248));
-        checkAntiCopyright.setToolTipText("Applique un léger filtre blanc semi-transparent (de 0 à 100% d'opacité) sur la vidéo source pour contourner la détection automatique.");
+        checkAntiCopyright.setToolTipText("Applique un léger filtre blanc semi-transparent sur la vidéo source.");
 
         spinnerAntiCopyrightOpacity = new JSpinner(new SpinnerNumberModel(20, 0, 100, 5));
-        spinnerAntiCopyrightOpacity.setPreferredSize(new Dimension(55, 22));
+        spinnerAntiCopyrightOpacity.setPreferredSize(new Dimension(50, 22));
         spinnerAntiCopyrightOpacity.setEnabled(false);
-        spinnerAntiCopyrightOpacity.setToolTipText("Opacité du filtre blanc (0% à 100%)");
 
-        JLabel lblPercent = new JLabel("% d'opacité");
+        JLabel lblPercent = new JLabel("% d'opacité (voile)");
         lblPercent.setFont(new Font("Segoe UI", Font.PLAIN, 11));
 
         antiCopyrightPanel.add(checkAntiCopyright);
         antiCopyrightPanel.add(spinnerAntiCopyrightOpacity);
         antiCopyrightPanel.add(lblPercent);
+        optionsPanel.add(antiCopyrightPanel);
 
         Runnable updateAntiCopyright = () -> {
             boolean active = checkAntiCopyright.isSelected();
@@ -802,43 +906,62 @@ public class ExportVideoDialog extends JDialog {
             int op = ((Number) spinnerAntiCopyrightOpacity.getValue()).intValue();
             montageCanvas.setAntiCopyright(active, op);
         };
-
         checkAntiCopyright.addActionListener(e -> updateAntiCopyright.run());
         spinnerAntiCopyrightOpacity.addChangeListener(e -> updateAntiCopyright.run());
 
-        optionsPanel.add(antiCopyrightPanel);
+        JPanel optRow = new JPanel(new GridBagLayout());
+        GridBagConstraints gbcO = new GridBagConstraints();
+        gbcO.insets = new Insets(1, 2, 1, 4);
+        gbcO.fill = GridBagConstraints.HORIZONTAL;
 
-        JPanel optRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
-        optRow.add(new JLabel("FPS :"));
-        comboMontageFps = new JComboBox<>(new String[]{"60 FPS (Fluide)", "30 FPS (Standard)", "24 FPS (Cinéma)"});
+        gbcO.gridx = 0; gbcO.weightx = 0;
+        JLabel lblFpsM = new JLabel("FPS :");
+        lblFpsM.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        optRow.add(lblFpsM, gbcO);
+
+        gbcO.gridx = 1; gbcO.weightx = 0.45;
+        comboMontageFps = new JComboBox<>(new String[]{"60 FPS (Fluide)", "30 FPS", "24 FPS"});
         comboMontageFps.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        optRow.add(comboMontageFps);
+        optRow.add(comboMontageFps, gbcO);
 
-        optRow.add(new JLabel("Vision :"));
+        gbcO.gridx = 2; gbcO.weightx = 0;
+        JLabel lblVis = new JLabel("Vision :");
+        lblVis.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        optRow.add(lblVis, gbcO);
+
+        gbcO.gridx = 3; gbcO.weightx = 0.35;
         spinnerMontageVisibleSeconds = new JSpinner(new SpinnerNumberModel(8.0, 1.5, 20.0, 0.5));
-        optRow.add(spinnerMontageVisibleSeconds);
-        optRow.add(new JLabel("s"));
+        optRow.add(spinnerMontageVisibleSeconds, gbcO);
+
+        gbcO.gridx = 4; gbcO.weightx = 0;
+        JLabel lblS = new JLabel("s");
+        lblS.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        optRow.add(lblS, gbcO);
         optionsPanel.add(optRow);
 
-        JPanel encRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
-        encRow.add(new JLabel("Accélération :"));
+        JPanel encRow = new JPanel(new BorderLayout(6, 0));
+        JLabel lblEncM = new JLabel("Accélération :");
+        lblEncM.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        encRow.add(lblEncM, BorderLayout.WEST);
         comboMontageEncoder = new JComboBox<>(new String[]{
-                "🚀 Auto (Matériel Détecté / Recommandé)",
-                "⚡ GPU NVIDIA NVENC (NVIDIA GeForce/RTX)",
-                "⚡ GPU AMD AMF (AMD Radeon)",
-                "⚡ GPU Intel QSV (Intel Core & Intel Arc)",
-                "💻 CPU Multi-cœurs (Universel — x264 Rapide)"
+                "Auto (Matériel Détecté / Recommandé)",
+                "GPU NVIDIA NVENC (NVIDIA GeForce/RTX)",
+                "GPU AMD AMF (AMD Radeon)",
+                "GPU Intel QSV (Intel Core & Arc)",
+                "CPU Multi-cœurs (Universel — x264)"
         });
         comboMontageEncoder.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         comboMontageEncoder.setSelectedIndex(0);
-        encRow.add(comboMontageEncoder);
+        encRow.add(comboMontageEncoder, BorderLayout.CENTER);
         optionsPanel.add(encRow);
 
         controlsPanel.add(optionsPanel);
         JScrollPane scrollControls = new JScrollPane(controlsPanel, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         scrollControls.setBorder(null);
-        scrollControls.setPreferredSize(new Dimension(460, 720));
+        scrollControls.setPreferredSize(new Dimension(520, 720));
+        scrollControls.setMinimumSize(new Dimension(460, 300));
         scrollControls.getVerticalScrollBar().setUnitIncrement(22);
+        SwingUtilities.invokeLater(() -> scrollControls.getVerticalScrollBar().setValue(0));
         panel.add(scrollControls, BorderLayout.EAST);
 
         // Écouteurs pour synchroniser le canevas et les contrôles
@@ -1049,20 +1172,20 @@ public class ExportVideoDialog extends JDialog {
         if (origH % 2 != 0) origH++;
 
         ExportPreset defaultPreset = new ExportPreset(
-                "🎯 Format adapté OmeRyth (" + origW + " × " + origH + " — " + bandCount + " bande" + (bandCount > 1 ? "s" : "") + ")",
+                "Format adapté OmeRyth (" + origW + " × " + origH + " — " + bandCount + " bande" + (bandCount > 1 ? "s" : "") + ")",
                 origW, origH, 8.0, 60, true
         );
         presetModel.addElement(defaultPreset);
 
         int stdH = computeExportBandHeight(bandCount, 100);
-        presetModel.addElement(new ExportPreset("⚡ Bandeau Standard (1920 × " + stdH + " — Vision 8s)", 1920, stdH, 8.0, 60, true));
-        presetModel.addElement(new ExportPreset("📱 Format Mobile Plein Écran (1080 × 1920 — 9:16)", 1080, 1920, 6.0, 60, true));
+        presetModel.addElement(new ExportPreset("Bandeau Standard (1920 × " + stdH + " — Vision 8s)", 1920, stdH, 8.0, 60, true));
+        presetModel.addElement(new ExportPreset("Format Mobile Plein Écran (1080 × 1920 — 9:16)", 1080, 1920, 6.0, 60, true));
         int mobH = computeExportBandHeight(bandCount, 180);
-        presetModel.addElement(new ExportPreset("📱 Bandeau Mobile Réseaux (1080 × " + mobH + " — Vision 6s)", 1080, mobH, 6.0, 60, true));
+        presetModel.addElement(new ExportPreset("Bandeau Mobile Réseaux (1080 × " + mobH + " — Vision 6s)", 1080, mobH, 6.0, 60, true));
         int stuH = computeExportBandHeight(bandCount, 200);
-        presetModel.addElement(new ExportPreset("🌟 Grand Bandeau Studio (1920 × " + stuH + " — Vision 6s)", 1920, stuH, 6.0, 60, true));
-        presetModel.addElement(new ExportPreset("🎬 Full HD 1080p Plein écran (1920 × 1080 — Vision 8s)", 1920, 1080, 8.0, 60, true));
-        presetModel.addElement(new ExportPreset("📺 HD 720p (1280 × 720 — Vision 6s)", 1280, 720, 6.0, 60, true));
+        presetModel.addElement(new ExportPreset("Grand Bandeau Studio (1920 × " + stuH + " — Vision 6s)", 1920, stuH, 6.0, 60, true));
+        presetModel.addElement(new ExportPreset("Full HD 1080p Plein écran (1920 × 1080 — Vision 8s)", 1920, 1080, 8.0, 60, true));
+        presetModel.addElement(new ExportPreset("HD 720p (1280 × 720 — Vision 6s)", 1280, 720, 6.0, 60, true));
 
         for (ExportPreset custom : loadCustomPresetsFromFile()) {
             presetModel.addElement(custom);
@@ -1169,7 +1292,7 @@ public class ExportVideoDialog extends JDialog {
         ExportPreset sel = (ExportPreset) comboPreset.getSelectedItem();
         if (sel == null || sel.isBuiltin || sel == customPresetItem) return;
 
-        String oldName = sel.name.replaceFirst("^⭐\\s*", "");
+        String oldName = sel.name.replaceFirst("^(\\u2B50|\\[Perso\\]|Custom - )\\s*", "");
         String newName = (String) JOptionPane.showInputDialog(
                 this,
                 "Entrez un nouveau nom pour ce préréglage :",
@@ -1184,7 +1307,7 @@ public class ExportVideoDialog extends JDialog {
             return;
         }
 
-        String finalName = "⭐ " + newName.trim();
+        String finalName = "[Perso] " + newName.trim();
         ExportPreset renamed = new ExportPreset(finalName, sel.width, sel.height, sel.visibleSeconds, sel.fps, false);
         int idx = presetModel.getIndexOf(sel);
         if (idx >= 0) {
@@ -1202,31 +1325,31 @@ public class ExportVideoDialog extends JDialog {
         updatingMontagePreset = true;
         montagePresetModel.removeAllElements();
 
-        MontagePreset pOrig = new MontagePreset("🎯 Format d'origine OmeRyth", 1920, 1080,
+        MontagePreset pOrig = new MontagePreset("Format d'origine OmeRyth", 1920, 1080,
                 new Rectangle(0, 0, 1920, 780), new Rectangle(0, 780, 1920, 300),
                 "OMERYTH_ORIGINAL", false, false, 20, false, 25, 85, 60, 8.0, "auto",
                 java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"), true);
         montagePresetModel.addElement(pOrig);
 
-        MontagePreset pTiktok = new MontagePreset("📱 TikTok / Shorts 9:16 (Flou + Bande)", 1080, 1920,
+        MontagePreset pTiktok = new MontagePreset("TikTok / Shorts 9:16 (Flou + Bande)", 1080, 1920,
                 new Rectangle(0, 420, 1080, 608), new Rectangle(0, 1040, 1080, 240),
                 "TIKTOK_CENTER_9_16", false, false, 20, true, 25, 85, 60, 6.0, "auto",
                 java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"), true);
         montagePresetModel.addElement(pTiktok);
 
-        MontagePreset pYoutube = new MontagePreset("🎬 YouTube / Cinéma 16:9 (Plein écran)", 1920, 1080,
+        MontagePreset pYoutube = new MontagePreset("YouTube / Cinéma 16:9 (Plein écran)", 1920, 1080,
                 new Rectangle(0, 0, 1920, 1080), new Rectangle(0, 840, 1920, 240),
                 "FULLSCREEN_16_9", false, false, 20, false, 25, 85, 60, 8.0, "auto",
                 java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"), true);
         montagePresetModel.addElement(pYoutube);
 
-        MontagePreset pStudio = new MontagePreset("🌟 Grand Bandeau Studio (75% Vidéo / 25% Bande)", 1920, 1080,
+        MontagePreset pStudio = new MontagePreset("Grand Bandeau Studio (75% Vidéo / 25% Bande)", 1920, 1080,
                 new Rectangle(0, 0, 1920, 810), new Rectangle(0, 810, 1920, 270),
                 "STUDIO_LARGE_BAND", false, false, 20, false, 25, 85, 60, 8.0, "auto",
                 java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"), true);
         montagePresetModel.addElement(pStudio);
 
-        MontagePreset pCarre = new MontagePreset("📸 Format Carré 1:1 (Réseaux)", 1080, 1080,
+        MontagePreset pCarre = new MontagePreset("Format Carré 1:1 (Réseaux)", 1080, 1080,
                 new Rectangle(0, 0, 1080, 540), new Rectangle(0, 540, 1080, 540),
                 "STACKED_TOP_BOTTOM", false, false, 20, false, 25, 85, 60, 6.0, "auto",
                 java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"), true);
@@ -1236,7 +1359,7 @@ public class ExportVideoDialog extends JDialog {
             montagePresetModel.addElement(custom);
         }
 
-        this.customMontagePresetItem = new MontagePreset("⚙️ Personnalisé (modifié)", 1920, 1080,
+        this.customMontagePresetItem = new MontagePreset("Personnalisé (modifié)", 1920, 1080,
                 null, null, "CUSTOM", false, false, 20, false, 25, 85, 60, 8.0, "auto", null, true);
         montagePresetModel.addElement(customMontagePresetItem);
 
@@ -1287,9 +1410,9 @@ public class ExportVideoDialog extends JDialog {
         if (p.layerOrder != null && !p.layerOrder.isEmpty()) {
             layerListModel.clear();
             for (String lid : p.layerOrder) {
-                if ("BAND".equals(lid)) layerListModel.addElement(new LayerItem("BAND", "🎵 Bande Rythmo"));
-                else if ("VIDEO".equals(lid)) layerListModel.addElement(new LayerItem("VIDEO", "🎬 Vidéo source"));
-                else if ("BACKGROUND_BLUR".equals(lid)) layerListModel.addElement(new LayerItem("BACKGROUND_BLUR", "✨ Fond Vidéo Flouté"));
+                if ("BAND".equals(lid)) layerListModel.addElement(new LayerItem("BAND", "Bande Rythmo"));
+                else if ("VIDEO".equals(lid)) layerListModel.addElement(new LayerItem("VIDEO", "Vidéo source"));
+                else if ("BACKGROUND_BLUR".equals(lid)) layerListModel.addElement(new LayerItem("BACKGROUND_BLUR", "Fond Vidéo Flouté"));
             }
             applyLayerOrderToCanvas();
         }
@@ -1352,7 +1475,7 @@ public class ExportVideoDialog extends JDialog {
 
         if (name == null || name.trim().isEmpty()) return;
 
-        String finalName = "⭐ " + name.trim();
+        String finalName = "[Perso] " + name.trim();
         MontagePreset newPreset = new MontagePreset(finalName, w, h, vr, br, tName, remVoc, antiC, antiCopac, blur, blurR, blurOp, fps, sec, enc, layers, false);
 
         int insertIdx = montagePresetModel.getSize() - 1;
@@ -1374,7 +1497,7 @@ public class ExportVideoDialog extends JDialog {
         MontagePreset sel = (MontagePreset) comboMontagePreset.getSelectedItem();
         if (sel == null || sel.isBuiltin || sel == customMontagePresetItem) return;
 
-        String oldName = sel.name.replaceFirst("^⭐\\s*", "");
+        String oldName = sel.name.replaceFirst("^(\\u2B50|\\[Perso\\]|Custom - )\\s*", "");
         String newName = (String) JOptionPane.showInputDialog(
                 this,
                 "Entrez un nouveau nom pour ce préréglage de montage :",
@@ -1387,7 +1510,7 @@ public class ExportVideoDialog extends JDialog {
 
         if (newName == null || newName.trim().isEmpty() || newName.trim().equals(oldName)) return;
 
-        String finalName = "⭐ " + newName.trim();
+        String finalName = "[Perso] " + newName.trim();
         sel.name = finalName;
         saveAllCustomMontagePresetsToFile();
         comboMontagePreset.repaint();
@@ -1521,7 +1644,7 @@ public class ExportVideoDialog extends JDialog {
             return;
         }
 
-        String finalName = "⭐ " + name.trim();
+        String finalName = "[Perso] " + name.trim();
         ExportPreset newPreset = new ExportPreset(finalName, w, h, sec, fps, false);
 
         int insertIdx = presetModel.getSize() - 1;
@@ -1647,9 +1770,9 @@ public class ExportVideoDialog extends JDialog {
             setBackground(new Color(24, 24, 27));
             setBorder(BorderFactory.createTitledBorder(
                     BorderFactory.createLineBorder(new Color(63, 63, 70)),
-                    "👁️ Aperçu Graphique Réel de la Bande Rythmo",
+                    "Aperçu Graphique Réel de la Bande Rythmo",
                     TitledBorder.LEFT, TitledBorder.TOP,
-                    new Font("Segoe UI", Font.BOLD, 11),
+                    new Font("Segoe UI", Font.PLAIN, 11),
                     new Color(245, 158, 11) // Gold
             ));
             setPreferredSize(new Dimension(800, 180));
@@ -1731,7 +1854,7 @@ public class ExportVideoDialog extends JDialog {
 
                     // Badge info en haut à gauche
                     String info = targetW + " × " + targetH + " px (" + bandCount + " bande" + (bandCount > 1 ? "s" : "") + ") — Vision : " + visibleSeconds + "s";
-                    g2.setFont(new Font("Segoe UI", Font.BOLD, 10));
+                    g2.setFont(new Font("Segoe UI", Font.PLAIN, 10));
                     FontMetrics fm = g2.getFontMetrics();
                     int tw = fm.stringWidth(info);
                     g2.setColor(new Color(15, 15, 18, 210));
@@ -1768,7 +1891,7 @@ public class ExportVideoDialog extends JDialog {
             scrubPanel.add(timeSlider, BorderLayout.CENTER);
 
             timeLabel = new JLabel(formatTime(previewTime));
-            timeLabel.setFont(new Font("Consolas", Font.BOLD, 11));
+            timeLabel.setFont(new Font("Consolas", Font.PLAIN, 11));
             timeLabel.setForeground(new Color(245, 158, 11));
             scrubPanel.add(timeLabel, BorderLayout.EAST);
 

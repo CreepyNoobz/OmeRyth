@@ -802,7 +802,7 @@ public class MontagePreviewCanvas extends JPanel {
         else ratioStr = String.format("%.2f:1", ratio);
 
         String text = "Cadre d'exportation : " + exportWidth + " × " + exportHeight + " px (" + ratioStr + ")";
-        g2.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        g2.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         FontMetrics fm = g2.getFontMetrics();
         int tw = fm.stringWidth(text);
 
@@ -886,7 +886,7 @@ public class MontagePreviewCanvas extends JPanel {
         g2.drawRect(r.x, r.y, r.width, r.height);
 
         // Titre et dimensions
-        String title = "🎬 Vidéo source (" + videoRect.width + " × " + videoRect.height + (antiCopyright && antiCopyrightOpacity > 0 ? " — Anti-Copyright " + antiCopyrightOpacity + "%" : "") + ")";
+        String title = "Vidéo source (" + videoRect.width + " × " + videoRect.height + (antiCopyright && antiCopyrightOpacity > 0 ? " — Anti-Copyright " + antiCopyrightOpacity + "%" : "") + ")";
         drawElementHeader(g2, r, title, new Color(56, 189, 248), isSelected);
     }
 
@@ -940,12 +940,12 @@ public class MontagePreviewCanvas extends JPanel {
         g2.drawRect(r.x, r.y, r.width, r.height);
 
         // Titre et dimensions
-        String title = "🎵 Bande Rythmo (" + bandRect.width + " × " + bandRect.height + " — " + bandCount + " bande" + (bandCount > 1 ? "s" : "") + ")";
+        String title = "Bande Rythmo (" + bandRect.width + " × " + bandRect.height + " — " + bandCount + " bande" + (bandCount > 1 ? "s" : "") + ")";
         drawElementHeader(g2, r, title, new Color(245, 158, 11), isSelected);
     }
 
     private void drawElementHeader(Graphics2D g2, Rectangle r, String text, Color accent, boolean isSelected) {
-        g2.setFont(new Font("Segoe UI", isSelected ? Font.BOLD : Font.PLAIN, 10));
+        g2.setFont(new Font("Segoe UI", Font.PLAIN, 10));
         FontMetrics fm = g2.getFontMetrics();
         int tw = fm.stringWidth(text);
 

@@ -215,6 +215,96 @@ public class MediaWorkflowService {
         }
     }
 
+    private static volatile BufferedImage lastCachedSnapshot = null;
+    private static volatile String lastCachedVideoPath = null;
+    private static volatile double lastCachedTime = -1.0;
+
+    /**
+     * Capture une miniature vidéo de prévisualisation de façon 100% sûre et asynchrone / non-bloquante.
+     * Utilise FFmpeg en priorité pour extraire une image fidèle sans toucher aux threads VLC.
+     * En cas d'indisponibilité de FFmpeg, tente VLC dans un thread isolé avec un timeout strict de 300 ms.
+     */
+    public BufferedImage capturePreviewFrame(File videoFile, double timeSec, EmbeddedMediaPlayerComponent mediaPlayerComponent) {
+        if (videoFile == null || !videoFile.exists()) return null;
+
+        // Vérification du cache mémoire rapide
+        String path = videoFile.getAbsolutePath();
+        if (path.equals(lastCachedVideoPath) && Math.abs(timeSec - lastCachedTime) < 0.08 && lastCachedSnapshot != null) {
+            return lastCachedSnapshot;
+        }
+
+        // 1. Priorité FFmpeg : extraction propre d'une seule image en basse résolution (scale=640:-1)
+        String ffmpegPath = findFfmpeg();
+        if (ffmpegPath != null) {
+            File tempImg = null;
+            try {
+                tempImg = File.createTempFile("omeryth_prev_", ".jpg");
+                tempImg.deleteOnExit();
+                java.util.List<String> cmd = java.util.Arrays.asList(
+                        ffmpegPath,
+                        "-ss", String.format(Locale.US, "%.3f", Math.max(0.0, timeSec)),
+                        "-i", videoFile.getAbsolutePath(),
+                        "-vframes", "1",
+                        "-vf", "scale=640:-1",
+                        "-q:v", "3",
+                        "-y",
+                        tempImg.getAbsolutePath()
+                );
+                ProcessBuilder pb = new ProcessBuilder(cmd);
+                pb.redirectErrorStream(true);
+                Process p = pb.start();
+                boolean finished = p.waitFor(1200, java.util.concurrent.TimeUnit.MILLISECONDS);
+                if (finished && tempImg.exists() && tempImg.length() > 0) {
+                    BufferedImage img = javax.imageio.ImageIO.read(tempImg);
+                    if (img != null) {
+                        lastCachedSnapshot = img;
+                        lastCachedVideoPath = path;
+                        lastCachedTime = timeSec;
+                        return img;
+                    }
+                } else {
+                    p.destroyForcibly();
+                }
+            } catch (Throwable ignored) {
+            } finally {
+                if (tempImg != null && tempImg.exists()) {
+                    try { tempImg.delete(); } catch (Throwable ignored) {}
+                }
+            }
+        }
+
+        // 2. Repli VLC avec timeout strict (300 ms) pour ne jamais geler l'application
+        if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+            java.util.concurrent.ExecutorService exec = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "vlc-snapshot-worker");
+                t.setDaemon(true);
+                return t;
+            });
+            try {
+                java.util.concurrent.Future<BufferedImage> future = exec.submit(() -> {
+                    try {
+                        return mediaPlayerComponent.mediaPlayer().snapshots().get();
+                    } catch (Throwable t) {
+                        return null;
+                    }
+                });
+                BufferedImage img = future.get(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+                if (img != null) {
+                    lastCachedSnapshot = img;
+                    lastCachedVideoPath = path;
+                    lastCachedTime = timeSec;
+                    return img;
+                }
+            } catch (Throwable ignored) {
+                // Timeout ou indisponibilité VLC : on n'attend jamais
+            } finally {
+                exec.shutdownNow();
+            }
+        }
+
+        return null;
+    }
+
     /**
      * Déclenche l'exportation complète de la timeline sous forme de vidéo encodée via FFmpeg.
      * <p>
@@ -232,23 +322,90 @@ public class MediaWorkflowService {
             return;
         }
 
-        long dureeMs = mediaPlayerComponent.mediaPlayer().media().info().duration();
+        // Calcul sécurisé et non-bloquant de la durée de la vidéo
+        long dureeMs = 0;
+        try {
+            if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+                dureeMs = mediaPlayerComponent.mediaPlayer().status().length();
+                if (dureeMs <= 0 && mediaPlayerComponent.mediaPlayer().media().info() != null) {
+                    dureeMs = mediaPlayerComponent.mediaPlayer().media().info().duration();
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        if (dureeMs <= 0 && fichierSelectionne != null && fichierSelectionne.exists()) {
+            String ff = findFfmpeg();
+            if (ff != null) {
+                try {
+                    ProcessBuilder pb = new ProcessBuilder(ff, "-i", fichierSelectionne.getAbsolutePath());
+                    pb.redirectErrorStream(true);
+                    Process p = pb.start();
+                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            if (line.contains("Duration:")) {
+                                int idx = line.indexOf("Duration:");
+                                String durStr = line.substring(idx + 9).split(",")[0].trim();
+                                String[] parts = durStr.split(":");
+                                if (parts.length == 3) {
+                                    double h = Double.parseDouble(parts[0]);
+                                    double m = Double.parseDouble(parts[1]);
+                                    double s = Double.parseDouble(parts[2]);
+                                    dureeMs = (long) ((h * 3600 + m * 60 + s) * 1000.0);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    p.waitFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS);
+                } catch (Throwable ignored) {}
+            }
+        }
+
         if (dureeMs <= 0) {
             JOptionPane.showMessageDialog(owner, "Impossible de determiner la duree de la video.");
             return;
         }
         double dureeSec = dureeMs / 1000.0;
 
-        // Boîte de dialogue de configuration des paramètres d'export (taille, FPS, audio)
-        BufferedImage videoSnapshot = null;
-        try {
-            if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
-                videoSnapshot = mediaPlayerComponent.mediaPlayer().snapshots().get();
-            }
-        } catch (Exception ignored) {}
-        app.ui.ExportVideoDialog dialog = new app.ui.ExportVideoDialog(owner, timelinePanel, videoSnapshot);
+        // Pré-chargement immédiat si miniature en cache à ce timecode
+        final double captureTime = (timelinePanel != null) ? timelinePanel.getCurrentTime() : 0.0;
+        BufferedImage initialSnapshot = null;
+        if (fichierSelectionne.getAbsolutePath().equals(lastCachedVideoPath)
+                && Math.abs(captureTime - lastCachedTime) < 0.08
+                && lastCachedSnapshot != null) {
+            initialSnapshot = lastCachedSnapshot;
+        }
+
+        // Ouvrir la boîte de dialogue SANS AUCUN BLOCAGE sur l'EDT
+        final app.ui.ExportVideoDialog dialog = new app.ui.ExportVideoDialog(owner, timelinePanel, initialSnapshot);
+
+        // Si pas de miniature immédiate en cache, extraction 100% asynchrone en arrière-plan
+        if (initialSnapshot == null) {
+            final File videoToCapture = fichierSelectionne;
+            Thread snapshotWorker = new Thread(() -> {
+                try {
+                    BufferedImage snapshot = capturePreviewFrame(videoToCapture, captureTime, mediaPlayerComponent);
+                    if (snapshot != null) {
+                        SwingUtilities.invokeLater(() -> {
+                            if (dialog.isDisplayable()) {
+                                dialog.setVideoSnapshot(snapshot);
+                            }
+                        });
+                    }
+                } catch (Throwable ignored) {}
+            }, "ExportSnapshotWorker");
+            snapshotWorker.setDaemon(true);
+            snapshotWorker.start();
+        }
+
         dialog.setVisible(true);
-        app.ui.ExportVideoDialog.ExportConfig config = dialog.getExportConfig();
+        app.ui.ExportVideoDialog.ExportConfig config;
+        try {
+            config = dialog.getExportConfig();
+        } finally {
+            dialog.dispose();
+        }
         if (!config.approved) return;
 
         File outputFile = FileUtils.chooseSaveFile(owner, "Sauvegarder la vidéo rythmo", "mp4");
@@ -271,7 +428,7 @@ public class MediaWorkflowService {
                 ? ("Montage " + config.width + "x" + config.height + " (Bande " + config.bandRect.width + "x" + config.bandRect.height + ")")
                 : (config.width + "x" + config.height);
         JLabel statusLabel = new JLabel("Initialisation de l'export (" + sizeInfo + " @ " + config.fps + " FPS)...");
-        statusLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        statusLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         JLabel speedLabel = new JLabel("Démarrage du streaming vidéo haute vitesse...");
         speedLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         speedLabel.setForeground(new Color(110, 110, 120));
@@ -717,8 +874,8 @@ public class MediaWorkflowService {
             progressBar.setIndeterminate(true);
         }
 
-        JLabel titleLabel = new JLabel(demucsAvailable ? "🤖 Séparation vocale par IA (Facebook Demucs)" : "⚙️ Filtrage acoustique des voix (FFmpeg)");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JLabel titleLabel = new JLabel(demucsAvailable ? "Séparation vocale par IA (Facebook Demucs)" : "Filtrage acoustique des voix (FFmpeg)");
+        titleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         JLabel statusLabel = new JLabel(demucsAvailable ? "Préparation de l'extraction et du réseau neuronal..." : "Filtrage des fréquences vocales...");
         statusLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         statusLabel.setForeground(new Color(110, 110, 120));

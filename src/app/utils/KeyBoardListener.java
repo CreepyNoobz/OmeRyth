@@ -552,15 +552,16 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
                 var state = mp.status().state();
 
                 if (timer.isRunning()) {
-                    // On met en pause : stopper le timer et VLC
-                    timer.toggle(direction);
+                    // On met en pause : stopper le timer et VLC avec arrondi net au marquage 0.1s
+                    timer.toggle(timer.getDirection());
                     if (mp.status().isPlaying()) {
                         mp.controls().pause();
                     }
-                    mp.controls().setTime((long) (timer.getTime() * 1000));
+                    long targetMs = (long) Math.round(timer.getTime() * 1000.0);
+                    mp.controls().setTime(targetMs);
                 } else {
                     // On démarre la lecture
-                    long targetMs = (long) (timer.getTime() * 1000);
+                    long targetMs = (long) Math.round(timer.getTime() * 1000.0);
                     if (state == uk.co.caprica.vlcj.player.base.State.ENDED || state == uk.co.caprica.vlcj.player.base.State.STOPPED) {
                         String path = getMediaFilePath();
                         if (path != null) {
@@ -578,10 +579,10 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
                     timer.toggle(direction);
                 }
             } catch (Throwable t) {
-                timer.toggle(direction);
+                timer.toggle(timer.isRunning() ? timer.getDirection() : direction);
             }
         } else {
-            timer.toggle(direction);
+            timer.toggle(timer.isRunning() ? timer.getDirection() : direction);
         }
     }
 

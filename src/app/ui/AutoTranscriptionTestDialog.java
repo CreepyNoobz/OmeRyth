@@ -88,7 +88,7 @@ public class AutoTranscriptionTestDialog extends JDialog {
     public AutoTranscriptionTestDialog(Frame parent, File videoFile,
                                        BiConsumer<List<SpeechWorkflowService.TranscriptionSegment>, Integer> onInject,
                                        int activeBand, int bandCount) {
-        super(parent, "🎙️ Transcription Vocale – Haute Précision & Multi-Locuteurs", true);
+        super(parent, "Transcription Vocale - Haute Precision & Multi-Locuteurs", true);
         this.videoFile = videoFile;
         this.onInjectCallback = onInject;
 
@@ -112,9 +112,9 @@ public class AutoTranscriptionTestDialog extends JDialog {
     private void initComponents(int activeBand, int bandCount) {
         // Paramètres
         comboSpeakers = new JComboBox<>(new String[]{
-                "Auto-détection (Trouver tous les personnages différents)",
-                "1 personne (Solo — 1 bande)",
-                "2 personnes (Dialogue — 2 bandes)",
+                "Auto-detection (Trouver tous les personnages differents)",
+                "1 personne (Solo - 1 bande)",
+                "2 personnes (Dialogue - 2 bandes)",
                 "3 personnes (3 bandes)",
                 "4 personnes (4 bandes)",
                 "5 personnes (5 bandes)",
@@ -123,8 +123,8 @@ public class AutoTranscriptionTestDialog extends JDialog {
         });
         comboSpeakers.setSelectedIndex(0);
 
-        checkMultiBandPerSpeaker = new JCheckBox("👥 Répartir chaque personne sur sa propre bande (1 bande par locuteur)", true);
-        checkMultiBandPerSpeaker.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        checkMultiBandPerSpeaker = new JCheckBox("Repartir chaque personne sur sa propre bande (1 bande par locuteur)", true);
+        checkMultiBandPerSpeaker.setFont(new Font("Segoe UI", Font.PLAIN, 12));
 
         comboLanguage = new JComboBox<>(new String[]{
                 "Français (fr)", "Anglais (en)", "Espagnol (es)",
@@ -132,10 +132,10 @@ public class AutoTranscriptionTestDialog extends JDialog {
         });
 
         comboModel = new JComboBox<>(new String[]{
-                "⚡ Base — Ultra-Rapide (Vitesse Maximale)",
-                "🎯 Small — Haute Précision (Recommandé)",
-                "🌟 Medium — Précision Maximale (Plus lent)",
-                "⚡ Tiny — Éclair"
+                "Base - Ultra-Rapide (Vitesse Maximale)",
+                "Small - Haute Precision (Recommande)",
+                "Medium - Precision Maximale (Plus lent)",
+                "Tiny - Eclair"
         });
         comboModel.setSelectedIndex(1); // Small sélectionné par défaut
 
@@ -143,10 +143,10 @@ public class AutoTranscriptionTestDialog extends JDialog {
         int maxThreads = Math.max(4, Math.min(16, totalCores));
 
         comboCpuProfile = new JComboBox<>(new String[]{
-                "🚀 Détection Automatique (Recommandé — GPU si disponible, sinon CPU Multi-cœurs)",
-                "⚡ CPU Multi-cœurs Universel (" + maxThreads + " threads — Compatible tous PC Intel/AMD)",
-                "🎮 GPU NVIDIA CUDA (Si carte graphique NVIDIA dédiée disponible)",
-                "🤫 CPU Économe / Silencieux (2 threads)"
+                "Detection Automatique (Recommande - GPU si disponible, sinon CPU Multi-coeurs)",
+                "CPU Multi-coeurs Universel (" + maxThreads + " threads - Compatible tous PC Intel/AMD)",
+                "GPU NVIDIA CUDA (Si carte graphique NVIDIA dediee disponible)",
+                "CPU Econome / Silencieux (2 threads)"
         });
         comboCpuProfile.setSelectedIndex(0);
 
@@ -161,8 +161,8 @@ public class AutoTranscriptionTestDialog extends JDialog {
         comboBandTarget = new JComboBox<>(bandOptions);
         comboBandTarget.setSelectedIndex(Math.max(0, Math.min(activeBand, safeBandCount - 1)));
 
-        checkAutoInject = new JCheckBox("⚡ Injection directe sans validation dès la fin du scan", false);
-        checkAutoInject.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        checkAutoInject = new JCheckBox("Injection directe sans validation des la fin du scan", false);
+        checkAutoInject.setFont(new Font("Segoe UI", Font.PLAIN, 12));
 
         // Progression
         progressPanel = new JPanel(new BorderLayout(5, 5));
@@ -185,15 +185,15 @@ public class AutoTranscriptionTestDialog extends JDialog {
         labelScanSummary = new JLabel("Scan non démarré.");
         labelScanSummary.setFont(new Font("Segoe UI", Font.PLAIN, 12));
 
-        btnSwapSpeakers = new JButton("🔄 Inverser (1 ↔ 2)");
+        btnSwapSpeakers = new JButton("Inverser (1 / 2)");
         btnSwapSpeakers.setToolTipText("Inverser toutes les répliques entre Locuteur 1 et Locuteur 2 en 1 clic");
         btnSwapSpeakers.setEnabled(false);
 
-        btnRenameRoles = new JButton("🏷️ Renommer les rôles...");
+        btnRenameRoles = new JButton("Renommer les rôles...");
         btnRenameRoles.setToolTipText("Donner un vrai nom aux personnages (ex: Mbappé, Journaliste...)");
         btnRenameRoles.setEnabled(false);
 
-        btnAddSpeaker = new JButton("➕ Ajouter personnage");
+        btnAddSpeaker = new JButton("Ajouter personnage");
         btnAddSpeaker.setToolTipText("Créer un nouveau rôle personnage pour lui assigner des répliques");
         btnAddSpeaker.setEnabled(false);
 
@@ -246,17 +246,20 @@ public class AutoTranscriptionTestDialog extends JDialog {
         resultsPanel.setVisible(false);
 
         // Boutons
-        btnStart = new JButton("▶ Lancer l'analyse");
-        btnStart.setFont(btnStart.getFont().deriveFont(Font.BOLD));
+        btnStart = new JButton("Lancer l'analyse");
+        btnStart.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         btnStart.setForeground(new Color(0, 120, 0));
 
-        btnCancel = new JButton("⏹ Annuler");
+        btnCancel = new JButton("Annuler");
+        btnCancel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         btnCancel.setEnabled(false);
 
-        btnInject = new JButton("📥 Injecter dans la bande rythmo");
+        btnInject = new JButton("Injecter dans la bande rythmo");
+        btnInject.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         btnInject.setEnabled(false);
 
-        btnClose = new JButton("❌ Fermer");
+        btnClose = new JButton("Fermer");
+        btnClose.setFont(new Font("Segoe UI", Font.PLAIN, 12));
 
         timer = new Timer(1000, e -> updateTime());
     }
@@ -267,9 +270,10 @@ public class AutoTranscriptionTestDialog extends JDialog {
 
         // Header
         JPanel headerPanel = new JPanel(new GridLayout(2, 1));
-        JLabel titleLabel = new JLabel("<html><b>🧪 Transcription Vocale Haute Précision & Multi-Locuteurs</b></html>");
-        titleLabel.setFont(titleLabel.getFont().deriveFont(17f));
-        JLabel subtitleLabel = new JLabel("Moteur faster-whisper + VAD Silero + Diarisation — Chaque interlocuteur sur sa propre bande.");
+        JLabel titleLabel = new JLabel("Transcription Vocale Haute Precision & Multi-Locuteurs");
+        titleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 15));
+        JLabel subtitleLabel = new JLabel("BETA - possibilité de mauvaise détection des répliques ou des locuteurs selon la qualité audio et le bruit de fond.");
+        subtitleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         headerPanel.add(titleLabel);
         headerPanel.add(subtitleLabel);
         mainPanel.add(headerPanel, BorderLayout.NORTH);
@@ -374,6 +378,13 @@ public class AutoTranscriptionTestDialog extends JDialog {
     }
 
     private void startAnalysis() {
+        if (!app.services.DependencyManagerService.isWhisperInstalled()) {
+            boolean procede = app.services.DependencyManagerService.demanderInstallationWhisper(this);
+            if (!procede && !app.services.DependencyManagerService.isWhisperInstalled()) {
+                return;
+            }
+        }
+
         if (videoFile == null || !videoFile.exists()) {
             JOptionPane.showMessageDialog(this, "Aucune vidéo chargée.", "Erreur", JOptionPane.ERROR_MESSAGE);
             return;
@@ -516,9 +527,9 @@ public class AutoTranscriptionTestDialog extends JDialog {
                     } else {
                         JOptionPane.showMessageDialog(AutoTranscriptionTestDialog.this,
                                 count + " répliques analysées !\n\n" +
-                                "👉 Vous pouvez modifier le locuteur de chaque réplique directement dans le tableau ci-dessous,\n" +
-                                "   inverser les rôles ou les renommer avant injection.\n\n" +
-                                "Cliquez sur '📥 Injecter dans la bande rythmo' pour valider.",
+                                "- Vous pouvez modifier le locuteur de chaque réplique directement dans le tableau ci-dessous,\n" +
+                                "  inverser les rôles ou les renommer avant injection.\n\n" +
+                                "Cliquez sur 'Injecter dans la bande rythmo' pour valider.",
                                 "Scan terminé - Révision disponible", JOptionPane.INFORMATION_MESSAGE);
                     }
                 });
@@ -569,18 +580,17 @@ public class AutoTranscriptionTestDialog extends JDialog {
             countPerSpeaker.put(s.getSpeakerIndex(), countPerSpeaker.getOrDefault(s.getSpeakerIndex(), 0) + 1);
         }
 
-        StringBuilder sb = new StringBuilder("<html><b>Scan :</b> ");
-        sb.append(segs.size()).append(" réplique(s) — ");
+        StringBuilder sb = new StringBuilder("Scan : ");
+        sb.append(segs.size()).append(" replique(s) - ");
         sb.append(countPerSpeaker.size()).append(" personnage(s) : ");
         boolean first = true;
         for (Map.Entry<Integer, Integer> entry : countPerSpeaker.entrySet()) {
             if (!first) sb.append(", ");
             int idx = entry.getKey();
             String name = customSpeakerNames.getOrDefault(idx, "Locuteur " + (idx + 1));
-            sb.append("<b>").append(name).append("</b> (").append(entry.getValue()).append(")");
+            sb.append(name).append(" (").append(entry.getValue()).append(")");
             first = false;
         }
-        sb.append("</html>");
         labelScanSummary.setText(sb.toString());
 
         btnSwapSpeakers.setEnabled(countPerSpeaker.size() >= 2);

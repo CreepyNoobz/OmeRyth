@@ -168,7 +168,7 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
 
         // ===== MENU OUTILS / TOOLS =====
         menuOutils = new JMenu("Outils");
-        detecterPlans = new JMenuItem("Détecter les plans automatiquement");
+        detecterPlans = new JMenuItem("Détecter les plans automatiquement (BETA)");
         detecterPlans.addActionListener(e -> mainFenetre.detecterPlans());
         menuOutils.add(detecterPlans);
         add(menuOutils);
@@ -274,7 +274,7 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
             affichage_waveform.setText("Afficher la waveform (onde audio)");
 
             menuOutils.setText("Outils");
-            detecterPlans.setText("Détecter les plans automatiquement");
+            detecterPlans.setText("Détecter les plans automatiquement (BETA)");
 
             menuOptions.setText("Options");
             personnalisation.setText("Personnalisation (Paramètres)");
