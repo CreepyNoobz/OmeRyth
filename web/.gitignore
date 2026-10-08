@@ -1,0 +1,15 @@
+﻿# Binaires volumineux (distribués via GitHub Releases)
+assets/OmeRyth_version/
+*.exe
+*.zip
+*.msi
+
+# Fichiers système et caches
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# Environnements et éditeurs
+.vscode/
+.idea/

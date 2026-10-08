@@ -12,35 +12,83 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Gestionnaire de persistance des projets OmeRyth.
+ * 
+ * Assure la sauvegarde et le rechargement transparent :
+ * - Du format natif JSON moderne (.rythmo, version RHYTHMO_V5)
+ * - Du format XML industriel professionnel DETX (via DetxManager)
+ * - Des anciens formats hérités par délimiteurs tubes ('|', Legacy V1-V4)
+ * 
+ * Embarque un parser JSON récursif descendant 'JsonParser' développé sur-mesure
+ * pour garantir une vitesse maximale et une totale indépendance vis-à-vis de bibliothèques tierces.
+ */
 public class ProjectManager {
 
-    private static final String JSON_VERSION = "RHYTHMO_V4";
+    /** Version courante du schéma JSON de projet OmeRyth */
+    private static final String JSON_VERSION = "RHYTHMO_V5";
 
+    /**
+     * Conteneur immuable des métadonnées d'un projet chargé avec succès.
+     */
     public static class LoadedProject {
         public final File videoFile;
         public final int bandCount;
+        public final double pixelsPerSecond;
+        public final int zoomLevelIndex;
 
-        public LoadedProject(File videoFile, int bandCount) {
+        public LoadedProject(File videoFile, int bandCount, double pixelsPerSecond, int zoomLevelIndex) {
             this.videoFile = videoFile;
             this.bandCount = bandCount;
+            this.pixelsPerSecond = pixelsPerSecond;
+            this.zoomLevelIndex = zoomLevelIndex;
+        }
+
+        public LoadedProject(File videoFile, int bandCount) {
+            this(videoFile, bandCount, -1, -1);
         }
     }
 
-    public static void save(File file, File videoFile, TextManager textManager, ArrayList<Role> roles, int bandCount) {
+    /**
+     * Sauvegarde le projet courant vers le fichier cible (détecte automatiquement l'extension .detx ou .rythmo).
+     */
+    public static void save(File file, File videoFile, TextManager textManager, ArrayList<Role> roles, int bandCount, double pixelsPerSecond, int zoomLevelIndex) {
         try {
-            String json = toJson(videoFile, textManager, roles, bandCount);
+            if (file != null && file.getName().toLowerCase().endsWith(".detx")) {
+                DetxManager.saveDetx(file, videoFile, textManager, roles, bandCount, pixelsPerSecond > 0 ? pixelsPerSecond : 80.0);
+                return;
+            }
+            String json = toJson(videoFile, textManager, roles, bandCount, pixelsPerSecond, zoomLevelIndex);
             Files.writeString(file.toPath(), json, StandardCharsets.UTF_8);
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
+    public static void save(File file, File videoFile, TextManager textManager, ArrayList<Role> roles, int bandCount) {
+        save(file, videoFile, textManager, roles, bandCount, -1, -1);
+    }
+
+    public static void saveDetx(File file, File videoFile, TextManager textManager, ArrayList<Role> roles, int bandCount, double pixelsPerSecond) {
+        DetxManager.saveDetx(file, videoFile, textManager, roles, bandCount, pixelsPerSecond > 0 ? pixelsPerSecond : 80.0);
+    }
+
     public static LoadedProject load(File file, TextManager textManager, ArrayList<Role> roles) {
         try {
+            String nameLower = file.getName().toLowerCase();
+            if (nameLower.endsWith(".detx") || nameLower.endsWith(".cappella")) {
+                return DetxManager.loadDetx(file, textManager, roles, 80.0);
+            }
             String raw = Files.readString(file.toPath(), StandardCharsets.UTF_8);
             String trimmed = raw.trim();
+            if (trimmed.startsWith("\uFEFF")) {
+                trimmed = trimmed.substring(1).trim();
+            }
+            if (trimmed.startsWith("<?xml") || trimmed.startsWith("<detx")) {
+                return DetxManager.loadDetx(file, textManager, roles, 80.0);
+            }
             if (trimmed.startsWith("{")) {
-                return loadFromJson(trimmed, textManager, roles);
+                return loadFromJson(trimmed, textManager, roles, file);
             }
             return loadLegacy(raw, textManager, roles);
         } catch (Exception e) {
@@ -49,7 +97,34 @@ public class ProjectManager {
         }
     }
 
-    private static String toJson(File videoFile, TextManager textManager, ArrayList<Role> roles, int bandCount) {
+    /**
+     * Sérialise l'état intégral de la session de travail OmeRyth sous forme de document JSON structuré.
+     * <p>
+     * Le schéma sérialisé englobe :
+     * <ul>
+     *   <li>{@code version} : Indique la révision du format de sauvegarde pour les migrations futures.</li>
+     *   <li>{@code video} : Chemin d'accès absolu vers le média source synchronisé (ou null si aucun).</li>
+     *   <li>{@code bandCount} : Nombre de pistes d'acteurs actives sur la timeline (au minimum 1).</li>
+     *   <li>{@code pixelsPerSecond} : Échelle temporelle horizontale (vitesse de défilement).</li>
+     *   <li>{@code zoomLevelIndex} : Indice du palier de zoom sélectionné par l'utilisateur.</li>
+     *   <li>{@code roles} : Liste ordonnée des comédiens/personnages (nom et valeur RGB avec alpha).</li>
+     *   <li>{@code texts} : Ensemble des segments textuels, avec leur position temporelle spatiale {@code x},
+     *       la piste d'assignation {@code band}, et le rôle associé.</li>
+     *   <li>{@code separators} : Points de synchronisation labiale et découpes syllabiques, avec leur type,
+     *       index de split dans le texte, et type de signe d'action/respiration.</li>
+     *   <li>{@code planMarkers} : Repères spatiaux de changements de plan vidéo (cuts caméra).</li>
+     * </ul>
+     * </p>
+     *
+     * @param videoFile        Fichier vidéo lié au projet.
+     * @param textManager      Gestionnaire contenant les textes et séparateurs.
+     * @param roles            Liste des rôles configurés.
+     * @param bandCount        Nombre de pistes.
+     * @param pixelsPerSecond  Vitesse temporelle en pixels par seconde.
+     * @param zoomLevelIndex   Niveau de zoom courant.
+     * @return La chaîne JSON formatée prête pour l'écriture disque.
+     */
+    private static String toJson(File videoFile, TextManager textManager, ArrayList<Role> roles, int bandCount, double pixelsPerSecond, int zoomLevelIndex) {
         StringBuilder sb = new StringBuilder(4096);
         sb.append("{\n");
         sb.append("  \"version\": \"").append(JSON_VERSION).append("\",\n");
@@ -59,6 +134,8 @@ public class ProjectManager {
             sb.append("  \"video\": null,\n");
         }
         sb.append("  \"bandCount\": ").append(Math.max(1, bandCount)).append(",\n");
+        sb.append("  \"pixelsPerSecond\": ").append(pixelsPerSecond > 0 ? pixelsPerSecond : 80.0).append(",\n");
+        sb.append("  \"zoomLevelIndex\": ").append(Math.max(0, zoomLevelIndex)).append(",\n");
 
         sb.append("  \"roles\": [\n");
         for (int i = 0; i < roles.size(); i++) {
@@ -87,8 +164,11 @@ public class ProjectManager {
         for (Map.Entry<Integer, ArrayList<SeparatorMark>> entry : textManager.getBandSeparators().entrySet()) {
             int band = entry.getKey();
             for (SeparatorMark sep : entry.getValue()) {
+                String signName = (sep.signType != null) ? sep.signType.name() : SeparatorMark.SignType.DEFAULT.name();
+                String rawTypeEscaped = (sep.rawDetxType != null) ? sep.rawDetxType.replace("\"", "\\\"") : "";
                 separatorLines.add("    {\"band\": " + band + ", \"x\": " + sep.x
-                        + ", \"type\": \"" + sep.type.name() + "\", \"splitIndex\": " + sep.splitIndex + "}");
+                        + ", \"type\": \"" + sep.type.name() + "\", \"splitIndex\": " + sep.splitIndex
+                        + ", \"signType\": \"" + signName + "\", \"rawDetxType\": \"" + rawTypeEscaped + "\"}");
             }
         }
         for (int i = 0; i < separatorLines.size(); i++) {
@@ -96,13 +176,41 @@ public class ProjectManager {
             if (i < separatorLines.size() - 1) sb.append(',');
             sb.append('\n');
         }
-        sb.append("  ]\n");
+        sb.append("  ],\n");
+
+        ArrayList<Integer> planMarkers = textManager.getPlanMarkers();
+        sb.append("  \"planMarkers\": [");
+        for (int i = 0; i < planMarkers.size(); i++) {
+            sb.append(planMarkers.get(i));
+            if (i < planMarkers.size() - 1) sb.append(", ");
+        }
+        sb.append("]\n");
+
         sb.append("}\n");
         return sb.toString();
     }
 
+    /**
+     * Reconstitue l'environnement de travail à partir d'une chaîne JSON.
+     * <p>
+     * Le parseur décode l'arbre d'objets, réinitialise le {@link TextManager} et la liste des comédiens,
+     * puis instancie fidèlement :
+     * <ul>
+     *   <li>Les rôles avec leurs teintes respectives.</li>
+     *   <li>Les segments textuels rattachés par nom à leur rôle correspondant.</li>
+     *   <li>Les séparateurs de synchronisation et de respiration (avec gestion de repli si le type est inconnu).</li>
+     *   <li>Les marqueurs de changement de plan vidéo.</li>
+     * </ul>
+     * Le nombre de pistes (bandCount) est soit lu directement, soit déduit du maximum observé sur les éléments.
+     * </p>
+     *
+     * @param json         Le contenu textuel JSON du fichier {@code .omeryth}.
+     * @param textManager  Le gestionnaire de timeline cible à réhydrater.
+     * @param roles        La liste des comédiens cible à repeupler.
+     * @return Une instance de {@link LoadedProject} encapsulant les métadonnées de session.
+     */
     @SuppressWarnings("unchecked")
-    private static LoadedProject loadFromJson(String json, TextManager textManager, ArrayList<Role> roles) {
+    private static LoadedProject loadFromJson(String json, TextManager textManager, ArrayList<Role> roles, File file) {
         Object parsed = new JsonParser(json).parseValue();
         if (!(parsed instanceof Map)) {
             throw new IllegalArgumentException("Format JSON invalide");
@@ -114,10 +222,17 @@ public class ProjectManager {
 
         Object videoRaw = root.get("video");
         File videoFile = (videoRaw instanceof String && !((String) videoRaw).isBlank()) ? new File((String) videoRaw) : null;
+        if (videoFile != null && !videoFile.exists() && file != null && file.getParentFile() != null) {
+            File rel = new File(file.getParentFile(), videoFile.getName());
+            if (rel.exists()) {
+                videoFile = rel;
+            }
+        }
 
         int loadedBandCount = asInt(root.get("bandCount"), -1);
         int maxBandIndex = -1;
 
+        // 1. Décodage de la liste des comédiens / rôles
         Object roleListObj = root.get("roles");
         if (roleListObj instanceof List) {
             for (Object roleObj : (List<?>) roleListObj) {
@@ -129,6 +244,7 @@ public class ProjectManager {
             }
         }
 
+        // 2. Décodage des segments de texte positionnés sur la timeline
         Object textListObj = root.get("texts");
         if (textListObj instanceof List) {
             for (Object textObj : (List<?>) textListObj) {
@@ -136,7 +252,8 @@ public class ProjectManager {
                 Map<String, Object> m = (Map<String, Object>) textObj;
                 int band = asInt(m.get("band"), 0);
                 maxBandIndex = Math.max(maxBandIndex, band);
-                TextItem item = new TextItem(asString(m.get("text")), asInt(m.get("x"), 0), band);
+                int x = asInt(m.get("x"), 0);
+                TextItem item = new TextItem(asString(m.get("text")), x, band);
                 String roleName = asString(m.get("role"));
                 if (!roleName.isEmpty()) {
                     roles.stream().filter(r -> roleName.equals(r.name)).findFirst().ifPresent(r -> item.role = r);
@@ -145,6 +262,7 @@ public class ProjectManager {
             }
         }
 
+        // 3. Décodage des séparateurs rythmiques et phonétiques
         Object sepListObj = root.get("separators");
         if (sepListObj instanceof List) {
             for (Object sepObj : (List<?>) sepListObj) {
@@ -160,16 +278,45 @@ public class ProjectManager {
                 } catch (Exception ignored) {
                     type = SeparatorMark.Type.LEGACY;
                 }
+                String signTypeRaw = asString(m.get("signType"));
+                SeparatorMark.SignType signType = SeparatorMark.SignType.DEFAULT;
+                if (signTypeRaw != null) {
+                    try {
+                        signType = SeparatorMark.SignType.valueOf(signTypeRaw);
+                    } catch (Exception ignored) {}
+                }
+                String rawDetxType = asString(m.get("rawDetxType"));
                 maxBandIndex = Math.max(maxBandIndex, band);
-                textManager.addSeparator(band, x, type, splitIndex);
+                SeparatorMark sm = textManager.addSeparator(band, x, type, splitIndex, signType);
+                if (rawDetxType != null && !rawDetxType.isEmpty()) {
+                    sm.rawDetxType = rawDetxType;
+                }
             }
         }
 
+        // 4. Décodage des repères de changement de plan vidéo
+        Object planListObj = root.get("planMarkers");
+        if (planListObj instanceof List) {
+            for (Object pm : (List<?>) planListObj) {
+                int pmX = asInt(pm, -1);
+                if (pmX >= 0) textManager.addPlanMarker(pmX);
+            }
+        }
+
+        double loadedPps = asDouble(root.get("pixelsPerSecond"), -1.0);
+        int loadedZoomIndex = asInt(root.get("zoomLevelIndex"), -1);
+
         int inferredBandCount = (maxBandIndex >= 0) ? (maxBandIndex + 1) : 4;
         int finalBandCount = loadedBandCount > 0 ? loadedBandCount : inferredBandCount;
-        return new LoadedProject(videoFile, finalBandCount);
+        return new LoadedProject(videoFile, finalBandCount, loadedPps, loadedZoomIndex);
     }
 
+    /**
+     * Analyseur de secours pour les anciens fichiers projets OmeRyth au format texte délimité par des barres verticales {@code |}.
+     * <p>
+     * Assure la rétrocompatibilité avec les projets créés sur les versions initiales du logiciel.
+     * </p>
+     */
     private static LoadedProject loadLegacy(String raw, TextManager textManager, ArrayList<Role> roles) {
         File videoFile = null;
         int loadedBandCount = -1;
@@ -177,7 +324,7 @@ public class ProjectManager {
         try (BufferedReader reader = new BufferedReader(new java.io.StringReader(raw))) {
             textManager.clearAll();
             roles.clear();
-            reader.readLine(); // version
+            reader.readLine(); // Ignore l'en-tête de version
             String line;
             while ((line = reader.readLine()) != null) {
                 String[] parts = line.split("\\|", -1);
@@ -191,7 +338,8 @@ public class ProjectManager {
                     case "TEXT" -> {
                         int band = Integer.parseInt(parts[3]);
                         maxBandIndex = Math.max(maxBandIndex, band);
-                        TextItem item = new TextItem(parts[1], Integer.parseInt(parts[2]), band);
+                        int x = Integer.parseInt(parts[2]);
+                        TextItem item = new TextItem(parts[1], x, band);
                         if (parts.length > 4 && !parts[4].isEmpty()) {
                             final String rName = parts[4];
                             roles.stream().filter(r -> r.name.equals(rName)).findFirst().ifPresent(r -> item.role = r);
@@ -199,22 +347,22 @@ public class ProjectManager {
                         textManager.addTextItem(item);
                     }
                     case "SEP" -> {
-                        int band = Integer.parseInt(parts[1]);
+                        int band = Integer.parseInt(parts[2]);
                         maxBandIndex = Math.max(maxBandIndex, band);
-                        int x = Integer.parseInt(parts[2]);
-                        if (parts.length > 3) {
-                            SeparatorMark.Type type = SeparatorMark.Type.valueOf(parts[3]);
-                            int splitIndex = (parts.length > 4) ? Integer.parseInt(parts[4]) : -1;
-                            textManager.addSeparator(band, x, type, splitIndex);
-                        } else {
-                            // Backward compatibility with old projects
-                            textManager.addSeparator(band, x, SeparatorMark.Type.LEGACY);
+                        int x = Integer.parseInt(parts[1]);
+                        SeparatorMark.Type type;
+                        try {
+                            type = SeparatorMark.Type.valueOf(parts[3]);
+                        } catch (Exception ignored) {
+                            type = SeparatorMark.Type.LEGACY;
                         }
+                        textManager.addSeparator(band, x, type);
                     }
                 }
             }
-        } catch (Exception e) { e.printStackTrace(); }
-
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         int inferredBandCount = (maxBandIndex >= 0) ? (maxBandIndex + 1) : 4;
         int finalBandCount = loadedBandCount > 0 ? loadedBandCount : inferredBandCount;
         return new LoadedProject(videoFile, finalBandCount);
@@ -249,10 +397,36 @@ public class ProjectManager {
         return fallback;
     }
 
+    private static double asDouble(Object value, double fallback) {
+        if (value instanceof Number) return ((Number) value).doubleValue();
+        if (value instanceof String) {
+            try {
+                return Double.parseDouble((String) value);
+            } catch (Exception ignored) {
+                return fallback;
+            }
+        }
+        return fallback;
+    }
+
     private static String asString(Object value) {
         return value == null ? "" : String.valueOf(value);
     }
 
+    /**
+     * Analyseur syntaxique JSON minimaliste et autonome, implémenté selon le patron descendant récursif (LL(1)).
+     * <p>
+     * Conçu pour respecter scrupuleusement la contrainte « zéro dépendance externe » en évitant d'embarquer
+     * Jackson, Gson ou Org.Json. Il gère l'ensemble de la grammaire JSON standard :
+     * <ul>
+     *   <li>Objets {@code { "clé": valeur }} mappés en {@link Map}&lt;String, Object&gt;.</li>
+     *   <li>Tableaux {@code [ valeur1, valeur2 ]} mappés en {@link List}&lt;Object&gt;.</li>
+     *   <li>Chaînes de caractères avec séquences d'échappement ({@code \", \\, \n, \r, \t, unicode}).</li>
+     *   <li>Valeurs numériques (conversions automatiques en {@link Long} ou {@link Double}).</li>
+     *   <li>Booléens ({@code true}, {@code false}) et valeur nulle ({@code null}).</li>
+     * </ul>
+     * </p>
+     */
     private static final class JsonParser {
         private final String src;
         private int i;
@@ -262,6 +436,9 @@ public class ProjectManager {
             this.i = 0;
         }
 
+        /**
+         * Point d'entrée de l'analyseur : aiguille vers la méthode spécialisée selon le premier caractère non-espace.
+         */
         private Object parseValue() {
             skipSpaces();
             if (i >= src.length()) throw new IllegalArgumentException("JSON vide");
@@ -274,6 +451,9 @@ public class ProjectManager {
             return parseNumber();
         }
 
+        /**
+         * Analyse un objet JSON délimité par des accolades {@code { ... }}.
+         */
         private Map<String, Object> parseObject() {
             expect('{');
             Map<String, Object> obj = new HashMap<>();
@@ -298,6 +478,9 @@ public class ProjectManager {
             return obj;
         }
 
+        /**
+         * Analyse un tableau JSON délimité par des crochets {@code [ ... ]}.
+         */
         private List<Object> parseArray() {
             expect('[');
             ArrayList<Object> arr = new ArrayList<>();
@@ -318,6 +501,9 @@ public class ProjectManager {
             return arr;
         }
 
+        /**
+         * Analyse une chaîne littérale JSON entre guillemets doubles, en décodant les séquences d'échappement unicode et standard.
+         */
         private String parseString() {
             expect('"');
             StringBuilder sb = new StringBuilder();
@@ -353,6 +539,9 @@ public class ProjectManager {
             throw new IllegalArgumentException("String JSON invalide");
         }
 
+        /**
+         * Analyse le mot-clé littéral {@code null}.
+         */
         private Object parseNull() {
             if (src.startsWith("null", i)) {
                 i += 4;
@@ -361,6 +550,9 @@ public class ProjectManager {
             throw new IllegalArgumentException("Valeur JSON invalide");
         }
 
+        /**
+         * Analyse les booléens littéraux {@code true} et {@code false}.
+         */
         private Boolean parseBoolean() {
             if (src.startsWith("true", i)) {
                 i += 4;
@@ -373,6 +565,9 @@ public class ProjectManager {
             throw new IllegalArgumentException("Boolean JSON invalide");
         }
 
+        /**
+         * Analyse un nombre entier ou à virgule flottante (supporte le signe négatif).
+         */
         private Number parseNumber() {
             int start = i;
             if (peek('-')) i++;
@@ -390,6 +585,9 @@ public class ProjectManager {
             return isDouble ? Double.parseDouble(token) : Long.parseLong(token);
         }
 
+        /**
+         * Vérifie la présence d'un caractère obligatoire (ex: ':' ou ',') et avance l'index de lecture.
+         */
         private void expect(char c) {
             skipSpaces();
             if (i >= src.length() || src.charAt(i) != c) {
@@ -398,10 +596,16 @@ public class ProjectManager {
             i++;
         }
 
+        /**
+         * Regarde le prochain caractère sans avancer le pointeur de lecture.
+         */
         private boolean peek(char c) {
             return i < src.length() && src.charAt(i) == c;
         }
 
+        /**
+         * Consomme tous les espaces blancs (espaces, retours à la ligne, tabulations).
+         */
         private void skipSpaces() {
             while (i < src.length() && Character.isWhitespace(src.charAt(i))) i++;
         }

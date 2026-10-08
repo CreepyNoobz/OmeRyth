@@ -4,6 +4,8 @@ import app.utils.KeyBoardListener;
 import app.ui.TimelinePanel;
 
 import javax.swing.JFrame;
+import javax.swing.JRootPane;
+import javax.swing.JScrollBar;
 import javax.swing.SwingUtilities;
 import java.awt.AWTEvent;
 import java.awt.Component;
@@ -14,15 +16,31 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.util.function.Consumer;
 
+/**
+ * Gestionnaire centralisé pour la capture et le routage des événements globaux de l'application.
+ * <p>
+ * Rôles clés :
+ * <ul>
+ *   <li><b>Désactivation de la saisie au clic externe :</b> Écouteur global AWT fermant la boîte d'édition
+ *       textuelle de la timeline dès que l'utilisateur clique en dehors de celle-ci.</li>
+ *   <li><b>Défilement temporel global :</b> Interception de la molette de souris sur la fenêtre principale
+ *       (avec exclusion sélective des ascenseurs de l'historique et des zones de dialogue actives).</li>
+ *   <li><b>Acheminement universel des raccourcis clavier :</b> Enregistre un {@code KeyEventDispatcher}
+ *       sur le {@link KeyboardFocusManager} pour que les touches de transport (Espace, flèches, M, etc.)
+ *       fonctionnent quel que soit le composant ayant le focus dans la fenêtre.</li>
+ *   <li><b>Interception de la fermeture :</b> Déclenche le protocole d'arrêt propre et de confirmation.</li>
+ * </ul>
+ * </p>
+ */
 public class MainWindowEventBinder {
 
     /**
-     * Bind common application-level event handlers: global mouse events, wheel handling
-     * and window close callback using the provided handlers.
+     * Attache les gestionnaires d'événements globaux AWT et Swing à la fenêtre principale.
      */
     public void bind(JFrame frame,
                      TimelinePanel timelinePanel,
                      KeyBoardListener keyBoardListener,
+                     ActionHistoryService actionHistoryService,
                      Consumer<MouseWheelEvent> wheelHandler,
                      Runnable onWindowClosing) {
 
@@ -31,8 +49,13 @@ public class MainWindowEventBinder {
                 MouseEvent me = (MouseEvent) event;
                 if (me.getID() == MouseEvent.MOUSE_PRESSED && timelinePanel.isEditing()) {
                     Component src = me.getComponent();
-                    if (src != timelinePanel && !SwingUtilities.isDescendingFrom(src, timelinePanel)) {
-                        timelinePanel.stopTyping();
+                    if (src != null && src != timelinePanel && !SwingUtilities.isDescendingFrom(src, timelinePanel)) {
+                        String className = src.getClass().getName();
+                        if (src instanceof JRootPane || className.contains("SplitPaneDivider") || src instanceof JScrollBar) {
+                            // Conserver le mode édition lors d'un simple ajustement de bordure ou de séparateur
+                        } else {
+                            timelinePanel.stopTyping();
+                        }
                     }
                 }
             }
@@ -49,6 +72,17 @@ public class MainWindowEventBinder {
             Component src = mwe.getComponent();
             if (src == null) return;
             if (!SwingUtilities.isDescendingFrom(src, frame) && src != frame) return;
+
+            // Ne pas intercepter la molette si la souris se trouve sur le panneau d'historique ou un JScrollPane
+            if (actionHistoryService != null && actionHistoryService.isHistoryComponent(src)) {
+                return;
+            }
+            if (src instanceof javax.swing.JScrollPane || src instanceof javax.swing.JScrollBar
+                    || SwingUtilities.getAncestorOfClass(javax.swing.JScrollPane.class, src) != null) {
+                return;
+            }
+
+            mwe.consume();
             wheelHandler.accept(mwe);
         }, AWTEvent.MOUSE_WHEEL_EVENT_MASK);
 
@@ -83,6 +117,14 @@ public class MainWindowEventBinder {
                 onWindowClosing.run();
             }
         });
+    }
+
+    public void bind(JFrame frame,
+                     TimelinePanel timelinePanel,
+                     KeyBoardListener keyBoardListener,
+                     Consumer<MouseWheelEvent> wheelHandler,
+                     Runnable onWindowClosing) {
+        bind(frame, timelinePanel, keyBoardListener, null, wheelHandler, onWindowClosing);
     }
 
     private boolean isFromMainOrOwnedWindow(JFrame frame, Component src) {

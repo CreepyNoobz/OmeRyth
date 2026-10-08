@@ -32,8 +32,12 @@ public class OnboardingManager {
     }
 
     public static void showOnboardingIfNeeded(MainFenetre parent) {
+        // Le contrôle d'onboarding et des composants ne s'exécute qu'au tout premier lancement
         if (shouldShowOnboarding()) {
-            // Afficher le tutoriel amélioré
+            if (!app.services.DependencyManagerService.hasAllEssentialComponents()) {
+                DependencySetupDialog setupDialog = new DependencySetupDialog(parent);
+                setupDialog.setVisible(true);
+            }
             EnhancedTutorialDialog tutorial = new EnhancedTutorialDialog(parent);
             tutorial.setVisible(true);
             markOnboardingDone();

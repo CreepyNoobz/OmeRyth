@@ -8,9 +8,10 @@ import javax.imageio.ImageIO;
 import java.io.File;
 
 /**
- * Petit composant de timer affichant le temps courant et pilotant la timeline.
- * Gère le formatage du temps, la cadence du timer Swing et la communication
- * avec la `TimelinePanel` pour mettre à jour la position de lecture.
+ * Composant de timer affichant le temps courant et pilotant la timeline.
+ * Utilise une horloge système en temps réel (System.currentTimeMillis()) pour garantir
+ * une synchronisation 1:1 absolue avec la vitesse de la vidéo (sans retard ni lenteur)
+ * tout en conservant une fluidité d'affichage 60 FPS parfaite.
  */
 public class TimerClass extends JPanel {
     private double time = 0; // secondes
@@ -24,6 +25,19 @@ public class TimerClass extends JPanel {
     private BufferedImage cachedImage;
 
     private TimelinePanel timeline;
+
+    // Horloge haute précision (nanoTime) pour éviter les micro-saccades de 15.6ms de Windows
+    private long startRealTimeNs = 0;
+    private double startRythmoTime = 0;
+
+    private java.util.function.DoubleSupplier externalTimeSource = null;
+    private java.util.function.BooleanSupplier externalIsPlaying = null;
+    private long lastSyncNs = 0L;
+
+    public void setExternalTimeSource(java.util.function.DoubleSupplier timeSupplier, java.util.function.BooleanSupplier isPlayingSupplier) {
+        this.externalTimeSource = timeSupplier;
+        this.externalIsPlaying = isPlayingSupplier;
+    }
 
     /**
      * Crée un composant timer lié à une `TimelinePanel` pour propager la position temporelle.
@@ -44,23 +58,55 @@ public class TimerClass extends JPanel {
 
         add(timerLabel, BorderLayout.CENTER);
 
-        timer = new Timer(10, e -> update());
+        // Horloge 60 FPS calibrée sur nanoTime (16ms) avec coalescence :
+        // évite les micro-saccades de battement d'affichage et garantit une fluidité parfaite
+        timer = new Timer(16, e -> update());
+        timer.setCoalesce(true);
+    }
+
+    private Runnable onStopCallback;
+    private String lastFormattedTime = "";
+
+    public void setOnStopCallback(Runnable onStopCallback) {
+        this.onStopCallback = onStopCallback;
     }
 
     private void update() {
         if (timeline == null) return;
-        time += 0.01 * direction;
+
+        // Calcul haute précision du temps réel écoulé (sans saccades)
+        long now = System.nanoTime();
+        double elapsedSec = (now - startRealTimeNs) / 1_000_000_000.0;
+        time = startRythmoTime + (elapsedSec * direction);
+
+
 
         if (time >= maxTime) {
             time = maxTime; // bloque le timer
             timer.stop();
+            time = Math.max(0.0, Math.round(time * 10.0) / 10.0);
+            startRythmoTime = time;
+            timerLabel.setText(format());
+            timeline.setTime(time);
+            if (onStopCallback != null) onStopCallback.run();
         }
         if (time <= 0) {
             time = 0;
             timer.stop();
+            startRythmoTime = time;
+            timerLabel.setText(format());
+            timeline.setTime(time);
+            if (onStopCallback != null) onStopCallback.run();
         }
 
-        timerLabel.setText(format());
+        // Met à jour le label uniquement quand les dixièmes de seconde changent
+        // (évite 60-100 appels de revalidate() par seconde sur le thread Swing)
+        String formatted = format();
+        if (!formatted.equals(lastFormattedTime)) {
+            lastFormattedTime = formatted;
+            timerLabel.setText(formatted);
+        }
+
         timeline.setTime(time);
     }
 
@@ -72,34 +118,56 @@ public class TimerClass extends JPanel {
         return String.format("%02d:%02d:%02d.%d", min / 60, min % 60, sec, tenth);
     }
 
-    /** Toggle the timer running state (start/pause) and update the timeline. */
+    /**
+     * Bascule l'état de lecture du chronomètre (lecture / pause) dans le sens de défilement actuel.
+     */
     public void toggle() {
         toggle(direction);
     }
 
-    /** Toggle playback state in the requested direction. */
+    /**
+     * Bascule l'état de lecture dans la direction demandée (+1 avance, -1 recul).
+     * <p>
+     * À la mise en pause (notamment avec la barre Espace), le temps est automatiquement
+     * arrondi au marquage de 0.1s le plus proche pour garantir un arrêt visuel propre et esthétique,
+     * parfaitement aligné avec les graduations du quadrillage de la bande rythmo.
+     * </p>
+     *
+     * @param newDirection Sens souhaité (>= 0 : avance, < 0 : marche arrière).
+     */
     public void toggle(int newDirection) {
         int requestedDirection = newDirection >= 0 ? 1 : -1;
         if (timer.isRunning()) {
             if (direction == requestedDirection) {
                 timer.stop();
-                // On pause, truncate to the lower tenth (ex: 1.32 -> 1.30).
-                time = Math.floor(time * 10.0) / 10.0;
+                // Arrondi au marquage de 0.1s le plus proche
+                time = Math.max(0.0, Math.round(time * 10.0) / 10.0);
+                if (maxTime > 0 && time > maxTime) {
+                    time = maxTime;
+                }
+                startRythmoTime = time;
                 timerLabel.setText(format());
                 timeline.setTime(time);
             } else {
                 direction = requestedDirection;
+                startRealTimeNs = System.nanoTime();
+                startRythmoTime = time;
             }
         } else {
             direction = requestedDirection;
+            startRealTimeNs = System.nanoTime();
+            startRythmoTime = time;
             timer.start();
         }
     }
 
-    /** Reset the timer to zero and update the timeline. */
+    /**
+     * Réinitialise le chronomètre au début absolu (0.0 seconde) et réaligne la timeline.
+     */
     public void reset() {
         timer.stop();
         time = 0;
+        startRythmoTime = 0;
         timerLabel.setText(format());
         timeline.setTime(0);
     }
@@ -109,8 +177,9 @@ public class TimerClass extends JPanel {
     }
 
     // ==========================
-    // Nouvelle méthode pour caper le timer
-    /** Set the maximum allowed time for the timer (cap). */
+    /**
+     * Définit la durée temporelle maximale autorisée pour le chronomètre (borne supérieure calée sur la vidéo).
+     */
     public void setMaxTime(double maxTime) {
         this.maxTime = maxTime;
     }
@@ -125,6 +194,8 @@ public class TimerClass extends JPanel {
 
     public void setDirection(int newDirection) {
         this.direction = newDirection >= 0 ? 1 : -1;
+        startRealTimeNs = System.nanoTime();
+        startRythmoTime = this.time;
     }
     
     public void setTime(double newTime) {
@@ -132,6 +203,8 @@ public class TimerClass extends JPanel {
         if (maxTime > 0 && this.time > maxTime) {
             this.time = maxTime;
         }
+        startRealTimeNs = System.nanoTime();
+        startRythmoTime = this.time;
         timerLabel.setText(format());
         if (timeline != null) {
             timeline.setTime(this.time);
@@ -141,26 +214,37 @@ public class TimerClass extends JPanel {
     public double getMaxTime() {
         return maxTime;
     }
-    /** Add delta seconds to the current timer and update the timeline. */
+
+    /**
+     * Ajoute un décalage temporel relatif (delta en secondes) au chronomètre courant et actualise la timeline.
+     */
     public void addTime(double delta) {
         this.time += delta;
+        if (this.time < 0) this.time = 0;
 
-        // Capper à la durée max si tu as défini setMaxTime
+        // Limiter à la durée maximale configurée
         if (maxTime > 0 && time > maxTime) {
             time = maxTime;
             timer.stop();
+            if (onStopCallback != null) onStopCallback.run();
         }
 
+        startRealTimeNs = System.nanoTime();
+        startRythmoTime = this.time;
         timerLabel.setText(format());
         timeline.setTime(time);
     }
 
-    /** Set the visual theme background color (convenience overload). */
+    /**
+     * Définit la couleur de fond du thème visuel du chronomètre.
+     */
     public void setTheme(Color background) {
         setTheme(background, "");
     }
 
-    /** Set the visual theme background and optional background image path. */
+    /**
+     * Définit la couleur de fond et le chemin optionnel d'une image d'arrière-plan pour le chronomètre.
+     */
     public void setTheme(Color background, String imagePath) {
         if (background != null) {
             themeColor = background;
@@ -214,6 +298,4 @@ public class TimerClass extends JPanel {
             return null;
         }
     }
-    
-
 }

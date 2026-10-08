@@ -1,13 +1,14 @@
 package app.services;
 
+import app.utils.FileUtils;
 import app.ui.TimelinePanel;
 import app.utils.TimerClass;
 import uk.co.caprica.vlcj.player.component.EmbeddedMediaPlayerComponent;
 
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
+import javax.swing.JButton;
 import javax.swing.JDialog;
-import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -16,15 +17,58 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
+import java.awt.Color;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.Graphics2D;
+import java.awt.GridLayout;
+import java.awt.Rectangle;
 import java.awt.event.InputEvent;
 import java.awt.event.MouseWheelEvent;
+import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferByte;
+import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * Service orchestrateur pour la gestion multimédia, la synchronisation vidéo VLCJ et le pipeline d'export FFmpeg.
+ * <p>
+ * Responsabilités architecturales :
+ * <ul>
+ *   <li><b>Intégration du lecteur vidéo :</b> Pilotage du composant natif VLCJ (EmbeddedMediaPlayerComponent)
+ *       avec gestion asynchrone des métadonnées temporelles et bascule dynamique des panneaux CardLayout.</li>
+ *   <li><b>Navigation temporelle fluide (Seeking) :</b> Défilement par molette de souris ultra-réactif avec filtrage anti-rebond,
+ *       incréments dynamiques par modificateurs clavier (normal 0.1s, Shift 0.5s, Ctrl 1.0s) et reprise automatique
+ *       d'état lorsque la vidéo est arrêtée ou terminée.</li>
+ *   <li><b>Pipeline d'export vidéo sans E/S disque :</b> Rendu vectoriel frame-par-frame en mémoire BGR24,
+ *       injection directe via flux standard (stdin pipe 2 Mo) vers FFmpeg, composition multi-calques par filtres
+ *       complexes et sélection automatique de l'accélération matérielle (NVENC, QSV, AMF).</li>
+ *   <li><b>Séparation vocale IA :</b> Isolation acoustique des dialogues pour karaoké et doublage via Demucs HTDemucs v4
+ *       ou filtrage différentiel stéréo FFmpeg.</li>
+ * </ul>
+ * </p>
+ */
 public class MediaWorkflowService {
 
-    /** Load a video file into the media player component and set timeline duration. */
+    /**
+     * Charge de manière asynchrone un fichier vidéo dans le lecteur multimédia VLCJ et configure l'échelle de la timeline.
+     *
+     * @param owner                 Fenêtre parente pour l'affichage de la boîte de progression.
+     * @param videoFile             Fichier vidéo ou audio sélectionné par l'utilisateur.
+     * @param mediaPlayerComponent  Composant lecteur VLCJ natif.
+     * @param mediaCardLayout       Gestionnaire de disposition pour basculer entre l'état vide et le lecteur actif.
+     * @param mediaContentPanel     Conteneur hébergeant l'affichage vidéo.
+     * @param timer                 Horloge maîtresse de l'application (TimerClass).
+     * @param onLoaded              Action de rappel exécutée avec succès une fois les métadonnées acquises.
+     */
     public void loadVideo(javax.swing.JFrame owner,
                           File videoFile,
                           EmbeddedMediaPlayerComponent mediaPlayerComponent,
@@ -34,7 +78,7 @@ public class MediaWorkflowService {
                           Runnable onLoaded) {
         if (videoFile == null) return;
 
-        JDialog loadingDialog = new JDialog(owner, "Chargement video", false);
+        JDialog loadingDialog = new JDialog(owner, "Chargement de la vidéo", false);
         JProgressBar progress = new JProgressBar();
         progress.setIndeterminate(true);
         loadingDialog.add(progress);
@@ -48,7 +92,17 @@ public class MediaWorkflowService {
                     mediaPlayerComponent.mediaPlayer().controls().stop();
                 }
                 mediaPlayerComponent.mediaPlayer().media().startPaused(videoFile.getAbsolutePath());
-                return mediaPlayerComponent.mediaPlayer().media().info().duration();
+                long dureeMs = -1;
+                for (int i = 0; i < 30; i++) {
+                    try {
+                        if (mediaPlayerComponent.mediaPlayer().media().info() != null) {
+                            dureeMs = mediaPlayerComponent.mediaPlayer().media().info().duration();
+                            if (dureeMs > 0) break;
+                        }
+                    } catch (Throwable ignored) {}
+                    try { Thread.sleep(50); } catch (InterruptedException ignored) {}
+                }
+                return dureeMs;
             }
 
             @Override
@@ -58,8 +112,8 @@ public class MediaWorkflowService {
                     long dureeMs = get();
                     if (dureeMs <= 0) {
                         JOptionPane.showMessageDialog(owner,
-                                "Video non supportee ou metadonnees illisibles.",
-                                "Chargement video",
+                                "Vidéo non supportée ou métadonnées illisibles.",
+                                "Chargement vidéo",
                                 JOptionPane.ERROR_MESSAGE);
                         mediaCardLayout.show(mediaContentPanel, "EMPTY");
                         return;
@@ -69,8 +123,8 @@ public class MediaWorkflowService {
                     if (onLoaded != null) onLoaded.run();
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(owner,
-                            "Impossible de charger la video: " + ex.getMessage(),
-                            "Chargement video",
+                            "Impossible de charger la vidéo : " + ex.getMessage(),
+                            "Chargement vidéo",
                             JOptionPane.ERROR_MESSAGE);
                     mediaCardLayout.show(mediaContentPanel, "EMPTY");
                 }
@@ -81,10 +135,34 @@ public class MediaWorkflowService {
         loadingDialog.setVisible(true);
     }
 
-    /** Adjust current time based on mouse wheel input (seeking). */
+    private long lastWheelTime = 0;
+
+    /**
+     * Ajuste la position temporelle courante lors d'un défilement à la molette de souris sur la timeline.
+     * <p>
+     * Implémente un filtre anti-rebond (30 ms) pour éviter l'engorgement de requêtes vers VLCJ,
+     * suspend la lecture en cours pour un positionnement frame-accurate, et adapte le pas de déplacement :
+     * <ul>
+     *   <li>Par défaut : 0.1 seconde (un dixième de seconde, synchronisé avec les graduations).</li>
+     *   <li>Avec la touche Shift : 0.5 seconde.</li>
+     *   <li>Avec la touche Ctrl : 1.0 seconde (saut d'une seconde entière).</li>
+     * </ul>
+     * </p>
+     *
+     * @param event                 Événement de rotation de la molette souris.
+     * @param timer                 Chronomètre maître.
+     * @param mediaPlayerComponent  Composant lecteur vidéo VLCJ.
+     */
     public void adjustTimeByWheel(MouseWheelEvent event,
                                   TimerClass timer,
                                   EmbeddedMediaPlayerComponent mediaPlayerComponent) {
+        event.consume();
+        long now = System.currentTimeMillis();
+        if (now - lastWheelTime < 30) {
+            return; // Ignore les impulsions ultra-rapprochées (<30ms) pour éviter les à-coups
+        }
+        lastWheelTime = now;
+
         double wheelRotation = event.getPreciseWheelRotation();
         if (wheelRotation == 0) return;
 
@@ -96,29 +174,145 @@ public class MediaWorkflowService {
         }
 
         int modifiers = event.getModifiersEx();
-        double step = 0.05;
+        double step = 0.1; // Pas par défaut : 1 graduation de dixième de seconde (0.1s)
         if ((modifiers & InputEvent.CTRL_DOWN_MASK) != 0) {
             step = 1.0;
         } else if ((modifiers & InputEvent.SHIFT_DOWN_MASK) != 0) {
             step = 0.5;
         }
-        double delta = Math.signum(wheelRotation) * step;
-        double next = timer.getTime() + delta;
-        if (next < 0) {
-            timer.reset();
-            if (mediaPlayerComponent != null) {
-                mediaPlayerComponent.mediaPlayer().controls().setTime(0);
-            }
-            return;
+        long currentTenths = Math.round(timer.getTime() * 10.0);
+        long deltaTenths = Math.round(Math.signum(wheelRotation) * step * 10.0);
+        if (deltaTenths == 0) {
+            deltaTenths = wheelRotation > 0 ? 1L : -1L;
         }
-
-        timer.addTime(delta);
-        if (mediaPlayerComponent != null) {
-            mediaPlayerComponent.mediaPlayer().controls().setTime((long) (timer.getTime() * 1000));
+        double next = Math.max(0.0, (currentTenths + deltaTenths) / 10.0);
+        timer.setTime(next);
+        if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+            try {
+                var mp = mediaPlayerComponent.mediaPlayer();
+                var state = mp.status().state();
+                long targetMs = (long) (next * 1000);
+                if (state == uk.co.caprica.vlcj.player.base.State.ENDED || state == uk.co.caprica.vlcj.player.base.State.STOPPED) {
+                    String path = null;
+                    if (mp.media().info() != null) {
+                        path = mp.media().info().mrl();
+                    }
+                    if (path != null) {
+                        mp.media().startPaused(path, ":start-time=" + (targetMs / 1000.0));
+                        mp.controls().setTime(targetMs);
+                    } else {
+                        mp.controls().play();
+                        mp.controls().setTime(targetMs);
+                        mp.controls().pause();
+                    }
+                } else {
+                    if (mp.status().isPlaying()) {
+                        mp.controls().pause();
+                    }
+                    mp.controls().setTime(targetMs);
+                }
+            } catch (Throwable ignored) {}
         }
     }
 
-    /** Export the timeline as a video file using frame rendering + ffmpeg. */
+    private static volatile BufferedImage lastCachedSnapshot = null;
+    private static volatile String lastCachedVideoPath = null;
+    private static volatile double lastCachedTime = -1.0;
+
+    /**
+     * Capture une miniature vidéo de prévisualisation de façon 100% sûre et asynchrone / non-bloquante.
+     * Utilise FFmpeg en priorité pour extraire une image fidèle sans toucher aux threads VLC.
+     * En cas d'indisponibilité de FFmpeg, tente VLC dans un thread isolé avec un timeout strict de 300 ms.
+     */
+    public BufferedImage capturePreviewFrame(File videoFile, double timeSec, EmbeddedMediaPlayerComponent mediaPlayerComponent) {
+        if (videoFile == null || !videoFile.exists()) return null;
+
+        // Vérification du cache mémoire rapide
+        String path = videoFile.getAbsolutePath();
+        if (path.equals(lastCachedVideoPath) && Math.abs(timeSec - lastCachedTime) < 0.08 && lastCachedSnapshot != null) {
+            return lastCachedSnapshot;
+        }
+
+        // 1. Priorité FFmpeg : extraction propre d'une seule image en basse résolution (scale=640:-1)
+        String ffmpegPath = findFfmpeg();
+        if (ffmpegPath != null) {
+            File tempImg = null;
+            try {
+                tempImg = File.createTempFile("omeryth_prev_", ".jpg");
+                tempImg.deleteOnExit();
+                java.util.List<String> cmd = java.util.Arrays.asList(
+                        ffmpegPath,
+                        "-ss", String.format(Locale.US, "%.3f", Math.max(0.0, timeSec)),
+                        "-i", videoFile.getAbsolutePath(),
+                        "-vframes", "1",
+                        "-vf", "scale=640:-1",
+                        "-q:v", "3",
+                        "-y",
+                        tempImg.getAbsolutePath()
+                );
+                ProcessBuilder pb = new ProcessBuilder(cmd);
+                pb.redirectErrorStream(true);
+                Process p = pb.start();
+                boolean finished = p.waitFor(1200, java.util.concurrent.TimeUnit.MILLISECONDS);
+                if (finished && tempImg.exists() && tempImg.length() > 0) {
+                    BufferedImage img = javax.imageio.ImageIO.read(tempImg);
+                    if (img != null) {
+                        lastCachedSnapshot = img;
+                        lastCachedVideoPath = path;
+                        lastCachedTime = timeSec;
+                        return img;
+                    }
+                } else {
+                    p.destroyForcibly();
+                }
+            } catch (Throwable ignored) {
+            } finally {
+                if (tempImg != null && tempImg.exists()) {
+                    try { tempImg.delete(); } catch (Throwable ignored) {}
+                }
+            }
+        }
+
+        // 2. Repli VLC avec timeout strict (300 ms) pour ne jamais geler l'application
+        if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+            java.util.concurrent.ExecutorService exec = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "vlc-snapshot-worker");
+                t.setDaemon(true);
+                return t;
+            });
+            try {
+                java.util.concurrent.Future<BufferedImage> future = exec.submit(() -> {
+                    try {
+                        return mediaPlayerComponent.mediaPlayer().snapshots().get();
+                    } catch (Throwable t) {
+                        return null;
+                    }
+                });
+                BufferedImage img = future.get(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+                if (img != null) {
+                    lastCachedSnapshot = img;
+                    lastCachedVideoPath = path;
+                    lastCachedTime = timeSec;
+                    return img;
+                }
+            } catch (Throwable ignored) {
+                // Timeout ou indisponibilité VLC : on n'attend jamais
+            } finally {
+                exec.shutdownNow();
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Déclenche l'exportation complète de la timeline sous forme de vidéo encodée via FFmpeg.
+     * <p>
+     * Propose un dialogue de configuration interactif (sélection de résolution, gabarit de montage,
+     * débit d'images, suppression des voix par IA, flou d'arrière-plan, voile anti-copyright)
+     * puis lance un encodeur haute performance sans écriture de fichiers images intermédiaires.
+     * </p>
+     */
     public void exportVideo(javax.swing.JFrame owner,
                             File fichierSelectionne,
                             EmbeddedMediaPlayerComponent mediaPlayerComponent,
@@ -128,88 +322,372 @@ public class MediaWorkflowService {
             return;
         }
 
-        long dureeMs = mediaPlayerComponent.mediaPlayer().media().info().duration();
+        // Calcul sécurisé et non-bloquant de la durée de la vidéo
+        long dureeMs = 0;
+        try {
+            if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+                dureeMs = mediaPlayerComponent.mediaPlayer().status().length();
+                if (dureeMs <= 0 && mediaPlayerComponent.mediaPlayer().media().info() != null) {
+                    dureeMs = mediaPlayerComponent.mediaPlayer().media().info().duration();
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        if (dureeMs <= 0 && fichierSelectionne != null && fichierSelectionne.exists()) {
+            String ff = findFfmpeg();
+            if (ff != null) {
+                try {
+                    ProcessBuilder pb = new ProcessBuilder(ff, "-i", fichierSelectionne.getAbsolutePath());
+                    pb.redirectErrorStream(true);
+                    Process p = pb.start();
+                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            if (line.contains("Duration:")) {
+                                int idx = line.indexOf("Duration:");
+                                String durStr = line.substring(idx + 9).split(",")[0].trim();
+                                String[] parts = durStr.split(":");
+                                if (parts.length == 3) {
+                                    double h = Double.parseDouble(parts[0]);
+                                    double m = Double.parseDouble(parts[1]);
+                                    double s = Double.parseDouble(parts[2]);
+                                    dureeMs = (long) ((h * 3600 + m * 60 + s) * 1000.0);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    p.waitFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS);
+                } catch (Throwable ignored) {}
+            }
+        }
+
         if (dureeMs <= 0) {
             JOptionPane.showMessageDialog(owner, "Impossible de determiner la duree de la video.");
             return;
         }
         double dureeSec = dureeMs / 1000.0;
 
-        JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Sauvegarder la video rythmo");
-        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Fichier MP4", "mp4"));
-        if (chooser.showSaveDialog(owner) != JFileChooser.APPROVE_OPTION) return;
-        File outputFile = chooser.getSelectedFile();
-        if (!outputFile.getName().toLowerCase().endsWith(".mp4")) {
-            outputFile = new File(outputFile.getAbsolutePath() + ".mp4");
+        // Pré-chargement immédiat si miniature en cache à ce timecode
+        final double captureTime = (timelinePanel != null) ? timelinePanel.getCurrentTime() : 0.0;
+        BufferedImage initialSnapshot = null;
+        if (fichierSelectionne.getAbsolutePath().equals(lastCachedVideoPath)
+                && Math.abs(captureTime - lastCachedTime) < 0.08
+                && lastCachedSnapshot != null) {
+            initialSnapshot = lastCachedSnapshot;
         }
+
+        // Ouvrir la boîte de dialogue SANS AUCUN BLOCAGE sur l'EDT
+        final app.ui.ExportVideoDialog dialog = new app.ui.ExportVideoDialog(owner, timelinePanel, initialSnapshot);
+
+        // Si pas de miniature immédiate en cache, extraction 100% asynchrone en arrière-plan
+        if (initialSnapshot == null) {
+            final File videoToCapture = fichierSelectionne;
+            Thread snapshotWorker = new Thread(() -> {
+                try {
+                    BufferedImage snapshot = capturePreviewFrame(videoToCapture, captureTime, mediaPlayerComponent);
+                    if (snapshot != null) {
+                        SwingUtilities.invokeLater(() -> {
+                            if (dialog.isDisplayable()) {
+                                dialog.setVideoSnapshot(snapshot);
+                            }
+                        });
+                    }
+                } catch (Throwable ignored) {}
+            }, "ExportSnapshotWorker");
+            snapshotWorker.setDaemon(true);
+            snapshotWorker.start();
+        }
+
+        dialog.setVisible(true);
+        app.ui.ExportVideoDialog.ExportConfig config;
+        try {
+            config = dialog.getExportConfig();
+        } finally {
+            dialog.dispose();
+        }
+        if (!config.approved) return;
+
+        File outputFile = FileUtils.chooseSaveFile(owner, "Sauvegarder la vidéo rythmo", "mp4");
+        if (outputFile == null) return;
         final File finalOutput = outputFile;
 
-        JDialog progressDialog = new JDialog(owner, "Export en cours...", false);
+        int fps = config.fps;
+        int totalFrames = (int) Math.ceil(dureeSec * fps);
+        int frameW = config.isMontageMode ? config.bandRect.width : config.width;
+        int frameH = config.isMontageMode ? config.bandRect.height : config.height;
+
+        // Session de rendu pré-calculée en mémoire (1 seule allocation des objets de la timeline)
+        TimelinePanel.ExportSession session = timelinePanel.createExportSession(frameW, frameH, config.visibleSeconds);
+
+        JDialog progressDialog = new JDialog(owner, "Export vidéo en cours...", false);
         JProgressBar progressBar = new JProgressBar(0, 100);
         progressBar.setStringPainted(true);
-        JLabel statusLabel = new JLabel("Generation des images...");
+        progressBar.setString("0%");
+        String sizeInfo = config.isMontageMode
+                ? ("Montage " + config.width + "x" + config.height + " (Bande " + config.bandRect.width + "x" + config.bandRect.height + ")")
+                : (config.width + "x" + config.height);
+        JLabel statusLabel = new JLabel("Initialisation de l'export (" + sizeInfo + " @ " + config.fps + " FPS)...");
+        statusLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        JLabel speedLabel = new JLabel("Démarrage du streaming vidéo haute vitesse...");
+        speedLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        speedLabel.setForeground(new Color(110, 110, 120));
+
+        JButton btnCancel = new JButton("Annuler l'export");
+        btnCancel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        btnCancel.setFocusPainted(false);
+
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
-        panel.add(statusLabel, BorderLayout.NORTH);
-        panel.add(progressBar, BorderLayout.CENTER);
-        progressDialog.add(panel);
-        progressDialog.setSize(380, 110);
-        progressDialog.setLocationRelativeTo(owner);
-        progressDialog.setVisible(true);
 
-        SwingWorker<String, Integer> worker = new SwingWorker<>() {
+        JPanel headerPanel = new JPanel(new GridLayout(2, 1, 4, 4));
+        headerPanel.add(statusLabel);
+        headerPanel.add(speedLabel);
+        panel.add(headerPanel, BorderLayout.NORTH);
+
+        panel.add(progressBar, BorderLayout.CENTER);
+
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        btnPanel.add(btnCancel);
+        panel.add(btnPanel, BorderLayout.SOUTH);
+
+        progressDialog.add(panel);
+        progressDialog.setSize(520, 165);
+        progressDialog.setLocationRelativeTo(owner);
+        progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+        AtomicReference<Process> ffmpegProcessRef = new AtomicReference<>();
+
+        SwingWorker<String, ExportProgress> worker = new SwingWorker<>() {
             @Override
             protected String doInBackground() throws Exception {
-                int fps = 60;
-                int totalFrames = (int) Math.ceil(dureeSec * fps);
-                int width = timelinePanel.getWidth();
-                int height = timelinePanel.getHeight();
-                if (width <= 0) width = 800;
-                if (height <= 0) height = 200;
-                if (width % 2 != 0) width++;
-                if (height % 2 != 0) height++;
+                String ffmpegPath = findFfmpeg();
+                if (ffmpegPath == null) {
+                    return "FFMPEG_NOT_FOUND";
+                }
 
-                File tempDir = new File(System.getProperty("java.io.tmpdir"),
-                        "rythmo_export_" + System.currentTimeMillis());
-                tempDir.mkdirs();
-
+                File separatedAudio = null;
                 try {
-                    for (int i = 0; i < totalFrames; i++) {
-                        if (isCancelled()) break;
-                        final double time = (double) i / fps;
-                        final int fw = width, fh = height;
-                        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
-                        final java.awt.image.BufferedImage[] frameHolder = new java.awt.image.BufferedImage[1];
-                        SwingUtilities.invokeLater(() -> {
-                            frameHolder[0] = timelinePanel.renderFrame(fw, fh, time);
-                            latch.countDown();
-                        });
-                        latch.await();
-                        File frameFile = new File(tempDir, String.format("frame%06d.png", i));
-                        ImageIO.write(frameHolder[0], "PNG", frameFile);
-                        publish((int) (i * 75 / totalFrames));
+                    if (config.removeVocals && fichierSelectionne != null && fichierSelectionne.exists()) {
+                        if (isDemucsAvailable()) {
+                            publish(new ExportProgress(0, 0, totalFrames, 0, 0, "Demucs IA (Initialisation séparation vocale...)"));
+                            try {
+                                File tempWav = File.createTempFile("omeryth_demucs_", ".wav");
+                                tempWav.deleteOnExit();
+                                boolean ok = runDemucsSeparation(fichierSelectionne, tempWav, (pct, msg) -> {
+                                    publish(new ExportProgress(Math.min(99, pct), 0, totalFrames, 0, 0, "Demucs IA : " + msg));
+                                }, () -> isCancelled(), ffmpegProcessRef);
+                                if (ok && tempWav.exists() && tempWav.length() > 0) {
+                                    separatedAudio = tempWav;
+                                }
+                            } catch (Exception ignored) {
+                                separatedAudio = null;
+                            }
+                        }
                     }
 
-                    publish(75);
-                    SwingUtilities.invokeLater(() -> statusLabel.setText("Encodage video..."));
-
-                    String ffmpegPath = findFfmpeg();
-                    if (ffmpegPath == null) {
-                        return "FFMPEG_NOT_FOUND";
+                    if (isCancelled()) {
+                        return "CANCELLED";
                     }
 
-                    ProcessBuilder pb = new ProcessBuilder(
-                            ffmpegPath,
-                            "-y",
-                            "-framerate", String.valueOf(fps),
-                            "-i", new File(tempDir, "frame%06d.png").getAbsolutePath(),
-                            "-c:v", "libx264",
-                            "-pix_fmt", "yuv420p",
-                            finalOutput.getAbsolutePath()
-                    );
+                    EncoderSettings encoderSettings = detectEncoder(ffmpegPath, config.encoder);
+
+                    java.util.List<String> command = new java.util.ArrayList<>();
+                    command.add(ffmpegPath);
+                    command.add("-y");
+
+                    // Entrée 0 : Streaming direct des images brutes par stdin (zéro I/O disque)
+                    command.add("-f"); command.add("rawvideo");
+                    command.add("-pix_fmt"); command.add("bgr24");
+                    command.add("-s"); command.add(frameW + "x" + frameH);
+                    command.add("-framerate"); command.add(String.valueOf(fps));
+                    command.add("-i"); command.add("-"); // [0:v] depuis stdin
+
+                    if (config.isMontageMode && fichierSelectionne != null && fichierSelectionne.exists()) {
+                        // Mode Montage Vidéo + Bandeau interactif
+                        command.add("-i");
+                        command.add(fichierSelectionne.getAbsolutePath()); // [1:v], [1:a]
+
+                        if (separatedAudio != null) {
+                            command.add("-i");
+                            command.add(separatedAudio.getAbsolutePath()); // [2:a] Piste Demucs isolée
+                        }
+
+                        int cW = config.width;
+                        int cH = config.height;
+                        int vX = config.videoRect.x;
+                        int vY = config.videoRect.y;
+                        int vW = config.videoRect.width;
+                        int vH = config.videoRect.height;
+                        int bX = config.bandRect.x;
+                        int bY = config.bandRect.y;
+
+                        StringBuilder filter = new StringBuilder();
+                        filter.append("color=s=").append(cW).append("x").append(cH)
+                              .append(":c=black:r=").append(fps)
+                              .append(":d=").append(String.format(Locale.US, "%.3f", dureeSec)).append("[bg];");
+
+                        if (config.blurBackgroundVideo) {
+                            int blurRadius = Math.max(1, Math.min(60, config.blurRadius));
+                            double blurAlpha = Math.max(0.05, Math.min(1.0, config.blurOpacity / 100.0));
+                            filter.append("[1:v]split=2[v_scaled_in][v_blur_in];");
+                            filter.append("[v_blur_in]fps=fps=").append(fps)
+                                  .append(":round=near,scale=w=").append(cW).append(":h=").append(cH)
+                                  .append(":force_original_aspect_ratio=increase,crop=").append(cW).append(":").append(cH)
+                                  .append(",boxblur=").append(blurRadius).append(":2,format=yuva420p,colorchannelmixer=aa=")
+                                  .append(String.format(Locale.US, "%.2f", blurAlpha)).append("[vblurred];");
+                            filter.append("[v_scaled_in]fps=fps=").append(fps).append(":round=near,scale=w=").append(vW).append(":h=").append(vH)
+                                  .append(":force_original_aspect_ratio=decrease:flags=bicubic,pad=").append(vW).append(":").append(vH)
+                                  .append(":(ow-iw)/2:(oh-ih)/2:color=black");
+                        } else {
+                            filter.append("[1:v]fps=fps=").append(fps).append(":round=near,scale=w=").append(vW).append(":h=").append(vH)
+                                  .append(":force_original_aspect_ratio=decrease:flags=bicubic,pad=").append(vW).append(":").append(vH)
+                                  .append(":(ow-iw)/2:(oh-ih)/2:color=black");
+                        }
+
+                        if (config.antiCopyright && config.antiCopyrightOpacity > 0) {
+                            double alphaFloat = Math.max(0.0, Math.min(1.0, config.antiCopyrightOpacity / 100.0));
+                            filter.append(String.format(Locale.US, ",drawbox=x=0:y=0:w=iw:h=ih:color=white@%.2f:t=fill", alphaFloat));
+                        }
+                        filter.append("[vscaled];");
+
+                        java.util.List<String> activeLayers = new java.util.ArrayList<>();
+                        if (config.layerOrder != null && !config.layerOrder.isEmpty()) {
+                            for (String layerId : config.layerOrder) {
+                                if ("BACKGROUND_BLUR".equals(layerId)) {
+                                    if (config.blurBackgroundVideo) activeLayers.add(layerId);
+                                } else if ("VIDEO".equals(layerId) || "BAND".equals(layerId)) {
+                                    activeLayers.add(layerId);
+                                }
+                            }
+                        }
+                        if (!activeLayers.contains("VIDEO")) activeLayers.add("VIDEO");
+                        if (!activeLayers.contains("BAND")) activeLayers.add("BAND");
+                        if (config.blurBackgroundVideo && !activeLayers.contains("BACKGROUND_BLUR")) {
+                            activeLayers.add(0, "BACKGROUND_BLUR");
+                        }
+
+                        String currentBase = "bg";
+                        for (int idx = 0; idx < activeLayers.size(); idx++) {
+                            String layer = activeLayers.get(idx);
+                            boolean isLast = (idx == activeLayers.size() - 1);
+                            String nextBase = isLast ? "vout" : ("layer" + (idx + 1));
+                            String inputTag;
+                            int posX = 0, posY = 0;
+                            if ("BACKGROUND_BLUR".equals(layer)) {
+                                inputTag = "vblurred";
+                                posX = 0;
+                                posY = 0;
+                            } else if ("VIDEO".equals(layer)) {
+                                inputTag = "vscaled";
+                                posX = vX;
+                                posY = vY;
+                            } else {
+                                inputTag = "0:v";
+                                posX = bX;
+                                posY = bY;
+                            }
+
+                            filter.append("[").append(currentBase).append("][").append(inputTag).append("]overlay=")
+                                  .append(posX).append(":").append(posY)
+                                  .append(":eof_action=pass");
+                            if (isLast) {
+                                filter.append(":shortest=1");
+                            }
+                            filter.append("[").append(nextBase).append("]");
+                            if (!isLast) {
+                                filter.append(";");
+                            }
+                            currentBase = nextBase;
+                        }
+
+                        if (separatedAudio != null) {
+                            filter.append(";[2:a]aresample=async=1:first_pts=0[aout]");
+                        } else if (config.removeVocals) {
+                            filter.append(";[1:a]stereotools=mlev=0.015625:slev=1.3,highpass=f=80,aresample=async=1:first_pts=0[aout]");
+                        } else if (config.includeAudio) {
+                            filter.append(";[1:a]aresample=async=1:first_pts=0[aout]");
+                        }
+
+                        command.add("-filter_complex");
+                        command.add(filter.toString());
+                        command.add("-map");
+                        command.add("[vout]");
+
+                        if (config.removeVocals || config.includeAudio) {
+                            command.add("-map");
+                            command.add("[aout]?");
+                            command.add("-c:a");
+                            command.add("aac");
+                            command.add("-b:a");
+                            command.add("192k");
+                        }
+
+                        // Optimisations YouTube & Streaming : CFR 100% fluide, GOP 2s et FastStart
+                        command.add("-r");
+                        command.add(String.valueOf(fps));
+                        command.add("-fps_mode");
+                        command.add("cfr");
+                        command.add("-g");
+                        command.add(String.valueOf(fps * 2));
+                        command.add("-keyint_min");
+                        command.add(String.valueOf(fps));
+                        command.add("-sc_threshold");
+                        command.add("0");
+                        command.add("-movflags");
+                        command.add("+faststart");
+
+                        command.add("-c:v");
+                        command.add(encoderSettings.codec);
+                        command.addAll(encoderSettings.extraArgs);
+                        command.add("-pix_fmt");
+                        command.add("yuv420p");
+                        command.add("-shortest");
+                        command.add(finalOutput.getAbsolutePath());
+
+                    } else {
+                        // Mode classique : Bandeau seul
+                        File audioSource = (separatedAudio != null && separatedAudio.exists()) ? separatedAudio : fichierSelectionne;
+                        if (config.includeAudio && audioSource != null && audioSource.exists()) {
+                            command.add("-i");
+                            command.add(audioSource.getAbsolutePath());
+                            command.add("-map");
+                            command.add("0:v:0");
+                            command.add("-map");
+                            command.add("1:a:0?");
+                            command.add("-c:a");
+                            command.add("aac");
+                            command.add("-b:a");
+                            command.add("192k");
+                            command.add("-shortest");
+                        }
+
+                        command.add("-r");
+                        command.add(String.valueOf(fps));
+                        command.add("-fps_mode");
+                        command.add("cfr");
+                        command.add("-g");
+                        command.add(String.valueOf(fps * 2));
+                        command.add("-keyint_min");
+                        command.add(String.valueOf(fps));
+                        command.add("-sc_threshold");
+                        command.add("0");
+                        command.add("-movflags");
+                        command.add("+faststart");
+
+                        command.add("-c:v");
+                        command.add(encoderSettings.codec);
+                        command.addAll(encoderSettings.extraArgs);
+                        command.add("-pix_fmt");
+                        command.add("yuv420p");
+                        command.add(finalOutput.getAbsolutePath());
+                    }
+
+                    ProcessBuilder pb = new ProcessBuilder(command);
                     pb.redirectErrorStream(true);
                     Process process = pb.start();
+                    ffmpegProcessRef.set(process);
+
                     StringBuilder ffmpegLogs = new StringBuilder();
                     Thread logReader = new Thread(() -> {
                         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
@@ -223,8 +701,48 @@ public class MediaWorkflowService {
                     logReader.setDaemon(true);
                     logReader.start();
 
+                    // Buffer d'image unique réutilisé pour chaque frame (0 allocation répétée)
+                    BufferedImage frameBuffer = new BufferedImage(frameW, frameH, BufferedImage.TYPE_3BYTE_BGR);
+                    Graphics2D g2 = frameBuffer.createGraphics();
+                    byte[] frameBytes = ((DataBufferByte) frameBuffer.getRaster().getDataBuffer()).getData();
+
+                    long startTime = System.currentTimeMillis();
+                    try (OutputStream pipeOut = new BufferedOutputStream(process.getOutputStream(), 2 * 1024 * 1024)) {
+                        for (int i = 0; i < totalFrames; i++) {
+                            if (isCancelled()) {
+                                process.destroyForcibly();
+                                return "CANCELLED";
+                            }
+                            double time = (double) i / fps;
+                            session.renderFrameDirect(g2, time);
+                            pipeOut.write(frameBytes);
+
+                            if (i % 15 == 0 || i == totalFrames - 1) {
+                                int progress = (int) Math.min(99, ((long) (i + 1) * 100 / totalFrames));
+                                long elapsed = Math.max(1, System.currentTimeMillis() - startTime);
+                                double currentFps = ((double) (i + 1) * 1000.0) / elapsed;
+                                int remainingSec = (int) Math.max(0, (totalFrames - (i + 1)) / (currentFps > 0 ? currentFps : 30));
+                                publish(new ExportProgress(progress, i + 1, totalFrames, currentFps, remainingSec, encoderSettings.displayName));
+                            }
+                        }
+                        pipeOut.flush();
+                    } catch (IOException e) {
+                        if (isCancelled()) {
+                            process.destroyForcibly();
+                            return "CANCELLED";
+                        }
+                        // Le pipe s'est fermé prématurément, ffmpeg va renvoyer son code de retour et ses logs d'erreur
+                    } finally {
+                        g2.dispose();
+                    }
+
                     int exitCode = process.waitFor();
                     logReader.join(2000);
+
+                    if (isCancelled()) {
+                        return "CANCELLED";
+                    }
+
                     if (exitCode != 0) {
                         String logs = ffmpegLogs.toString();
                         if (logs.length() > 1200) {
@@ -233,19 +751,33 @@ public class MediaWorkflowService {
                         return "FFMPEG_ERROR\n" + logs;
                     }
 
-                    publish(100);
+                    publish(new ExportProgress(100, totalFrames, totalFrames, 0, 0, encoderSettings.displayName));
                     return "OK";
-
                 } finally {
-                    File[] files = tempDir.listFiles();
-                    if (files != null) for (File f : files) f.delete();
-                    tempDir.delete();
+                    if (separatedAudio != null && separatedAudio.exists()) {
+                        try {
+                            separatedAudio.delete();
+                        } catch (Exception ignored) {}
+                    }
                 }
             }
 
             @Override
-            protected void process(java.util.List<Integer> chunks) {
-                if (!chunks.isEmpty()) progressBar.setValue(chunks.get(chunks.size() - 1));
+            protected void process(java.util.List<ExportProgress> chunks) {
+                if (!chunks.isEmpty()) {
+                    ExportProgress p = chunks.get(chunks.size() - 1);
+                    progressBar.setValue(p.percent);
+                    progressBar.setString(p.percent + "%");
+                    if (p.encoderName != null && p.encoderName.startsWith("Demucs IA")) {
+                        statusLabel.setText("Extraction vocale IA (Demucs en cours)...");
+                        speedLabel.setText(p.encoderName);
+                    } else {
+                        statusLabel.setText("Exportation : image " + p.frame + " / " + p.total + " (" + p.percent + "%)");
+                        speedLabel.setText(String.format(Locale.FRENCH,
+                                "⚡ Vitesse : %.0f FPS | Restant : ~%ds | %s",
+                                p.fps, p.remainingSeconds, p.encoderName));
+                    }
+                }
             }
 
             @Override
@@ -255,7 +787,13 @@ public class MediaWorkflowService {
                     String result = get();
                     if ("OK".equals(result)) {
                         JOptionPane.showMessageDialog(owner,
-                                "Video exportee avec succes :\n" + finalOutput.getAbsolutePath());
+                                "Vidéo exportée avec succès :\n" + finalOutput.getAbsolutePath(),
+                                "Export Réussi",
+                                JOptionPane.INFORMATION_MESSAGE);
+                    } else if ("CANCELLED".equals(result)) {
+                        if (finalOutput.exists()) {
+                            finalOutput.delete();
+                        }
                     } else if ("FFMPEG_NOT_FOUND".equals(result)) {
                         JOptionPane.showMessageDialog(owner,
                                 "ffmpeg est introuvable.\nInstallez ffmpeg et assurez-vous qu'il est accessible dans le PATH.",
@@ -263,7 +801,7 @@ public class MediaWorkflowService {
                     } else {
                         String details = "";
                         if (result != null && result.startsWith("FFMPEG_ERROR\n")) {
-                            details = "\n\nDetails ffmpeg (fin de log):\n" + result.substring("FFMPEG_ERROR\n".length());
+                            details = "\n\nDétails ffmpeg (fin de log):\n" + result.substring("FFMPEG_ERROR\n".length());
                         }
                         JOptionPane.showMessageDialog(owner,
                                 "Erreur lors de l'encodage avec ffmpeg." + details,
@@ -276,6 +814,242 @@ public class MediaWorkflowService {
                 }
             }
         };
+
+        btnCancel.addActionListener(e -> {
+            int confirm = JOptionPane.showConfirmDialog(progressDialog,
+                    "Voulez-vous vraiment interrompre et annuler l'export vidéo ?",
+                    "Annuler l'exportation",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+            if (confirm == JOptionPane.YES_OPTION) {
+                worker.cancel(true);
+                Process p = ffmpegProcessRef.get();
+                if (p != null && p.isAlive()) {
+                    p.destroyForcibly();
+                }
+                progressDialog.dispose();
+            }
+        });
+
+        progressDialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                btnCancel.doClick();
+            }
+        });
+
+        progressDialog.setVisible(true);
+        worker.execute();
+    }
+
+    /**
+     * Extrait la piste audio de la vidéo en éliminant les voix (Karaoké / Piste témoin pour doublage).
+     * Utilise le réseau neuronal IA Demucs (Facebook Research) pour isoler les voix avec une haute fidélité,
+     * ou se replie automatiquement sur le filtre acoustique FFmpeg si Demucs n'est pas disponible.
+     */
+    public void extraireAudioSansVoix(javax.swing.JFrame owner, File videoFile) {
+        if (videoFile == null || !videoFile.exists()) {
+            JOptionPane.showMessageDialog(owner, "Aucune vidéo chargée. Veuillez d'abord ouvrir un projet.", "Vidéo requise", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        String ffmpegPath = findFfmpeg();
+        if (ffmpegPath == null) {
+            JOptionPane.showMessageDialog(owner, "ffmpeg est introuvable. Installation requise pour l'extraction.", "Erreur", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        File outputFile = FileUtils.chooseSaveFile(owner, "Exporter l'audio sans voix (Doublage / Karaoké)", "wav");
+        if (outputFile == null) return;
+        final File finalOutput = outputFile;
+
+        boolean demucsAvailable = isDemucsAvailable();
+
+        JDialog progressDialog = new JDialog(owner, "Extraction audio sans voix...", false);
+        JProgressBar progressBar = new JProgressBar(0, 100);
+        progressBar.setStringPainted(true);
+        progressBar.setValue(0);
+        progressBar.setString(demucsAvailable ? "Initialisation du modèle IA Demucs..." : "Suppression des voix et isolation de l'ambiance...");
+        if (!demucsAvailable) {
+            progressBar.setIndeterminate(true);
+        }
+
+        JLabel titleLabel = new JLabel(demucsAvailable ? "Séparation vocale par IA (Facebook Demucs)" : "Filtrage acoustique des voix (FFmpeg)");
+        titleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        JLabel statusLabel = new JLabel(demucsAvailable ? "Préparation de l'extraction et du réseau neuronal..." : "Filtrage des fréquences vocales...");
+        statusLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        statusLabel.setForeground(new Color(110, 110, 120));
+
+        JButton btnCancel = new JButton("Annuler");
+        btnCancel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+
+        JPanel headerPanel = new JPanel(new GridLayout(2, 1, 4, 4));
+        headerPanel.add(titleLabel);
+        headerPanel.add(statusLabel);
+        panel.add(headerPanel, BorderLayout.NORTH);
+        panel.add(progressBar, BorderLayout.CENTER);
+
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        btnPanel.add(btnCancel);
+        panel.add(btnPanel, BorderLayout.SOUTH);
+
+        progressDialog.add(panel);
+        progressDialog.setSize(500, 160);
+        progressDialog.setLocationRelativeTo(owner);
+        progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+        AtomicReference<Process> activeProcess = new AtomicReference<>();
+
+        SwingWorker<Boolean, String> worker = new SwingWorker<>() {
+            private String usedEngine = demucsAvailable ? "Demucs IA (Haute Fidélité)" : "Filtre FFmpeg (stereotools)";
+
+            @Override
+            protected Boolean doInBackground() throws Exception {
+                if (demucsAvailable) {
+                    boolean isWav = finalOutput.getName().toLowerCase().endsWith(".wav");
+                    File targetWav = isWav ? finalOutput : File.createTempFile("demucs_out_", ".wav");
+                    if (!isWav) targetWav.deleteOnExit();
+
+                    boolean ok = runDemucsSeparation(videoFile, targetWav, (pct, msg) -> {
+                        publish(pct + ":" + msg);
+                    }, () -> isCancelled(), activeProcess);
+
+                    if (ok && targetWav.exists() && targetWav.length() > 0) {
+                        if (!isWav) {
+                            publish("98:Conversion vers le format de destination...");
+                            ProcessBuilder convPb = new ProcessBuilder(
+                                    ffmpegPath, "-y", "-i", targetWav.getAbsolutePath(),
+                                    "-c:a", "libmp3lame", "-b:a", "320k", finalOutput.getAbsolutePath()
+                            );
+                            convPb.redirectErrorStream(true);
+                            Process convP = convPb.start();
+                            activeProcess.set(convP);
+                            try (InputStream is = convP.getInputStream()) {
+                                is.transferTo(OutputStream.nullOutputStream());
+                            }
+                            convP.waitFor();
+                            targetWav.delete();
+                        }
+                        return finalOutput.exists() && finalOutput.length() > 0;
+                    }
+
+                    if (isCancelled()) return false;
+
+                    // En cas d'échec imprévu de Demucs, repli sur le filtre FFmpeg
+                    usedEngine = "Filtre FFmpeg (Repli)";
+                    publish("50:Repli sur le filtre acoustique FFmpeg...");
+                }
+
+                // Filtrage acoustique standard FFmpeg (stereotools)
+                String vocalFilter = "stereotools=mlev=0.015625:slev=1.3,highpass=f=80,dynaudnorm=f=120:g=15:m=10.0:r=0.9";
+                java.util.List<String> cmd = new java.util.ArrayList<>();
+                cmd.add(ffmpegPath);
+                cmd.add("-y");
+                cmd.add("-i");
+                cmd.add(videoFile.getAbsolutePath());
+                cmd.add("-vn");
+                cmd.add("-sn");
+                cmd.add("-dn");
+                cmd.add("-af");
+                cmd.add(vocalFilter);
+
+                if (finalOutput.getName().toLowerCase().endsWith(".mp3")) {
+                    cmd.add("-c:a");
+                    cmd.add("libmp3lame");
+                    cmd.add("-b:a");
+                    cmd.add("320k");
+                } else {
+                    cmd.add("-c:a");
+                    cmd.add("pcm_s16le");
+                }
+
+                cmd.add(finalOutput.getAbsolutePath());
+
+                ProcessBuilder pb = new ProcessBuilder(cmd);
+                pb.redirectErrorStream(true);
+                Process p = pb.start();
+                activeProcess.set(p);
+
+                try (InputStream is = p.getInputStream()) {
+                    is.transferTo(OutputStream.nullOutputStream());
+                }
+
+                int exitCode = p.waitFor();
+                return exitCode == 0 && finalOutput.exists() && finalOutput.length() > 0;
+            }
+
+            @Override
+            protected void process(java.util.List<String> chunks) {
+                if (!chunks.isEmpty()) {
+                    String last = chunks.get(chunks.size() - 1);
+                    int colonIdx = last.indexOf(':');
+                    if (colonIdx != -1) {
+                        try {
+                            int pct = Integer.parseInt(last.substring(0, colonIdx));
+                            String msg = last.substring(colonIdx + 1);
+                            progressBar.setIndeterminate(false);
+                            progressBar.setValue(pct);
+                            progressBar.setString(pct + "% - " + msg);
+                            statusLabel.setText(msg);
+                        } catch (Exception ignored) {}
+                    } else {
+                        statusLabel.setText(last);
+                    }
+                }
+            }
+
+            @Override
+            protected void done() {
+                progressDialog.dispose();
+                if (isCancelled()) {
+                    if (finalOutput.exists()) finalOutput.delete();
+                    return;
+                }
+                try {
+                    boolean success = get();
+                    if (success) {
+                        JOptionPane.showMessageDialog(owner,
+                                "Piste audio sans les voix exportée avec succès !\n\n" +
+                                "Moteur utilisé : " + usedEngine + "\n" +
+                                "Fichier : " + finalOutput.getAbsolutePath() +
+                                "\n\nLes voix ont été retirées tout en préservant la musique, les bruitages et l'ambiance sonore.",
+                                "Extraction Réussie",
+                                JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(owner,
+                                "Erreur lors de l'extraction audio sans voix.",
+                                "Erreur",
+                                JOptionPane.ERROR_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(owner,
+                            "Erreur : " + ex.getMessage(),
+                            "Erreur",
+                            JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+
+        btnCancel.addActionListener(e -> {
+            worker.cancel(true);
+            Process p = activeProcess.get();
+            if (p != null) p.destroyForcibly();
+            progressDialog.dispose();
+        });
+        progressDialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                worker.cancel(true);
+                Process p = activeProcess.get();
+                if (p != null) p.destroyForcibly();
+                progressDialog.dispose();
+            }
+        });
+
+        progressDialog.setVisible(true);
         worker.execute();
     }
 
@@ -310,7 +1084,7 @@ public class MediaWorkflowService {
                 ProcessBuilder pb = new ProcessBuilder(
                         ffmpegPath,
                         "-i", videoFile.getAbsolutePath(),
-                        "-filter:v", "select='gt(scene,0.60)',showinfo",
+                        "-filter:v", "select='gt(scene,0.35)',showinfo",
                         "-f", "null",
                         "-"
                 );
@@ -346,12 +1120,30 @@ public class MediaWorkflowService {
                 try {
                     java.util.List<Double> times = get();
                     if (times != null && !times.isEmpty()) {
+                        timelinePanel.recordUndoSnapshot();
+                        double pps = timelinePanel.getPixelsPerSecond();
+                        int addedCount = 0;
+                        double lastT = -1.0;
                         for (Double t : times) {
-                            int markerX = (int) Math.round(t * timelinePanel.getPixelsPerSecond());
-                            timelinePanel.getTextManager().addPlanMarker(markerX);
+                            if (t == null || t < 0.15) continue;
+                            // Arrondi au dixième de seconde près pour aligner sur les traits de marquage
+                            double roundedT = Math.round(t * 10.0) / 10.0;
+                            if (lastT >= 0 && Math.abs(roundedT - lastT) < 0.25) {
+                                continue;
+                            }
+                            int markerX = timelinePanel.snapWorldXToTenth(roundedT * pps);
+                            if (!timelinePanel.getTextManager().getPlanMarkers().contains(markerX)) {
+                                timelinePanel.getTextManager().addPlanMarker(markerX);
+                                addedCount++;
+                                lastT = roundedT;
+                            }
                         }
                         timelinePanel.repaint();
-                        JOptionPane.showMessageDialog(owner, times.size() + " plans détectés avec succès.");
+                        if (addedCount > 0) {
+                            JOptionPane.showMessageDialog(owner, addedCount + " plans détectés et calés sur les traits de marquage.");
+                        } else {
+                            JOptionPane.showMessageDialog(owner, "Aucun nouveau plan détecté.");
+                        }
                     } else {
                         JOptionPane.showMessageDialog(owner, "Aucun changement de plan détecté.");
                     }
@@ -363,16 +1155,248 @@ public class MediaWorkflowService {
         worker.execute();
     }
 
-    private String findFfmpeg() {
+    public static class EncoderSettings {
+        public final String codec;
+        public final java.util.List<String> extraArgs;
+        public final String displayName;
+
+        public EncoderSettings(String codec, java.util.List<String> extraArgs, String displayName) {
+            this.codec = codec;
+            this.extraArgs = extraArgs;
+            this.displayName = displayName;
+        }
+    }
+
+    private static EncoderSettings cachedEncoderSettings = null;
+
+    public static synchronized EncoderSettings detectEncoder(String ffmpegPath, String preference) {
+        if ("cpu".equalsIgnoreCase(preference)) {
+            return new EncoderSettings("libx264",
+                    java.util.List.of("-preset", "veryfast", "-crf", "22", "-threads", "0"),
+                    "CPU Multi-cœurs (x264 veryfast)");
+        }
+        if ("nvenc".equalsIgnoreCase(preference)) {
+            if (testEncoder(ffmpegPath, "h264_nvenc", java.util.List.of("-preset", "p4", "-cq", "23"))) {
+                return new EncoderSettings("h264_nvenc",
+                        java.util.List.of("-preset", "p4", "-cq", "23"),
+                        "GPU NVIDIA NVENC");
+            }
+        }
+        if ("amf".equalsIgnoreCase(preference)) {
+            if (testEncoder(ffmpegPath, "h264_amf", java.util.List.of("-quality", "speed"))) {
+                return new EncoderSettings("h264_amf",
+                        java.util.List.of("-quality", "speed"),
+                        "GPU AMD AMF");
+            }
+        }
+        if ("qsv".equalsIgnoreCase(preference)) {
+            if (testEncoder(ffmpegPath, "h264_qsv", java.util.List.of("-preset", "veryfast"))) {
+                return new EncoderSettings("h264_qsv",
+                        java.util.List.of("-preset", "veryfast"),
+                        "GPU Intel QSV");
+            }
+        }
+        if (cachedEncoderSettings != null && ("auto".equalsIgnoreCase(preference) || preference == null)) {
+            return cachedEncoderSettings;
+        }
+        if (testEncoder(ffmpegPath, "h264_nvenc", java.util.List.of("-preset", "p4", "-cq", "23"))) {
+            cachedEncoderSettings = new EncoderSettings("h264_nvenc",
+                    java.util.List.of("-preset", "p4", "-cq", "23"),
+                    "GPU NVIDIA NVENC");
+            return cachedEncoderSettings;
+        }
+        if (testEncoder(ffmpegPath, "h264_amf", java.util.List.of("-quality", "speed"))) {
+            cachedEncoderSettings = new EncoderSettings("h264_amf",
+                    java.util.List.of("-quality", "speed"),
+                    "GPU AMD AMF");
+            return cachedEncoderSettings;
+        }
+        if (testEncoder(ffmpegPath, "h264_qsv", java.util.List.of("-preset", "veryfast"))) {
+            cachedEncoderSettings = new EncoderSettings("h264_qsv",
+                    java.util.List.of("-preset", "veryfast"),
+                    "GPU Intel QSV");
+            return cachedEncoderSettings;
+        }
+        cachedEncoderSettings = new EncoderSettings("libx264",
+                java.util.List.of("-preset", "veryfast", "-crf", "22", "-threads", "0"),
+                "CPU Multi-cœurs (x264 veryfast)");
+        return cachedEncoderSettings;
+    }
+
+    private static boolean testEncoder(String ffmpegPath, String codec, java.util.List<String> extraArgs) {
+        try {
+            java.util.List<String> cmd = new java.util.ArrayList<>();
+            cmd.add(ffmpegPath);
+            cmd.add("-y");
+            cmd.add("-f"); cmd.add("lavfi");
+            cmd.add("-i"); cmd.add("color=c=black:s=64x64:d=0.04");
+            cmd.add("-c:v"); cmd.add(codec);
+            cmd.addAll(extraArgs);
+            cmd.add("-f"); cmd.add("null");
+            cmd.add("-");
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            try (InputStream is = p.getInputStream()) {
+                is.transferTo(OutputStream.nullOutputStream());
+            }
+            return p.waitFor() == 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public static class ExportProgress {
+        public final int percent;
+        public final int frame;
+        public final int total;
+        public final double fps;
+        public final int remainingSeconds;
+        public final String encoderName;
+
+        public ExportProgress(int percent, int frame, int total, double fps, int remainingSeconds, String encoderName) {
+            this.percent = percent;
+            this.frame = frame;
+            this.total = total;
+            this.fps = fps;
+            this.remainingSeconds = remainingSeconds;
+            this.encoderName = encoderName;
+        }
+    }
+
+    public File findDemucsWorkerScript() {
+        File f = new File("whisperx_engine/demucs_worker.py");
+        if (f.exists()) return f;
+
+        File parentLocal = new File("OmeRyth/whisperx_engine/demucs_worker.py");
+        if (parentLocal.exists()) return parentLocal;
+
+        return null;
+    }
+
+    public String findPython() {
+        String[] candidates = {
+            ".venv/Scripts/python.exe",
+            ".venv/bin/python",
+            "whisperx_env/Scripts/python.exe",
+            "whisperx_env/bin/python",
+            "python",
+            "python3",
+            "py"
+        };
+        for (String cmd : candidates) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder(cmd, "--version");
+                pb.redirectErrorStream(true);
+                Process p = pb.start();
+                try (InputStream is = p.getInputStream()) {
+                    is.transferTo(OutputStream.nullOutputStream());
+                }
+                if (p.waitFor() == 0) return cmd;
+            } catch (Exception ignored) {}
+        }
+        return null;
+    }
+
+    private static Boolean cachedDemucsAvailable = null;
+
+    public boolean isDemucsAvailable() {
+        if (cachedDemucsAvailable != null) {
+            return cachedDemucsAvailable;
+        }
+        String python = findPython();
+        File script = findDemucsWorkerScript();
+        if (python == null || script == null) {
+            cachedDemucsAvailable = false;
+            return false;
+        }
+        try {
+            ProcessBuilder pb = new ProcessBuilder(python, "-c", "import demucs, torch");
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            try (InputStream is = p.getInputStream()) {
+                is.transferTo(OutputStream.nullOutputStream());
+            }
+            cachedDemucsAvailable = (p.waitFor() == 0);
+            return cachedDemucsAvailable;
+        } catch (Exception e) {
+            cachedDemucsAvailable = false;
+            return false;
+        }
+    }
+
+    public boolean runDemucsSeparation(File inputFile,
+                                       File outputFile,
+                                       java.util.function.BiConsumer<Integer, String> progressCallback,
+                                       java.util.function.BooleanSupplier cancelChecker,
+                                       AtomicReference<Process> activeProcessRef) {
+        String python = findPython();
+        File script = findDemucsWorkerScript();
+        if (python == null || script == null) return false;
+
+        java.util.List<String> cmd = new java.util.ArrayList<>();
+        cmd.add(python);
+        cmd.add("-u");
+        cmd.add(script.getAbsolutePath());
+        cmd.add("--input");
+        cmd.add(inputFile.getAbsolutePath());
+        cmd.add("--output");
+        cmd.add(outputFile.getAbsolutePath());
+        cmd.add("--stem");
+        cmd.add("no_vocals");
+        cmd.add("--device");
+        cmd.add("auto");
+
+        try {
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            if (activeProcessRef != null) {
+                activeProcessRef.set(process);
+            }
+
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (cancelChecker != null && cancelChecker.getAsBoolean()) {
+                        process.destroyForcibly();
+                        return false;
+                    }
+                    if (line.startsWith("PROGRESS:")) {
+                        String[] parts = line.split(":", 4);
+                        if (parts.length >= 4) {
+                            try {
+                                int step = Integer.parseInt(parts[1]);
+                                String msg = parts[3];
+                                if (progressCallback != null) {
+                                    progressCallback.accept(step, msg);
+                                }
+                            } catch (Exception ignored) {}
+                        }
+                    }
+                }
+            }
+
+            int exitCode = process.waitFor();
+            return exitCode == 0 && outputFile.exists() && outputFile.length() > 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public String findFfmpeg() {
+        File local = new File("ffmpeg/ffmpeg.exe");
+        if (local.exists()) return local.getAbsolutePath();
+
+        File parentLocal = new File("OmeRyth/ffmpeg/ffmpeg.exe");
+        if (parentLocal.exists()) return parentLocal.getAbsolutePath();
+
         try {
             ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-version");
             Process p = pb.start();
             p.destroy();
             return "ffmpeg";
         } catch (Exception ignored) {}
-
-        File local = new File("ffmpeg/ffmpeg.exe");
-        if (local.exists()) return local.getAbsolutePath();
 
         File common = new File("C:/ffmpeg/bin/ffmpeg.exe");
         if (common.exists()) return common.getAbsolutePath();

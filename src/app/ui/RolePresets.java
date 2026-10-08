@@ -4,13 +4,22 @@ import java.awt.*;
 import java.util.*;
 
 /**
- * Gestionnaire de présets de rôles prédéfinis.
- * Permet à l'utilisateur de sélectionner rapidement des configurations de rôles.
+ * Catalogue des configurations types de personnages pour les sessions de doublage.
+ * <p>
+ * Fournit un ensemble de modèles prêts à l'emploi (Solo, Duo, Trio, Quartet) associant
+ * à chaque comédien un nom générique et une couleur contrastée pour faciliter l'initialisation
+ * rapide d'un nouveau projet OmeRyth.
+ * </p>
  */
 public class RolePresets {
 
+    /**
+     * Structure de données encapsulant un ensemble prédéfini de comédiens.
+     */
     public static class RolePreset {
+        /** Nom descriptif du gabarit (ex: "Duo", "Quartet"). */
         public String name;
+        /** Codes hexadécimaux des teintes allouées à chaque intervenant. */
         public String[] roleLabelColors;
 
         public RolePreset(String name, String[] roleLabelColors) {

@@ -42,15 +42,23 @@ public class ProjectWorkflowService {
     }
 
     public File askProjectToOpen(JFrame parent) {
-        return FileUtils.chooseOpenFile(parent, "Ouvrir projet", "rythmo", "json");
+        return FileUtils.chooseOpenFile(parent, "Ouvrir projet", "rythmo", "json", "detx", "xml", "cappella");
     }
 
     public File ensureProjectSavePath(JFrame parent, File currentProjectFile) {
-        if (currentProjectFile != null) return currentProjectFile;
-        return FileUtils.chooseSaveFile(parent, "Sauvegarder projet", "rythmo");
+        return ensureProjectSavePath(parent, currentProjectFile, "rythmo");
     }
 
-    /** Apply a freshly created project: clear roles/timeline and set band count. */
+    public File ensureProjectSavePath(JFrame parent, File currentProjectFile, String defaultFormat) {
+        if (currentProjectFile != null) return currentProjectFile;
+        String ext = (defaultFormat != null && defaultFormat.equalsIgnoreCase("detx")) ? "detx" : "rythmo";
+        String title = ext.equals("detx") ? "Sauvegarder projet (.detx)" : "Sauvegarder projet (.rythmo)";
+        return FileUtils.chooseSaveFile(parent, title, ext);
+    }
+
+    /**
+     * Initialise un environnement de travail vierge : réinitialise les comédiens, vide la timeline et applique le nombre de pistes.
+     */
     public void applyNewProject(TimelinePanel timeline,
                                 ArrayList<Role> roles,
                                 File videoFile,

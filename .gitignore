@@ -1,10 +1,11 @@
-﻿# ===== Distribution / Packaging (trop lourds ou inutiles pour le code) =====
+# ===== Distribution / Packaging (trop lourds ou inutiles pour le code) =====
 dist/
 OmeRyth/
 OmeRyth.exe
 OmeRyth.bat
 OmeRyth_Setup.iss
 MonApplication.zip
+creer_zip_portable.bat
 manifest.txt
 MANIFEST.MF
 META-INF/
@@ -12,8 +13,21 @@ launch4j-config.xml
 launch4j.log
 *.gitattributes
 
-# ===== Fichiers > 100 MB =====
+# ===== Fichiers > 100 MB et Packages Volumineux =====
 ffmpeg/ffmpeg.exe
+*.zip
+OmeRyth_Portable.zip
+
+# ===== Modèles et caches IA lourds / Environnement Python (téléchargés ou gérés séparément) =====
+python/
+whisper/
+temp/
+scratch/
+temp_transcribe/
+TESTWEB/temp_transcribe/
+__pycache__/
+*.pyc
+.src_files.txt
 
 # ===== Fichiers compilés =====
 *.class
@@ -38,6 +52,10 @@ autosave.rythmo.json.declined
 
 # ===== IDE =====
 .idea/
+*.iml
+*.iws
+*.ipr
+test.xml
 
 vlc/plugins/visualization/libgoom_plugin.dll
 

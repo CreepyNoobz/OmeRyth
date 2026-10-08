@@ -4,15 +4,16 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 
 /**
- * Installs a lightweight PrintStream filter to suppress noisy libVLC lines
- * such as "stale plugins cache" that are not actionable for the user.
- *
- * This replaces System.err / System.out with a line-buffering stream that
- * filters matching lines before delegating to the original streams.
+ * Filtre applicatif interceptant les flux de sortie {@link System#out} et {@link System#err}
+ * pour épurer la console des messages verbeux et non-bloquants émis par la bibliothèque C native LibVLC
+ * (tels que les avertissements de cache de greffons obsolète ou d'options dépréciées).
  */
 public class VlcLogFilter {
     private static boolean installed = false;
 
+    /**
+     * Installe un flux tamponné sur les sorties standard et d'erreur système.
+     */
     public static void install() {
         if (installed) return;
         installed = true;
@@ -24,7 +25,7 @@ public class VlcLogFilter {
             private final StringBuilder buffer = new StringBuilder();
 
             @Override
-            // Append character to buffer; flush on newline to process the line.
+            // Concatène les octets reçus dans le tampon et traite la ligne à la rencontre de '\n'
             public void write(int b) {
                 char ch = (char) b;
                 if (ch == '\n') {
@@ -35,7 +36,7 @@ public class VlcLogFilter {
             }
 
             @Override
-            // Flush any partial buffered line and delegate flush to the original stream.
+            // Vide le tampon restant et délègue au flux d'erreur original
             public void flush() {
                 if (buffer.length() > 0) {
                     flushLine();
@@ -58,7 +59,7 @@ public class VlcLogFilter {
             private final StringBuilder buffer = new StringBuilder();
 
             @Override
-            // Append character to buffer; flush on newline to process the line.
+            // Concatène les octets reçus dans le tampon et traite la ligne à la rencontre de '\n'
             public void write(int b) {
                 char ch = (char) b;
                 if (ch == '\n') {
@@ -69,7 +70,7 @@ public class VlcLogFilter {
             }
 
             @Override
-            // Flush any partial buffered line and delegate flush to the original stream.
+            // Vide le tampon restant et délègue au flux standard original
             public void flush() {
                 if (buffer.length() > 0) {
                     flushLine();
@@ -89,17 +90,20 @@ public class VlcLogFilter {
         }, true));
     }
 
+    /**
+     * Détermine si une ligne de log émise par LibVLC doit être filtrée pour garder une console épurée.
+     */
     private static boolean shouldSuppressVlcLine(String line) {
         if (line == null || line.isBlank()) return false;
         String lower = line.toLowerCase();
 
-        // Suppress all libvlc error/warning lines from the VLC log
+        // Filtrer les messages verbeux internes LibVLC
         if (lower.contains("libvlc")) return true;
-        // Suppress "Warning: option --xxx no longer exists" from VLC
+        // Filtrer les avertissements d'options dépréciées dans les nouvelles versions de VLC
         if (lower.startsWith("warning: option") && lower.contains("no longer exists")) return true;
-        // Suppress stale plugins cache lines
+        // Filtrer les avertissements bénins de cache de plugins
         if (lower.contains("stale plugins cache")) return true;
-        // Suppress plugin-path related warnings
+        // Filtrer les avertissements relatifs au chemin des greffons
         if (lower.contains("plugin-path")) return true;
 
         return false;
