@@ -36,7 +36,7 @@ public class LanguageSelectionDialog extends JDialog {
         setLocationRelativeTo(parent);
         setResizable(false);
         setLayout(new BorderLayout());
-        getContentPane().setBackground(new Color(28, 28, 30));
+        getContentPane().setBackground(new Color(245, 245, 247));
 
         // En-tête
         JPanel headerPanel = new JPanel(new BorderLayout());
@@ -44,13 +44,13 @@ public class LanguageSelectionDialog extends JDialog {
         headerPanel.setBorder(new EmptyBorder(20, 25, 10, 25));
 
         JLabel titleLabel = new JLabel("Bienvenue / Welcome");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 22));
-        titleLabel.setForeground(Color.WHITE);
+        titleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 20));
+        titleLabel.setForeground(Color.BLACK);
         headerPanel.add(titleLabel, BorderLayout.NORTH);
 
         JLabel subtitleLabel = new JLabel("Choisissez votre langue de travail et de correction :");
         subtitleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        subtitleLabel.setForeground(new Color(180, 180, 185));
+        subtitleLabel.setForeground(Color.BLACK);
         headerPanel.add(subtitleLabel, BorderLayout.SOUTH);
         add(headerPanel, BorderLayout.NORTH);
 
@@ -61,50 +61,50 @@ public class LanguageSelectionDialog extends JDialog {
 
         ButtonGroup group = new ButtonGroup();
 
-        JRadioButton frRadio = new JRadioButton("<html><b>🇫🇷 Français</b><br><small style='color:#a0a0a0;'>Interface & correction orthographique/grammaticale en français</small></html>");
-        frRadio.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        frRadio.setForeground(Color.WHITE);
+        JRadioButton frRadio = new JRadioButton("<html><div style='color:#000000; padding:2px;'><span style='font-size:13px; color:#000000;'>Français</span><br><span style='font-size:11px; color:#000000;'>Interface et correction orthographique/grammaticale en français</span></div></html>");
+        frRadio.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        frRadio.setForeground(Color.BLACK);
         frRadio.setOpaque(true);
-        frRadio.setBackground(new Color(42, 42, 46));
+        frRadio.setBackground(Color.WHITE);
         frRadio.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(0, 150, 255), 1),
-            BorderFactory.createEmptyBorder(10, 12, 10, 12)
+            BorderFactory.createLineBorder(new Color(0, 122, 255), 2),
+            BorderFactory.createEmptyBorder(10, 14, 10, 14)
         ));
         frRadio.setSelected(true);
         group.add(frRadio);
 
-        JRadioButton enRadio = new JRadioButton("<html><b>🇬🇧 English</b><br><small style='color:#a0a0a0;'>Interface & English spelling and grammar check</small></html>");
-        enRadio.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        enRadio.setForeground(Color.WHITE);
+        JRadioButton enRadio = new JRadioButton("<html><div style='color:#000000; padding:2px;'><span style='font-size:13px; color:#000000;'>English</span><br><span style='font-size:11px; color:#000000;'>Interface and English spelling and grammar check</span></div></html>");
+        enRadio.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        enRadio.setForeground(Color.BLACK);
         enRadio.setOpaque(true);
-        enRadio.setBackground(new Color(42, 42, 46));
+        enRadio.setBackground(Color.WHITE);
         enRadio.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(60, 60, 65), 1),
-            BorderFactory.createEmptyBorder(10, 12, 10, 12)
+            BorderFactory.createLineBorder(new Color(209, 213, 219), 1),
+            BorderFactory.createEmptyBorder(10, 14, 10, 14)
         ));
         group.add(enRadio);
 
         frRadio.addActionListener(e -> {
             selectedLanguage = "fr";
             frRadio.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(0, 150, 255), 1),
-                BorderFactory.createEmptyBorder(10, 12, 10, 12)
+                BorderFactory.createLineBorder(new Color(0, 122, 255), 2),
+                BorderFactory.createEmptyBorder(10, 14, 10, 14)
             ));
             enRadio.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(60, 60, 65), 1),
-                BorderFactory.createEmptyBorder(10, 12, 10, 12)
+                BorderFactory.createLineBorder(new Color(209, 213, 219), 1),
+                BorderFactory.createEmptyBorder(10, 14, 10, 14)
             ));
         });
 
         enRadio.addActionListener(e -> {
             selectedLanguage = "en";
             enRadio.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(0, 150, 255), 1),
-                BorderFactory.createEmptyBorder(10, 12, 10, 12)
+                BorderFactory.createLineBorder(new Color(0, 122, 255), 2),
+                BorderFactory.createEmptyBorder(10, 14, 10, 14)
             ));
             frRadio.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(60, 60, 65), 1),
-                BorderFactory.createEmptyBorder(10, 12, 10, 12)
+                BorderFactory.createLineBorder(new Color(209, 213, 219), 1),
+                BorderFactory.createEmptyBorder(10, 14, 10, 14)
             ));
         });
 
@@ -117,9 +117,9 @@ public class LanguageSelectionDialog extends JDialog {
         footerPanel.setOpaque(false);
 
         JButton confirmBtn = new JButton("Confirmer / Confirm");
-        confirmBtn.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        confirmBtn.setForeground(Color.WHITE);
-        confirmBtn.setBackground(new Color(0, 122, 255));
+        confirmBtn.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        confirmBtn.setForeground(Color.BLACK);
+        confirmBtn.setBackground(new Color(225, 228, 234));
         confirmBtn.setFocusPainted(false);
         confirmBtn.setPreferredSize(new Dimension(170, 36));
         confirmBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));

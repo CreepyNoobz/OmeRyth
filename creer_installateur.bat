@@ -18,7 +18,7 @@ if not exist "%ISCC%" (
 )
 
 echo [1/2] Compilation et préparation des sources...
-call build.ps1
+powershell -ExecutionPolicy Bypass -File .\build.ps1
 if %errorlevel% neq 0 (
     echo [ERREUR] Échec de la compilation d'OmeRyth.
     pause

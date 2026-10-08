@@ -38,13 +38,15 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
+[Dirs]
+Name: "{app}"; Permissions: users-modify
+
 [Files]
 ; Exécutables et composants racine
 Source: "OmeRyth.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "OmeRyth.jar"; DestDir: "{app}"; Flags: ignoreversion
 Source: "NativeDialog.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "logo.ico"; DestDir: "{app}"; Flags: ignoreversion
-Source: "associer_fichiers_rythmo.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Runtime Java (JRE 21 LTS portable complet)
 Source: "jre\*"; DestDir: "{app}\jre"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -60,9 +62,6 @@ Source: "libs\*"; DestDir: "{app}\libs"; Flags: ignoreversion recursesubdirs cre
 
 ; Scripts des moteurs d'intelligence artificielle (WhisperX & Demucs)
 Source: "whisperx_engine\*"; DestDir: "{app}\whisperx_engine"; Excludes: "__pycache__\*"; Flags: ignoreversion recursesubdirs createallsubdirs
-
-; Modèles de réseaux de neurones (Whisper Faster IA pré-téléchargés pour fonctionnement hors-ligne immédiat)
-Source: "whisper\cache\*"; DestDir: "{app}\whisper\cache"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\logo.ico"
