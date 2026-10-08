@@ -50,6 +50,10 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
     private boolean skipNextTyped = false;
     private TimelinePanel timelinePanel;
     
+    public KeyBoardListener(TimelinePanel panel) {
+        this.timelinePanel = panel;
+    }
+
     public KeyBoardListener(
         TimelinePanel panel,
         TimerClass timer,
@@ -148,20 +152,25 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
     }
 
     public boolean dispatchKeyEvent(KeyEvent e) {
-        // ★ Séparateur standard (M ou configuré)
-        if (e.getKeyCode() == separateurKeyCode) {
+        // ★ Séparateur standard de transcription (Pavé numérique 4 par défaut ou touche configurée)
+        boolean isNumpad4 = (e.getKeyCode() == KeyEvent.VK_NUMPAD4)
+                || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && e.getKeyCode() == KeyEvent.VK_LEFT);
+        if (isNumpad4 || (e.getKeyCode() == separateurKeyCode && !timelinePanel.isEditing())) {
             skipNextTyped = true;
             int band = timelinePanel.getSelectedBand();
             if (band < 0) {
                 band = 0;
             }
-            timelinePanel.addSeparatorAtCursor(band);
+            timelinePanel.addSeparatorAtCursor(band, SeparatorMark.SignType.DEFAULT);
             e.consume();
             return true;
         }
 
         // ★ Fin de phrase (Pavé numérique 3 par défaut ou touche configurée)
-        if (e.getKeyCode() == finPhraseKeyCode || (e.getKeyCode() == KeyEvent.VK_NUMPAD3 && finPhraseKeyCode == KeyEvent.VK_NUMPAD3)) {
+        boolean isNumpad3 = (e.getKeyCode() == finPhraseKeyCode)
+                || (e.getKeyCode() == KeyEvent.VK_NUMPAD3 && finPhraseKeyCode == KeyEvent.VK_NUMPAD3)
+                || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && e.getKeyCode() == KeyEvent.VK_PAGE_DOWN);
+        if (isNumpad3) {
             skipNextTyped = true;
             int band = timelinePanel.getSelectedBand();
             if (band < 0) band = 0;
@@ -170,8 +179,8 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
             return true;
         }
 
-        // ★ Labiale MPB (Pavé numérique 4 par défaut ou touche configurée)
-        if (e.getKeyCode() == signeMpbKeyCode || (e.getKeyCode() == KeyEvent.VK_NUMPAD4 && signeMpbKeyCode == KeyEvent.VK_NUMPAD4)) {
+        // ★ Labiale MPB (si configurée sur une autre touche que Numpad 4)
+        if (signeMpbKeyCode != KeyEvent.VK_NUMPAD4 && e.getKeyCode() == signeMpbKeyCode) {
             skipNextTyped = true;
             int band = timelinePanel.getSelectedBand();
             if (band < 0) band = 0;
@@ -181,7 +190,10 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         }
 
         // ★ Demi-labiale / Dentale FVR (Pavé numérique 5 par défaut ou touche configurée)
-        if (e.getKeyCode() == signeFvrKeyCode || (e.getKeyCode() == KeyEvent.VK_NUMPAD5 && signeFvrKeyCode == KeyEvent.VK_NUMPAD5)) {
+        boolean isNumpad5 = (e.getKeyCode() == signeFvrKeyCode)
+                || (e.getKeyCode() == KeyEvent.VK_NUMPAD5 && signeFvrKeyCode == KeyEvent.VK_NUMPAD5)
+                || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && e.getKeyCode() == KeyEvent.VK_CLEAR);
+        if (isNumpad5) {
             skipNextTyped = true;
             int band = timelinePanel.getSelectedBand();
             if (band < 0) band = 0;
@@ -191,7 +203,10 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         }
 
         // ★ Consonne neutre (Pavé numérique 6 par défaut ou touche configurée)
-        if (e.getKeyCode() == signeNeutralKeyCode || (e.getKeyCode() == KeyEvent.VK_NUMPAD6 && signeNeutralKeyCode == KeyEvent.VK_NUMPAD6)) {
+        boolean isNumpad6 = (e.getKeyCode() == signeNeutralKeyCode)
+                || (e.getKeyCode() == KeyEvent.VK_NUMPAD6 && signeNeutralKeyCode == KeyEvent.VK_NUMPAD6)
+                || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && e.getKeyCode() == KeyEvent.VK_RIGHT && !timelinePanel.isEditing());
+        if (isNumpad6) {
             skipNextTyped = true;
             int band = timelinePanel.getSelectedBand();
             if (band < 0) band = 0;
@@ -201,7 +216,10 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         }
 
         // ★ Grande ouverture A / voyelles (Pavé numérique 7 par défaut ou touche configurée)
-        if (e.getKeyCode() == signeVoyelleKeyCode || (e.getKeyCode() == KeyEvent.VK_NUMPAD7 && signeVoyelleKeyCode == KeyEvent.VK_NUMPAD7)) {
+        boolean isNumpad7 = (e.getKeyCode() == signeVoyelleKeyCode)
+                || (e.getKeyCode() == KeyEvent.VK_NUMPAD7 && signeVoyelleKeyCode == KeyEvent.VK_NUMPAD7)
+                || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && e.getKeyCode() == KeyEvent.VK_HOME);
+        if (isNumpad7) {
             skipNextTyped = true;
             int band = timelinePanel.getSelectedBand();
             if (band < 0) band = 0;
@@ -211,7 +229,10 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         }
 
         // ★ Signe Respiration / Souffle h/ (Pavé numérique 8 par défaut ou touche configurée)
-        if (e.getKeyCode() == signeRespirationKeyCode || (e.getKeyCode() == KeyEvent.VK_NUMPAD8 && signeRespirationKeyCode == KeyEvent.VK_NUMPAD8)) {
+        boolean isNumpad8 = (e.getKeyCode() == signeRespirationKeyCode)
+                || (e.getKeyCode() == KeyEvent.VK_NUMPAD8 && signeRespirationKeyCode == KeyEvent.VK_NUMPAD8)
+                || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && e.getKeyCode() == KeyEvent.VK_UP);
+        if (isNumpad8) {
             skipNextTyped = true;
             if (timelinePanel.isEditing()) {
                 timelinePanel.pasteText("h/ ");
@@ -369,11 +390,8 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
             }
 
             if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                if (timelinePanel.hasSelection()) {
-                    timelinePanel.clearSelection();
-                } else {
-                    timelinePanel.stopTyping();
-                }
+                timelinePanel.stopTyping();
+                skipNextTyped = true;
                 e.consume();
                 return true;
             }
@@ -569,6 +587,16 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
 
     public void seekTime(double deltaSeconds) {
         if (deltaSeconds == 0) return;
+
+        // Si la lecture est en cours : mettre en pause (comme avec la molette de la souris)
+        if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+            try {
+                var mp = mediaPlayerComponent.mediaPlayer();
+                if (mp.status().isPlaying()) {
+                    mp.controls().pause();
+                }
+            } catch (Throwable ignored) {}
+        }
         if (timer.isRunning()) {
             timer.toggle();
         }
@@ -586,6 +614,15 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
     }
 
     public void seekToTime(double targetSeconds) {
+        // Si la lecture est en cours : mettre en pause (comme avec la molette de la souris)
+        if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+            try {
+                var mp = mediaPlayerComponent.mediaPlayer();
+                if (mp.status().isPlaying()) {
+                    mp.controls().pause();
+                }
+            } catch (Throwable ignored) {}
+        }
         if (timer.isRunning()) {
             timer.toggle();
         }

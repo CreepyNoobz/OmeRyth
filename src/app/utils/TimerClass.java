@@ -30,6 +30,15 @@ public class TimerClass extends JPanel {
     private long startRealTimeNs = 0;
     private double startRythmoTime = 0;
 
+    private java.util.function.DoubleSupplier externalTimeSource = null;
+    private java.util.function.BooleanSupplier externalIsPlaying = null;
+    private long lastSyncNs = 0L;
+
+    public void setExternalTimeSource(java.util.function.DoubleSupplier timeSupplier, java.util.function.BooleanSupplier isPlayingSupplier) {
+        this.externalTimeSource = timeSupplier;
+        this.externalIsPlaying = isPlayingSupplier;
+    }
+
     /**
      * Crée un composant timer lié à une `TimelinePanel` pour propager la position temporelle.
      */
@@ -69,6 +78,8 @@ public class TimerClass extends JPanel {
         long now = System.nanoTime();
         double elapsedSec = (now - startRealTimeNs) / 1_000_000_000.0;
         time = startRythmoTime + (elapsedSec * direction);
+
+
 
         if (time >= maxTime) {
             time = maxTime; // bloque le timer
@@ -121,8 +132,6 @@ public class TimerClass extends JPanel {
         if (timer.isRunning()) {
             if (direction == requestedDirection) {
                 timer.stop();
-                // À la mise en pause, troncature au dixième inférieur (ex: 1.32s -> 1.30s)
-                time = Math.floor(time * 10.0) / 10.0;
                 startRythmoTime = time;
                 timerLabel.setText(format());
                 timeline.setTime(time);

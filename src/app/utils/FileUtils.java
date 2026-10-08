@@ -192,7 +192,7 @@ public class FileUtils {
      * Marque l'application comme ayant complété l'expérience du premier lancement.
      */
     public static void setFirstRunCompleted() {
-        Properties props = new Properties();
+        Properties props = loadAppState();
         props.setProperty("firstRunCompleted", "true");
         try (FileOutputStream fos = new FileOutputStream(APPSTATE_FILE)) {
             props.store(fos, "App state");
@@ -303,20 +303,7 @@ public class FileUtils {
             // En cas d'échec d'exécution du binaire, on poursuit vers le repli
         }
 
-        // 2. Repli PowerShell (même dialogue moderne Microsoft.Win32.OpenFileDialog)
-        try {
-            String psScript = buildPowerShellOpenDialogScript(title, filter);
-            DialogOutcome outcome = runPowerShellDialog(psScript);
-            if (outcome.isSuccess) {
-                return outcome.file;
-            }
-            if (outcome.isCancelled) {
-                // L'utilisateur a explicitement cliqué sur Annuler : arrêt immédiat
-                return null;
-            }
-        } catch (Throwable ignored) {}
-
-        // 3. Repli AWT FileDialog
+        // 2. Repli AWT FileDialog (instantané, natif Windows COM, zéro freeze)
         if (!GraphicsEnvironment.isHeadless()) {
             boolean shown = false;
             try {
@@ -350,6 +337,18 @@ public class FileUtils {
                 if (shown) return null;
             }
         }
+
+        // 3. Repli PowerShell (Microsoft.Win32.OpenFileDialog) si AWT n'a pas pu s'afficher
+        try {
+            String psScript = buildPowerShellOpenDialogScript(title, filter);
+            DialogOutcome outcome = runPowerShellDialog(psScript);
+            if (outcome.isSuccess) {
+                return outcome.file;
+            }
+            if (outcome.isCancelled) {
+                return null;
+            }
+        } catch (Throwable ignored) {}
 
         // 4. Repli ultime JFileChooser (en cas d'environnement headless ou erreur d'affichage)
         try {
@@ -386,20 +385,7 @@ public class FileUtils {
             // En cas d'échec du binaire, on poursuit vers le repli
         }
 
-        // 2. Repli PowerShell (même dialogue moderne Microsoft.Win32.SaveFileDialog)
-        try {
-            String psScript = buildPowerShellSaveDialogScript(title, filter);
-            DialogOutcome outcome = runPowerShellDialog(psScript);
-            if (outcome.isSuccess) {
-                return ensureExtension(outcome.file, defaultExtension);
-            }
-            if (outcome.isCancelled) {
-                // L'utilisateur a explicitement cliqué sur Annuler : arrêt immédiat
-                return null;
-            }
-        } catch (Throwable ignored) {}
-
-        // 3. Repli AWT FileDialog
+        // 2. Repli AWT FileDialog (instantané, natif Windows COM, zéro freeze)
         if (!GraphicsEnvironment.isHeadless()) {
             boolean shown = false;
             try {
@@ -427,6 +413,19 @@ public class FileUtils {
                 if (shown) return null;
             }
         }
+
+        // 3. Repli PowerShell (même dialogue moderne Microsoft.Win32.SaveFileDialog)
+        try {
+            String psScript = buildPowerShellSaveDialogScript(title, filter);
+            DialogOutcome outcome = runPowerShellDialog(psScript);
+            if (outcome.isSuccess) {
+                return ensureExtension(outcome.file, defaultExtension);
+            }
+            if (outcome.isCancelled) {
+                // L'utilisateur a explicitement cliqué sur Annuler : arrêt immédiat
+                return null;
+            }
+        } catch (Throwable ignored) {}
 
         // 4. Repli ultime JFileChooser
         try {

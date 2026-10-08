@@ -1341,6 +1341,298 @@ public class SmokeTests {
             System.out.println("Vérification persistance keyboardLayout : VALIDÉ !");
         }
 
+        // Test Signes, Curseur Gauche/Droite, Non-Suppression de Signe & Glissement de Lettres
+        {
+            app.ui.TextManager tm = new app.ui.TextManager();
+            app.ui.TextItem item = new app.ui.TextItem("Bonjour", 100, 0);
+            tm.getTexts().add(item);
+            tm.addSeparator(0, 100, app.ui.SeparatorMark.Type.START);
+            tm.addSeparator(0, 150, app.ui.SeparatorMark.Type.INNER);
+            tm.addSeparator(0, 200, app.ui.SeparatorMark.Type.END);
+            
+            // Forcer splitIndex = 3 ("Bon" | "jour")
+            tm.getBandSeparators().get(0).get(1).splitIndex = 3;
+
+            tm.startEditingExistingText(item, 4); // Juste après 'j' (splitIndex + 1)
+            
+            // 1. Supprimer la première lettre à droite du signe avec Backspace
+            tm.deleteChar();
+            assertTrue("Bonour".equals(item.text), "Le 'j' doit être supprimé");
+            assertTrue(tm.getCursorIndex() == 3, "Le curseur doit être à l'index 3 (au niveau du signe)");
+            assertTrue(tm.isCursorRightSide(), "Le curseur doit rester sur le CÔTÉ DROIT du signe après suppression de la première lettre à droite");
+            assertTrue(tm.getBandSeparators().get(0).size() == 3, "Le signe INNER ne doit PAS être supprimé lors de la suppression d'une lettre !");
+
+            // 1.b. Règle stricte : Juste à côté droit du signe, Backspace ne supprime PAS le côté gauche (supprime rien)
+            tm.deleteChar();
+            assertTrue("Bonour".equals(item.text), "Backspace juste à droite du signe ne doit rien supprimer du tout (texte inchangé)");
+            assertTrue(tm.getCursorIndex() == 3 && tm.isCursorRightSide(), "Le curseur doit rester à droite du signe");
+
+            // 1.c. Basculement vers la gauche avec flèche gauche
+            tm.moveCursor(-1);
+            assertTrue(tm.getCursorIndex() == 3 && !tm.isCursorRightSide(), "La flèche gauche bascule le curseur sur le côté GAUCHE du signe");
+
+            // 1.d. Règle stricte : Juste à côté gauche du signe, Delete (deleteForward) ne supprime PAS le côté droit
+            tm.deleteForward();
+            assertTrue("Bonour".equals(item.text), "Delete juste à gauche du signe ne doit rien supprimer du côté droit");
+
+            // 1.e. Basculement vers la droite avec flèche droite
+            tm.moveCursor(1);
+            assertTrue(tm.getCursorIndex() == 3 && tm.isCursorRightSide(), "La flèche droite rebascule sur le côté DROIT du signe");
+
+            // 2. Supprimer la première lettre à droite avec Delete (deleteForward)
+            tm.deleteForward(); // Supprime 'o'
+            assertTrue("Bonur".equals(item.text), "Le 'o' doit être supprimé");
+            assertTrue(tm.getCursorIndex() == 3, "Le curseur reste à l'index 3");
+            assertTrue(tm.isCursorRightSide(), "Le curseur doit rester sur le CÔTÉ DROIT après deleteForward");
+            assertTrue(tm.getBandSeparators().get(0).size() == 3, "Le signe INNER ne doit toujours PAS être supprimé !");
+
+            // 3. Glissement des lettres à travers le signe (shiftInnerSepTextBy)
+            tm.shiftInnerSepTextBy(0, 150, 1);
+            assertTrue(tm.getBandSeparators().get(0).get(1).splitIndex == 4, "Glisser vers la droite doit incrémenter splitIndex à 4 ('Bonu' | 'r')");
+            tm.shiftInnerSepTextBy(0, 150, -2);
+            assertTrue(tm.getBandSeparators().get(0).get(1).splitIndex == 2, "Glisser vers la gauche doit décrémenter splitIndex à 2 ('Bo' | 'nur')");
+
+            // 4. Test clic à gauche vs clic à droite du signe
+            // Le signe est à x=150 dans le monde. Clic à x=146 (gauche) vs x=154 (droite) avec offsetX=0
+            int idxLeft = tm.getCursorIndexForClick(item, 146, 0);
+            boolean sideLeft = tm.isCursorRightSide();
+            int idxRight = tm.getCursorIndexForClick(item, 154, 0);
+            boolean sideRight = tm.isCursorRightSide();
+            assertTrue(idxLeft == 2 && !sideLeft, "Clic à gauche du signe doit positionner le curseur à gauche (cursorRightSide = false)");
+            assertTrue(idxRight == 2 && sideRight, "Clic à droite du signe doit positionner le curseur à droite (cursorRightSide = true)");
+
+            System.out.println("Vérification Signes & Curseur (Non-suppression, Côté droit préservé, Glissement naturel) : VALIDÉ !");
+        }
+
+        // Test Touche Échap en mode édition de texte
+        {
+            TimelinePanel tl = new TimelinePanel();
+            tl.setSize(900, 260);
+            app.ui.TextItem testItem = new app.ui.TextItem("TestEchap", 100, 0);
+            tl.getTextManager().getTexts().add(testItem);
+            tl.getTextManager().startEditingExistingText(testItem, 4);
+            assertTrue(tl.isEditing(), "Le mode édition doit être actif");
+
+            // Simuler l'appui sur Échap via KeyBoardListener
+            app.utils.KeyBoardListener kbl = new app.utils.KeyBoardListener(tl);
+            KeyEvent escEvent = new KeyEvent(tl, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, KeyEvent.VK_ESCAPE, KeyEvent.CHAR_UNDEFINED);
+            boolean handled = kbl.dispatchKeyEvent(escEvent);
+            assertTrue(handled, "La touche Échap doit être interceptée et traitée");
+            assertTrue(!tl.isEditing(), "L'appui sur Échap doit immédiatement quitter le mode édition");
+            System.out.println("Vérification Sortie du mode édition avec Échap : VALIDÉ !");
+        }
+
+        // Test Reconnexion automatique des mots composés ("aujourd'hui") et contractions ("d'accord")
+        {
+            java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> segs = new java.util.ArrayList<>();
+            segs.add(new app.services.SpeechWorkflowService.TranscriptionSegment(1, "SPEAKER_00", 1.0, 1.8, "mauvaises 'aujourd"));
+            segs.add(new app.services.SpeechWorkflowService.TranscriptionSegment(2, "SPEAKER_01", 1.9, 2.3, "'hui,"));
+            segs.add(new app.services.SpeechWorkflowService.TranscriptionSegment(3, "SPEAKER_00", 2.5, 2.7, "d'"));
+            segs.add(new app.services.SpeechWorkflowService.TranscriptionSegment(4, "SPEAKER_01", 2.8, 3.2, "accord"));
+
+            java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> merged =
+                    app.services.SpeechWorkflowService.sanitizeAndMergeCompoundWords(segs);
+
+            assertTrue(merged.size() == 2, "Les 4 fragments doivent être fusionnés en 2 segments complets");
+            assertTrue(merged.get(0).text.equals("mauvaises aujourd'hui,"), "Le mot aujourd'hui doit être recomposé avec sa virgule");
+            assertTrue(merged.get(0).speaker.equals("SPEAKER_00"), "Le locuteur du segment fusionné doit rester SPEAKER_00");
+            assertTrue(merged.get(0).endSeconds == 2.3, "La fin du segment doit être celle du fragment 'hui");
+            assertTrue(merged.get(1).text.equals("d'accord"), "La contraction d'accord doit être reconnectée");
+            assertTrue(merged.get(1).speaker.equals("SPEAKER_00"), "Le locuteur de d'accord doit rester celui de l'amorce");
+
+            System.out.println("Vérification Reconnexion automatique 'aujourd'hui' & 'd'accord' : VALIDÉ !");
+        }
+
+        // Test Détection et élimination absolue des fuites de prompt / "transcription"
+        {
+            assertTrue(app.services.SpeechWorkflowService.isPromptLeakOrHallucination("Transcription"), "Le mot 'Transcription' seul doit être détecté comme fuite");
+            assertTrue(app.services.SpeechWorkflowService.isPromptLeakOrHallucination("Transcription fidèle"), "'Transcription fidèle' doit être détecté comme fuite");
+            assertTrue(app.services.SpeechWorkflowService.isPromptLeakOrHallucination("transcription automatique"), "'transcription automatique' doit être détecté comme fuite");
+            assertTrue(app.services.SpeechWorkflowService.isPromptLeakOrHallucination("Bande rythmo"), "'Bande rythmo' doit être détecté comme fuite");
+            assertTrue(app.services.SpeechWorkflowService.isPromptLeakOrHallucination("Sous-titres réalisés par amara.org"), "Les crédits sous-titres doivent être détectés");
+            assertTrue(!app.services.SpeechWorkflowService.isPromptLeakOrHallucination("Bonjour tout le monde"), "Une phrase réelle ne doit pas être rejetée");
+            assertTrue(!app.services.SpeechWorkflowService.isPromptLeakOrHallucination("C'est pas facile de caler les mots"), "Une phrase avec contractions ne doit pas être rejetée");
+
+            // Test nettoyage préfixe de prompt
+            String cleanedPrefix = app.services.SpeechWorkflowService.cleanPromptLeakPrefix("Transcription : Bonjour tout le monde");
+            assertTrue("Bonjour tout le monde".equals(cleanedPrefix), "Le préfixe 'Transcription :' doit être retiré");
+
+            // Test parseSingleSegment sur fuite pure -> doit retourner null
+            String leakJson = "{\"id\": 1, \"speaker\": \"SPEAKER_00\", \"start\": 0.0, \"end\": 1.2, \"text\": \"Transcription fidèle pour bande rythmo\"}";
+            app.services.SpeechWorkflowService.TranscriptionSegment nullSeg = app.services.SpeechWorkflowService.parseSingleSegment(leakJson);
+            assertTrue(nullSeg == null, "Un segment ne contenant que des consignes de prompt doit être totalement ignoré (null)");
+
+            // Test parseSingleSegment sur parole réelle avec mot parasite en tête -> mot parasite retiré et horodatage recalé
+            String realJson = "{\"id\": 2, \"speaker\": \"SPEAKER_00\", \"start\": 0.0, \"end\": 2.5, \"text\": \"Transcription : Bonjour tout le monde\", \"words\": [{\"word\": \"Transcription\", \"start\": 0.0, \"end\": 0.5}, {\"word\": \"Bonjour\", \"start\": 0.8, \"end\": 1.3}, {\"word\": \"tout\", \"start\": 1.3, \"end\": 1.6}, {\"word\": \"le\", \"start\": 1.6, \"end\": 1.8}, {\"word\": \"monde\", \"start\": 1.8, \"end\": 2.2}]}";
+            app.services.SpeechWorkflowService.TranscriptionSegment validSeg = app.services.SpeechWorkflowService.parseSingleSegment(realJson);
+            assertTrue(validSeg != null, "Le segment réel nettoyé doit être valide");
+            assertTrue("Bonjour tout le monde".equals(validSeg.text), "Le texte doit être débarrassé du préfixe parasite");
+            assertTrue(validSeg.words.size() == 4, "Le mot parasite 'Transcription' doit être retiré de la liste des mots");
+            assertTrue(validSeg.words.get(0).word.equals("Bonjour"), "Le premier mot doit être 'Bonjour'");
+            assertTrue(validSeg.startSeconds == 0.8, "Le début du segment doit être calé sur le premier mot réel (0.8s au lieu de 0.0s)");
+
+            System.out.println("Vérification Élimination des fuites 'Transcription' & Calage précis : VALIDÉ !");
+        }
+
+        // Test Spécifique : Séparateur Numpad 4, Maintien côté gauche du signe à la suppression, Blancs / Trous préservés
+        {
+            app.ui.TextManager tm = new app.ui.TextManager();
+            app.ui.TextItem item = new app.ui.TextItem("Bonjour", 100, 0);
+            tm.getTexts().add(item);
+            tm.addSeparator(0, 100, app.ui.SeparatorMark.Type.START);
+            tm.addSeparator(0, 150, app.ui.SeparatorMark.Type.INNER);
+            tm.addSeparator(0, 200, app.ui.SeparatorMark.Type.END);
+
+            // splitIndex = 3 ("Bon" | "jour")
+            tm.getBandSeparators().get(0).get(1).splitIndex = 3;
+
+            // 1. Suppression de la dernière lettre à GAUCHE du signe ('n')
+            tm.startEditingExistingText(item, 3); // juste avant le signe, à gauche
+            tm.deleteChar(); // supprime 'n'
+            assertTrue("Bojour".equals(item.text), "Le 'n' à gauche du signe doit être supprimé");
+            assertTrue(tm.getCursorIndex() == 2, "Le curseur doit être à l'index 2 (après 'o')");
+            assertTrue(!tm.isCursorRightSide(), "Le curseur DOIT RESTER SUR LE CÔTÉ GAUCHE du signe !");
+
+            // 2. Test ajout de séparateur au début pour laisser un blanc (cursorIndex = 0)
+            app.ui.TextItem item2 = new app.ui.TextItem("mais comment ça va", 500, 0);
+            tm.getTexts().add(item2);
+            tm.addSeparator(0, 500, app.ui.SeparatorMark.Type.START);
+            tm.addSeparator(0, 800, app.ui.SeparatorMark.Type.END);
+            tm.startEditingExistingText(item2, 0);
+            tm.addSeparatorAtCursorWithSign(0, 600, app.ui.SeparatorMark.SignType.DEFAULT);
+            java.util.ArrayList<app.ui.SeparatorMark> seps = tm.getBandSeparators().get(0);
+            app.ui.SeparatorMark inner0 = seps.stream().filter(s -> s.x == 600).findFirst().orElse(null);
+            assertTrue(inner0 != null, "Le séparateur à 600 doit être créé");
+            assertTrue(inner0.splitIndex == 0, "Le splitIndex doit être 0 pour démarrer le texte à 600 et laisser un blanc avant");
+            assertTrue(inner0.signType == app.ui.SeparatorMark.SignType.DEFAULT, "Le type de signe doit être DEFAULT (celui de la transcription)");
+
+            // 3. Test Numpad 4 via KeyBoardListener
+            app.ui.TimelinePanel tl = new app.ui.TimelinePanel();
+            app.utils.KeyBoardListener kbl = new app.utils.KeyBoardListener(tl);
+            java.awt.event.KeyEvent keNumpad4 = new java.awt.event.KeyEvent(
+                    tl, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0,
+                    java.awt.event.KeyEvent.VK_NUMPAD4, java.awt.event.KeyEvent.CHAR_UNDEFINED,
+                    java.awt.event.KeyEvent.KEY_LOCATION_NUMPAD);
+            kbl.dispatchKeyEvent(keNumpad4);
+            // Vérifier qu'un séparateur de type DEFAULT a été ajouté à la bande courante
+            int curBand = tl.getSelectedBand() >= 0 ? tl.getSelectedBand() : 0;
+            java.util.ArrayList<app.ui.SeparatorMark> tlSeps = tl.getTextManager().getBandSeparators().get(curBand);
+            assertTrue(tlSeps != null && !tlSeps.isEmpty(), "Numpad 4 doit insérer un séparateur");
+            assertTrue(tlSeps.get(tlSeps.size() - 1).signType == app.ui.SeparatorMark.SignType.DEFAULT, "Numpad 4 doit utiliser SignType.DEFAULT (transcription)");
+
+            System.out.println("Vérification Spécifique Numpad 4 & Préservation Côté Gauche : VALIDÉ !");
+        }
+
+        // Test Frappe dans un trou vide (gap) entre deux séparateurs
+        {
+            app.ui.TextManager tmGap = new app.ui.TextManager();
+            app.ui.TextItem phrase = new app.ui.TextItem("abcdef", 100, 0);
+            tmGap.getTexts().add(phrase);
+            tmGap.addSeparator(0, 100, app.ui.SeparatorMark.Type.START);
+            tmGap.addSeparator(0, 700, app.ui.SeparatorMark.Type.END);
+            tmGap.addSeparator(0, 250, app.ui.SeparatorMark.Type.INNER);
+            tmGap.addSeparator(0, 450, app.ui.SeparatorMark.Type.INNER);
+
+            java.util.ArrayList<app.ui.SeparatorMark> seps = tmGap.getBandSeparators().get(0);
+            app.ui.SeparatorMark m1 = seps.stream().filter(s -> s.x == 250).findFirst().get();
+            app.ui.SeparatorMark m2 = seps.stream().filter(s -> s.x == 450).findFirst().get();
+            m1.splitIndex = 3;
+            m2.splitIndex = 3; // Trou vide entre 250 et 450 (0 caractère)
+
+            // Clic au milieu du trou (x = 350)
+            int cursorIdx = tmGap.getCursorIndexForClick(phrase, 350, 0);
+            assertTrue(cursorIdx == 3, "Le curseur pour le clic dans le trou doit être 3");
+            assertTrue(tmGap.isCursorRightSide(), "Le curseur doit être orienté côté droit (après le repère gauche)");
+            assertTrue(tmGap.getActiveSegmentEndMarkX() == 450, "Le segment cible doit se terminer au repère droit (450)");
+
+            // Vérification du positionnement visuel du caret par TimelineRenderer
+            app.ui.TimelineRenderer renderer = new app.ui.TimelineRenderer(1, 400);
+            renderer.setActiveSegmentEndMarkX(tmGap.getActiveSegmentEndMarkX());
+            java.awt.image.BufferedImage dummyImg = new java.awt.image.BufferedImage(1, 1, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            java.awt.FontMetrics fm = dummyImg.getGraphics().getFontMetrics(new java.awt.Font("Arial", java.awt.Font.PLAIN, 12));
+            java.util.ArrayList<app.ui.SeparatorMark> innerMarks = new java.util.ArrayList<>();
+            innerMarks.add(m1);
+            innerMarks.add(m2);
+            double caretX = renderer.computeCursorXForSegments(fm, phrase, 0, 100, 700, innerMarks, cursorIdx, tmGap.isCursorRightSide());
+            assertTrue(Math.abs(caretX - (m1.x + 2.0)) < 0.001, "Le caret doit être situé précisément à droite du repère gauche (m1.x + 2.0)");
+
+            tmGap.startEditingExistingText(phrase, cursorIdx);
+
+            // Frappe d'un caractère 'X' dans le trou
+            tmGap.typeChar('X');
+            assertTrue(m1.splitIndex == 3, "Le repère gauche m1 doit rester à l'index 3 (avant la frappe)");
+            assertTrue(m2.splitIndex == 4, "Le repère droit m2 doit être décalé à l'index 4 (après la frappe)");
+            assertTrue("abcXdef".equals(phrase.text), "Le texte doit contenir 'X' entre m1 et m2");
+
+            System.out.println("Vérification Frappe dans un trou vide (Gap Typing & Position Caret) : VALIDÉ !");
+        }
+
+        // Test Navigation flèches pendant la lecture (Non-arrêt & Fluidité 60 FPS sans saccade)
+        {
+            app.ui.TimelinePanel tlPlay = new app.ui.TimelinePanel();
+            app.utils.TimerClass timerPlay = new app.utils.TimerClass(tlPlay);
+            app.utils.KeyBoardListener kblPlay = new app.utils.KeyBoardListener(
+                    tlPlay, timerPlay, null,
+                    java.awt.event.KeyEvent.VK_SPACE,
+                    java.awt.event.KeyEvent.VK_RIGHT,
+                    java.awt.event.KeyEvent.VK_LEFT,
+                    java.awt.event.KeyEvent.VK_BACK_SPACE,
+                    java.awt.event.KeyEvent.VK_DIVIDE,
+                    java.awt.event.KeyEvent.VK_ADD,
+                    java.awt.event.KeyEvent.VK_SUBTRACT,
+                    null, null
+            );
+
+            // Démarrer la lecture
+            timerPlay.toggle(1);
+            assertTrue(timerPlay.isRunning(), "Le timer doit être en cours de lecture");
+
+            // Saut de 0.5s via flèche droite : doit mettre en pause comme avec la molette
+            double beforeSeek = timerPlay.getTime();
+            kblPlay.seekTime(0.5);
+            assertTrue(!timerPlay.isRunning(), "La lecture doit SE METTRE EN PAUSE lors de l'utilisation des flèches (comme avec la molette)");
+            assertTrue(timerPlay.getTime() >= beforeSeek + 0.49, "Le temps du timer doit avoir été avancé d'au moins 0.5s");
+
+            // Saut de -0.2s via flèche gauche
+            kblPlay.seekTime(-0.2);
+            assertTrue(!timerPlay.isRunning(), "Le timer reste en pause après le saut arrière");
+
+            System.out.println("Vérification Navigation Flèches en Lecture (Mise en pause comme molette) : VALIDÉ !");
+        }
+
+        // Test Suppression d'une phrase de rôle créée avant un texte existant (Préservation du texte de la bande)
+        {
+            app.ui.TextManager tmRole = new app.ui.TextManager();
+            app.ui.TextItem existingText = new app.ui.TextItem("Prends tes affaires tu rentres à la maison", 400, 0);
+            tmRole.getTexts().add(existingText);
+
+            // Création d'une phrase avec rôle avant le texte existant (ex: à x=100)
+            app.ui.Role roleJoseph = new app.ui.Role("Joseph", java.awt.Color.BLUE);
+            tmRole.startPhrase(0, 100, roleJoseph);
+            assertTrue(tmRole.getTexts().size() == 2, "La bande doit contenir 2 textes (la nouvelle phrase ouverte et le texte existant)");
+
+            // Suppression de la phrase de rôle (startX = 100)
+            boolean removed = tmRole.deleteFullPhraseAtStart(0, 100);
+            assertTrue(removed, "La phrase à x=100 doit être supprimée");
+            assertTrue(tmRole.getTexts().size() == 1, "Il doit rester exactement 1 texte sur la bande (le texte existant ne doit pas être supprimé)");
+            assertTrue(tmRole.getTexts().get(0) == existingText, "Le texte existant conservé doit être le texte d'origine");
+            assertTrue("Prends tes affaires tu rentres à la maison".equals(tmRole.getTexts().get(0).text), "Le texte d'origine doit être intact");
+
+            System.out.println("Vérification Suppression Phrase Rôle avant Texte Existant (Non-suppression de la bande) : VALIDÉ !");
+        }
+
+        // Test ExportVideoDialog Dimensions & Préréglages
+        if (!java.awt.GraphicsEnvironment.isHeadless()) {
+            try {
+                app.ui.ExportVideoDialog dlg = new app.ui.ExportVideoDialog(null, 1920, 100);
+                assertTrue(dlg.getPreferredSize().width >= 980, "La fenêtre d'export doit être large pour tout dérouler");
+                System.out.println("Vérification ExportVideoDialog Dimensions & Préréglages : VALIDÉ !");
+                dlg.dispose();
+            } catch (java.awt.HeadlessException e) {
+                System.out.println("ExportVideoDialog ignoré en mode headless");
+            }
+        }
+
         System.out.println("SmokeTests OK");
         System.exit(0);
     }

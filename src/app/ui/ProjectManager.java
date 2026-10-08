@@ -88,7 +88,7 @@ public class ProjectManager {
                 return DetxManager.loadDetx(file, textManager, roles, 80.0);
             }
             if (trimmed.startsWith("{")) {
-                return loadFromJson(trimmed, textManager, roles);
+                return loadFromJson(trimmed, textManager, roles, file);
             }
             return loadLegacy(raw, textManager, roles);
         } catch (Exception e) {
@@ -210,7 +210,7 @@ public class ProjectManager {
      * @return Une instance de {@link LoadedProject} encapsulant les métadonnées de session.
      */
     @SuppressWarnings("unchecked")
-    private static LoadedProject loadFromJson(String json, TextManager textManager, ArrayList<Role> roles) {
+    private static LoadedProject loadFromJson(String json, TextManager textManager, ArrayList<Role> roles, File file) {
         Object parsed = new JsonParser(json).parseValue();
         if (!(parsed instanceof Map)) {
             throw new IllegalArgumentException("Format JSON invalide");
@@ -222,6 +222,12 @@ public class ProjectManager {
 
         Object videoRaw = root.get("video");
         File videoFile = (videoRaw instanceof String && !((String) videoRaw).isBlank()) ? new File((String) videoRaw) : null;
+        if (videoFile != null && !videoFile.exists() && file != null && file.getParentFile() != null) {
+            File rel = new File(file.getParentFile(), videoFile.getName());
+            if (rel.exists()) {
+                videoFile = rel;
+            }
+        }
 
         int loadedBandCount = asInt(root.get("bandCount"), -1);
         int maxBandIndex = -1;

@@ -92,7 +92,17 @@ public class MediaWorkflowService {
                     mediaPlayerComponent.mediaPlayer().controls().stop();
                 }
                 mediaPlayerComponent.mediaPlayer().media().startPaused(videoFile.getAbsolutePath());
-                return mediaPlayerComponent.mediaPlayer().media().info().duration();
+                long dureeMs = -1;
+                for (int i = 0; i < 30; i++) {
+                    try {
+                        if (mediaPlayerComponent.mediaPlayer().media().info() != null) {
+                            dureeMs = mediaPlayerComponent.mediaPlayer().media().info().duration();
+                            if (dureeMs > 0) break;
+                        }
+                    } catch (Throwable ignored) {}
+                    try { Thread.sleep(50); } catch (InterruptedException ignored) {}
+                }
+                return dureeMs;
             }
 
             @Override
@@ -301,7 +311,7 @@ public class MediaWorkflowService {
 
                 File separatedAudio = null;
                 try {
-                    if (config.isMontageMode && config.removeVocals && fichierSelectionne != null && fichierSelectionne.exists()) {
+                    if (config.removeVocals && fichierSelectionne != null && fichierSelectionne.exists()) {
                         if (isDemucsAvailable()) {
                             publish(new ExportProgress(0, 0, totalFrames, 0, 0, "Demucs IA (Initialisation séparation vocale...)"));
                             try {
@@ -480,9 +490,10 @@ public class MediaWorkflowService {
 
                     } else {
                         // Mode classique : Bandeau seul
-                        if (config.includeAudio && fichierSelectionne != null && fichierSelectionne.exists()) {
+                        File audioSource = (separatedAudio != null && separatedAudio.exists()) ? separatedAudio : fichierSelectionne;
+                        if (config.includeAudio && audioSource != null && audioSource.exists()) {
                             command.add("-i");
-                            command.add(fichierSelectionne.getAbsolutePath());
+                            command.add(audioSource.getAbsolutePath());
                             command.add("-map");
                             command.add("0:v:0");
                             command.add("-map");
@@ -1107,7 +1118,15 @@ public class MediaWorkflowService {
     }
 
     public String findPython() {
-        String[] candidates = {"python", "python3"};
+        String[] candidates = {
+            ".venv/Scripts/python.exe",
+            ".venv/bin/python",
+            "whisperx_env/Scripts/python.exe",
+            "whisperx_env/bin/python",
+            "python",
+            "python3",
+            "py"
+        };
         for (String cmd : candidates) {
             try {
                 ProcessBuilder pb = new ProcessBuilder(cmd, "--version");

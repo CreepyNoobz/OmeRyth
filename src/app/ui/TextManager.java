@@ -27,6 +27,7 @@ public class TextManager {
     private int activeBand = -1;
     private int cursorIndex = 0;
     private boolean cursorRightSide = false;
+    private int activeSegmentEndMarkX = Integer.MAX_VALUE;
     private int selectionStart = -1;
     private int selectionEnd = -1;
 
@@ -40,6 +41,7 @@ public class TextManager {
     public int getActiveBand() { return activeBand; }
     public int getCursorIndex() { return cursorIndex; }
     public boolean isCursorRightSide() { return cursorRightSide; }
+    public int getActiveSegmentEndMarkX() { return activeSegmentEndMarkX; }
     public TextItem getEditingItem() { return selectedText; }
 
     public boolean hasSelection() {
@@ -52,6 +54,9 @@ public class TextManager {
         return Math.max(selectionStart, selectionEnd);
     }
     public void setSelection(int start, int end) {
+        if (selectedText != null && selectedText.text != null && (currentInput == null || !currentInput.equals(selectedText.text))) {
+            currentInput = selectedText.text;
+        }
         int len = (currentInput != null) ? currentInput.length() : 0;
         this.selectionStart = Math.max(0, Math.min(start, len));
         this.selectionEnd = Math.max(0, Math.min(end, len));
@@ -218,7 +223,6 @@ public class TextManager {
                 int len = currentInput.length();
                 int safeCursor = Math.max(0, Math.min(cursorIndex, len));
                 addSeparator(band, x, SeparatorMark.Type.INNER, safeCursor, signType);
-                cursorIndex = Math.max(0, safeCursor - 1);
                 return;
             }
         }
@@ -499,13 +503,14 @@ public class TextManager {
 
     /** Ouvre une réplique existante en mode édition et positionne le curseur à l'indice spécifié. */
     public void startEditingExistingText(TextItem text, int cursorIdx) {
+        boolean savedRightSide = this.cursorRightSide;
         this.selectedText = text;
         this.activeBand = text.band;
         this.textX = text.x;
         this.currentInput = text.text;
         this.isEditing = true;
         this.cursorIndex = clampCursorIndex(cursorIdx);
-        this.cursorRightSide = false;
+        this.cursorRightSide = savedRightSide;
         clearSelection();
     }
 
@@ -543,6 +548,8 @@ public class TextManager {
             cursorIndex++;
             if (cursorIndex == currentInput.length()) {
                 cursorRightSide = true;
+            } else if (activeSegmentEndMarkX != Integer.MAX_VALUE) {
+                cursorRightSide = false;
             }
         }
 
@@ -558,6 +565,8 @@ public class TextManager {
         activeBand = -1;
         selectedText = null;
         cursorIndex = 0;
+        cursorRightSide = false;
+        activeSegmentEndMarkX = Integer.MAX_VALUE;
         clearSelection();
     }
 
@@ -604,18 +613,30 @@ public class TextManager {
             }
 
             if (delta < 0 && cursorIndex == 0) {
-                cursorIndex = len;
                 cursorRightSide = false;
                 return;
             }
             if (delta > 0 && cursorIndex == len) {
-                cursorIndex = 0;
                 cursorRightSide = true;
                 return;
             }
         }
 
-        cursorIndex = clampCursorIndex(cursorIndex + delta);
+        int newIdx = clampCursorIndex(cursorIndex + delta);
+        if (selectedText != null && inner != null && !inner.isEmpty()) {
+            for (SeparatorMark m : inner) {
+                if (m.splitIndex == newIdx) {
+                    if (delta < 0) {
+                        cursorRightSide = true; // Venant de la droite, atterrit sur le côté droit du signe
+                    } else if (delta > 0) {
+                        cursorRightSide = false; // Venant de la gauche, atterrit sur le côté gauche du signe
+                    }
+                    break;
+                }
+            }
+        }
+        cursorIndex = newIdx;
+        updateActiveSegmentFromCursor();
     }
 
     /** Déplace le curseur au début de la réplique (indice 0). */
@@ -658,12 +679,43 @@ public class TextManager {
         if (!isEditing) return;
         if (deleteSelection()) return;
         if (cursorIndex == 0) return;
+
+        ArrayList<SeparatorMark> inner = getInnerMarksForSelectedPhrase();
+        if (cursorRightSide && inner != null) {
+            for (SeparatorMark m : inner) {
+                if (m.splitIndex == cursorIndex) {
+                    // Juste à côté droit du signe : on ne supprime pas le côté gauche, on supprime donc rien
+                    return;
+                }
+            }
+        }
+
         int deletePos = cursorIndex - 1;
+        SeparatorMark targetMark = null;
+        boolean deletedFromLeft = false;
+        if (inner != null) {
+            for (SeparatorMark m : inner) {
+                if (deletePos < m.splitIndex && (deletePos + 1) == m.splitIndex) {
+                    targetMark = m;
+                    deletedFromLeft = true;
+                    break;
+                } else if (deletePos == m.splitIndex) {
+                    targetMark = m;
+                    deletedFromLeft = false;
+                    break;
+                }
+            }
+        }
+
         currentInput = currentInput.substring(0, deletePos) + currentInput.substring(cursorIndex);
         shiftInnerSplitIndicesOnDelete(deletePos, 1);
         cursorIndex = deletePos;
         cursorIndex = clampCursorIndex(cursorIndex);
         if (selectedText != null) selectedText.text = currentInput;
+
+        if (targetMark != null && targetMark.splitIndex == cursorIndex) {
+            cursorRightSide = !deletedFromLeft;
+        }
     }
 
     /** Supprime le mot complet à gauche du curseur (Ctrl+Backspace) ou la sélection. */
@@ -671,14 +723,53 @@ public class TextManager {
         if (!isEditing) return;
         if (deleteSelection()) return;
         if (cursorIndex == 0) return;
-        int i = cursorIndex - 1;
+
+        ArrayList<SeparatorMark> inner = getInnerMarksForSelectedPhrase();
+        if (cursorRightSide && inner != null) {
+            for (SeparatorMark m : inner) {
+                if (m.splitIndex == cursorIndex) {
+                    return;
+                }
+            }
+        }
+
+        int i = cursorIndex;
         while (i > 0 && currentInput.charAt(i - 1) == ' ') i--;
         while (i > 0 && currentInput.charAt(i - 1) != ' ') i--;
+        if (inner != null) {
+            for (SeparatorMark m : inner) {
+                if (m.splitIndex < cursorIndex && m.splitIndex >= i) {
+                    i = m.splitIndex;
+                }
+            }
+        }
+        if (i == cursorIndex) return;
+
+        SeparatorMark targetMark = null;
+        boolean deletedFromLeft = false;
+        if (inner != null) {
+            for (SeparatorMark m : inner) {
+                if (cursorIndex <= m.splitIndex && i < m.splitIndex) {
+                    targetMark = m;
+                    deletedFromLeft = true;
+                    break;
+                } else if (cursorIndex > m.splitIndex && i == m.splitIndex) {
+                    targetMark = m;
+                    deletedFromLeft = false;
+                    break;
+                }
+            }
+        }
+
         currentInput = currentInput.substring(0, i) + currentInput.substring(cursorIndex);
         shiftInnerSplitIndicesOnDelete(i, cursorIndex - i);
         cursorIndex = i;
         cursorIndex = clampCursorIndex(cursorIndex);
         if (selectedText != null) selectedText.text = currentInput;
+
+        if (targetMark != null && targetMark.splitIndex == cursorIndex) {
+            cursorRightSide = !deletedFromLeft;
+        }
     }
 
     /** Supprime le caractère à droite du curseur (Delete) ou la sélection active. */
@@ -686,10 +777,31 @@ public class TextManager {
         if (!isEditing || currentInput == null) return;
         if (deleteSelection()) return;
         if (cursorIndex >= currentInput.length()) return;
+
+        ArrayList<SeparatorMark> inner = getInnerMarksForSelectedPhrase();
+        if (!cursorRightSide && inner != null) {
+            for (SeparatorMark m : inner) {
+                if (m.splitIndex == cursorIndex) {
+                    // Juste à côté gauche du signe : on ne supprime pas le côté droit
+                    return;
+                }
+            }
+        }
+
         currentInput = currentInput.substring(0, cursorIndex) + currentInput.substring(cursorIndex + 1);
         shiftInnerSplitIndicesOnDelete(cursorIndex, 1);
         cursorIndex = clampCursorIndex(cursorIndex);
         if (selectedText != null) selectedText.text = currentInput;
+
+        // Si on supprime avec Delete la lettre située à droite d'un signe, on reste sur le CÔTÉ DROIT
+        if (inner != null) {
+            for (SeparatorMark m : inner) {
+                if (m.splitIndex == cursorIndex) {
+                    cursorRightSide = true;
+                    break;
+                }
+            }
+        }
     }
 
     /** Insère un bloc de texte complet au curseur (Collage / Paste). */
@@ -809,6 +921,7 @@ public class TextManager {
             if (idx > len) idx = len;
 
             if (worldX <= segEnd) {
+                activeSegmentEndMarkX = mark.x;
                 if (segEnd <= segStart) {
                     cursorRightSide = false;
                     return prevIdx;
@@ -822,7 +935,9 @@ public class TextManager {
                 rel = Math.max(0.0, Math.min(1.0, rel));
                 int result = prevIdx + (int) Math.round(rel * segChars);
                 if (result == idx) {
-                    cursorRightSide = worldX > mark.x;
+                    cursorRightSide = false;
+                } else if (result == prevIdx && prevIdx > 0) {
+                    cursorRightSide = true;
                 } else {
                     cursorRightSide = false;
                 }
@@ -832,6 +947,8 @@ public class TextManager {
             prevX = mark.x;
             prevIdx = idx;
         }
+
+        activeSegmentEndMarkX = Integer.MAX_VALUE;
 
         int segStart = prevX;
         int segEnd = segmentEnd;
@@ -844,10 +961,16 @@ public class TextManager {
             cursorRightSide = true;
             return prevIdx;
         }
-        double rel = (double) (worldX - segStart) / (double) (segEnd - segStart);
+        double rel = (double) (worldX - segStart) / (double) Math.max(1, segEnd - segStart);
         rel = Math.max(0.0, Math.min(1.0, rel));
         int result = prevIdx + (int) Math.round(rel * segChars);
-        cursorRightSide = result == len;
+        if (result == prevIdx && prevIdx > 0) {
+            cursorRightSide = true;
+        } else if (result == len) {
+            cursorRightSide = true;
+        } else {
+            cursorRightSide = false;
+        }
         return result;
     }
 
@@ -989,10 +1112,11 @@ public class TextManager {
         if (startMark == null) return false;
 
         // Trouver la fin de la phrase (prochain END, ou arrêt avant le prochain START)
-        int endX = Integer.MAX_VALUE;
+        int endX = -1;
         for (int i = startIndex + 1; i < list.size(); i++) {
             SeparatorMark m = list.get(i);
             if (m.type == SeparatorMark.Type.START) {
+                endX = m.x - 1;
                 break;
             }
             if (m.type == SeparatorMark.Type.END) {
@@ -1001,19 +1125,41 @@ public class TextManager {
             }
         }
 
+        // Si aucun END ni START ultérieur dans les séparateurs :
+        // Borner la phrase à l'élément de texte débutant à startX ou avant le prochain texte de la bande
+        if (endX == -1) {
+            int nextItemX = Integer.MAX_VALUE;
+            for (TextItem t : texts) {
+                if (t.band == band && t.x > startX && t.x < nextItemX) {
+                    nextItemX = t.x;
+                }
+            }
+            if (nextItemX != Integer.MAX_VALUE) {
+                endX = nextItemX - 1;
+            } else {
+                int maxTextLen = 300;
+                for (TextItem t : texts) {
+                    if (t.band == band && t.x == startX) {
+                        maxTextLen = Math.max(maxTextLen, t.text != null ? t.text.length() * 20 : 300);
+                    }
+                }
+                endX = startX + maxTextLen;
+            }
+        }
+
         // Si la phrase était en cours d'édition, stopper l'édition
         if (isEditing && activeBand == band) {
-            if (selectedText != null && selectedText.x >= startX && (endX == Integer.MAX_VALUE || selectedText.x <= endX)) {
+            if (selectedText != null && selectedText.x >= startX && selectedText.x <= endX) {
                 stopTyping();
             }
         }
 
         final int finalEndX = endX;
-        // Supprimer tous les TextItems de cette réplique
-        texts.removeIf(t -> t.band == band && t.x >= startX && (finalEndX == Integer.MAX_VALUE || t.x <= finalEndX));
+        // Supprimer tous les TextItems de cette réplique uniquement (sans déborder sur les autres phrases)
+        texts.removeIf(t -> t.band == band && t.x >= startX && t.x <= finalEndX);
 
         // Supprimer tous les séparateurs (START, INNER, END) compris dans cette réplique
-        list.removeIf(m -> m.x >= startX && (finalEndX == Integer.MAX_VALUE ? (m.x == startX || m.type != SeparatorMark.Type.START) : m.x <= finalEndX));
+        list.removeIf(m -> m.x >= startX && m.x <= finalEndX);
 
         if (list.isEmpty()) {
             bandSeparators.remove(band);
@@ -1028,7 +1174,16 @@ public class TextManager {
         int leftSep = Integer.MIN_VALUE;
         for (SeparatorMark sep : sepList) {
             if (sep.isStartBoundary() && sep.x <= t.x && sep.x > leftSep) {
-                leftSep = sep.x;
+                boolean endBetween = false;
+                for (SeparatorMark other : sepList) {
+                    if (other.isEndBoundary() && other.x > sep.x && other.x <= t.x) {
+                        endBetween = true;
+                        break;
+                    }
+                }
+                if (!endBetween) {
+                    leftSep = sep.x;
+                }
             }
         }
         return (leftSep == Integer.MIN_VALUE) ? t.x : leftSep;
@@ -1054,6 +1209,7 @@ public class TextManager {
         for (int i = startIndex + 1; i < list.size(); i++) {
             SeparatorMark m = list.get(i);
             if (m.type == SeparatorMark.Type.START) {
+                endX = m.x - 1;
                 break;
             }
             if (m.type == SeparatorMark.Type.END) {
@@ -1063,7 +1219,13 @@ public class TextManager {
         }
 
         if (endX == Integer.MIN_VALUE) {
-            // Pas de séparateur END explicite : trouver l'étendue maximale
+            // Pas de séparateur END explicite : trouver l'étendue maximale sans déborder sur le texte suivant
+            int nextTextX = Integer.MAX_VALUE;
+            for (TextItem t : texts) {
+                if (t.band == band && t.x > startX && t.x < nextTextX) {
+                    nextTextX = t.x;
+                }
+            }
             int maxInnerOrText = startX + 300;
             for (int i = startIndex + 1; i < list.size(); i++) {
                 SeparatorMark m = list.get(i);
@@ -1071,10 +1233,13 @@ public class TextManager {
                 if (m.x > maxInnerOrText) maxInnerOrText = m.x;
             }
             for (TextItem t : texts) {
-                if (t.band == band && t.x >= startX) {
+                if (t.band == band && t.x == startX) {
                     int tEnd = t.x + Math.max(300, t.text.length() * 12);
                     if (tEnd > maxInnerOrText) maxInnerOrText = tEnd;
                 }
+            }
+            if (nextTextX != Integer.MAX_VALUE && maxInnerOrText >= nextTextX) {
+                maxInnerOrText = nextTextX - 1;
             }
             endX = maxInnerOrText;
         }
@@ -1228,7 +1393,11 @@ public class TextManager {
             if (mark.x != x || mark.type != SeparatorMark.Type.INNER) continue;
             TextItem owner = getTextForInnerSeparator(band, x);
             if (owner == null || owner.text == null || owner.text.isEmpty()) return;
-            int len = owner.text.length();
+            if (mark.splitIndex < 0) {
+                int[] b = getSegmentBounds(owner);
+                double ratio = (double) (mark.x - b[0]) / Math.max(1, b[1] - b[0]);
+                mark.splitIndex = (int) Math.round(ratio * owner.text.length());
+            }
             int minSplit = getMinSplitForInner(owner, mark);
             int maxSplit = getMaxSplitForInner(owner, mark);
             int newSplit = Math.max(minSplit, Math.min(maxSplit, mark.splitIndex + direction));
@@ -1253,6 +1422,11 @@ public class TextManager {
             if (mark.x != x || mark.type != SeparatorMark.Type.INNER) continue;
             TextItem owner = getTextForInnerSeparator(band, x);
             if (owner == null || owner.text == null || owner.text.isEmpty()) return;
+            if (mark.splitIndex < 0) {
+                int[] b = getSegmentBounds(owner);
+                double ratio = (double) (mark.x - b[0]) / Math.max(1, b[1] - b[0]);
+                mark.splitIndex = (int) Math.round(ratio * owner.text.length());
+            }
             int minSplit = getMinSplitForInner(owner, mark);
             int maxSplit = getMaxSplitForInner(owner, mark);
             int newSplit = Math.max(minSplit, Math.min(maxSplit, mark.splitIndex + delta));
@@ -1321,13 +1495,19 @@ public class TextManager {
     }
 
     private TextItem getTextForInnerSeparator(int band, int sepX) {
+        if (selectedText != null && selectedText.band == band) {
+            int[] bounds = getSegmentBounds(selectedText);
+            if (sepX >= bounds[0] && sepX <= bounds[1]) {
+                return selectedText;
+            }
+        }
         TextItem owner = null;
         for (TextItem t : texts) {
             if (t.band != band) continue;
-            Integer left = getLeftBoundary(band, t.x);
-            Integer right = getRightBoundary(band, t.x);
-            if (left == null || right == null) continue;
-            if (sepX > left && sepX < right) {
+            int[] bounds = getSegmentBounds(t);
+            int left = bounds[0];
+            int right = bounds[1];
+            if (sepX >= left && sepX <= right) {
                 if (owner == null || t.x > owner.x) owner = t;
             }
         }
@@ -1371,6 +1551,29 @@ public class TextManager {
         }
     }
 
+    private void updateActiveSegmentFromCursor() {
+        if (selectedText == null) {
+            activeSegmentEndMarkX = Integer.MAX_VALUE;
+            return;
+        }
+        ArrayList<SeparatorMark> inner = getInnerMarksForSelectedPhrase();
+        if (inner == null || inner.isEmpty()) {
+            activeSegmentEndMarkX = Integer.MAX_VALUE;
+            return;
+        }
+        for (SeparatorMark m : inner) {
+            if (m.splitIndex > cursorIndex) {
+                activeSegmentEndMarkX = m.x;
+                return;
+            }
+            if (m.splitIndex == cursorIndex && !cursorRightSide) {
+                activeSegmentEndMarkX = m.x;
+                return;
+            }
+        }
+        activeSegmentEndMarkX = Integer.MAX_VALUE;
+    }
+
     /**
      * Décale les indices de coupure syllabique des séparateurs internes lors de l'insertion de nouveaux caractères.
      * Tout séparateur situé après la position d'insertion voit son splitIndex incrémenté de delta.
@@ -1378,27 +1581,38 @@ public class TextManager {
     private void shiftInnerSplitIndicesOnInsert(int atIndex, int delta) {
         if (selectedText == null || delta <= 0) return;
         for (SeparatorMark m : getInnerMarksForSelectedPhrase()) {
-            if (cursorRightSide && m.splitIndex == atIndex) {
-                continue;
-            }
-            if (m.splitIndex >= atIndex) {
+            if (m.splitIndex > atIndex) {
                 m.splitIndex += delta;
+            } else if (m.splitIndex == atIndex) {
+                if (activeSegmentEndMarkX != Integer.MAX_VALUE) {
+                    if (m.x >= activeSegmentEndMarkX) {
+                        m.splitIndex += delta;
+                    }
+                } else {
+                    if (!cursorRightSide) {
+                        m.splitIndex += delta;
+                    }
+                }
             }
         }
     }
 
     /**
      * Ajuste les indices de coupure syllabique des séparateurs internes lors de la suppression de caractères.
+     * Les séparateurs ne sont JAMAIS supprimés lors de l'effacement de caractères textuels.
      */
     private void shiftInnerSplitIndicesOnDelete(int startIndex, int deletedLen) {
         if (selectedText == null || deletedLen <= 0) return;
         int endIndex = startIndex + deletedLen;
-        for (SeparatorMark m : getInnerMarksForSelectedPhrase()) {
+        ArrayList<SeparatorMark> innerMarks = getInnerMarksForSelectedPhrase();
+        for (SeparatorMark m : innerMarks) {
             if (m.splitIndex >= endIndex) {
                 m.splitIndex -= deletedLen;
             } else if (m.splitIndex > startIndex) {
                 m.splitIndex = startIndex;
             }
+            if (m.splitIndex < 0) m.splitIndex = 0;
+            if (m.splitIndex > selectedText.text.length()) m.splitIndex = selectedText.text.length();
         }
     }
 
@@ -1406,12 +1620,13 @@ public class TextManager {
         int min = 0;
         ArrayList<SeparatorMark> list = bandSeparators.get(owner.band);
         if (list == null) return min;
-        int leftX = Integer.MIN_VALUE;
         SeparatorMark prevInner = null;
+        int maxPrevX = Integer.MIN_VALUE;
         for (SeparatorMark m : list) {
-            if (m.x >= mark.x) break;
-            if (m.isStartBoundary()) leftX = m.x;
-            if (m.type == SeparatorMark.Type.INNER && m.x > leftX) prevInner = m;
+            if (m.type == SeparatorMark.Type.INNER && m.x < mark.x && m.x > maxPrevX) {
+                maxPrevX = m.x;
+                prevInner = m;
+            }
         }
         if (prevInner != null && prevInner.splitIndex >= 0) min = prevInner.splitIndex;
         return min;
@@ -1422,19 +1637,11 @@ public class TextManager {
         ArrayList<SeparatorMark> list = bandSeparators.get(owner.band);
         if (list == null) return max;
         SeparatorMark nextInner = null;
-        int rightX = Integer.MAX_VALUE;
+        int minNextX = Integer.MAX_VALUE;
         for (SeparatorMark m : list) {
-            if (m.x <= mark.x) continue;
-            if (m.isEndBoundary()) {
-                rightX = m.x;
-                break;
-            }
-        }
-        for (SeparatorMark m : list) {
-            if (m.x <= mark.x) continue;
-            if (m.type == SeparatorMark.Type.INNER && m.x < rightX) {
+            if (m.type == SeparatorMark.Type.INNER && m.x > mark.x && m.x < minNextX) {
+                minNextX = m.x;
                 nextInner = m;
-                break;
             }
         }
         if (nextInner != null && nextInner.splitIndex >= 0) max = nextInner.splitIndex;

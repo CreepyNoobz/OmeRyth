@@ -165,7 +165,7 @@ public class SingleInstanceService {
         if (mainWindow == null || filePath == null || filePath.trim().isEmpty()) return;
         File f = new File(filePath.trim());
         if (f.exists() && f.isFile()) {
-            mainWindow.ouvrirFichierProjet(f);
+            mainWindow.ouvrirFichierExterne(f);
         }
     }
 
