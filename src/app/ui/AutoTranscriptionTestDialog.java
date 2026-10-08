@@ -472,8 +472,8 @@ public class AutoTranscriptionTestDialog extends JDialog {
                         || SpeechWorkflowService.isPromptLeakOrHallucination(segment.getText())) {
                     return;
                 }
-                liveSegments.add(segment);
                 SwingUtilities.invokeLater(() -> {
+                    liveSegments.add(segment);
                     String durationStr = String.format("%.2f", segment.getDuration());
                     int baseBand = comboBandTarget.getSelectedIndex();
                     boolean multiBand = checkMultiBandPerSpeaker.isSelected();
@@ -575,8 +575,9 @@ public class AutoTranscriptionTestDialog extends JDialog {
             return;
         }
 
+        List<SpeechWorkflowService.TranscriptionSegment> safeCopy = new ArrayList<>(segs);
         Map<Integer, Integer> countPerSpeaker = new TreeMap<>();
-        for (SpeechWorkflowService.TranscriptionSegment s : segs) {
+        for (SpeechWorkflowService.TranscriptionSegment s : safeCopy) {
             countPerSpeaker.put(s.getSpeakerIndex(), countPerSpeaker.getOrDefault(s.getSpeakerIndex(), 0) + 1);
         }
 

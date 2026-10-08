@@ -418,8 +418,6 @@ public class SpeechWorkflowService {
 
             File tempWav = new File(tempDir, "audio_" + System.currentTimeMillis() + ".wav");
             File resultJson = new File(tempDir, "result_" + System.currentTimeMillis() + ".json");
-            String dateStr = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-            File reportFile = new File(tempDir, "report_" + dateStr + ".json");
 
             try {
                 // 1. Vérification FFmpeg & Python
@@ -476,8 +474,7 @@ public class SpeechWorkflowService {
                         "--model", cleanModel,
                         "--threads", String.valueOf(safeThreads),
                         "--device", hw,
-                        "--output", resultJson.getAbsolutePath(),
-                        "--report", reportFile.getAbsolutePath()
+                        "--output", resultJson.getAbsolutePath()
                 ));
 
                 ProcessBuilder pb = new ProcessBuilder(command);
@@ -569,7 +566,7 @@ public class SpeechWorkflowService {
                 }
 
                 callback.onProgress(100, "Transcription terminée !");
-                callback.onComplete(new TranscriptionResult(finalSegments, reportFile));
+                callback.onComplete(new TranscriptionResult(finalSegments, null));
 
             } catch (Exception e) {
                 if (!isCancelled) {
@@ -583,7 +580,6 @@ public class SpeechWorkflowService {
                 }
                 if (tempWav != null && tempWav.exists()) tempWav.delete();
                 if (resultJson != null && resultJson.exists()) resultJson.delete();
-                if (reportFile != null && reportFile.exists()) reportFile.delete();
             }
         }).start();
     }

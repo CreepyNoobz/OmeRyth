@@ -1800,7 +1800,7 @@ def main():
     parser.add_argument("--compute-type", default="auto", help="Type de calcul (auto, float16, int8_float16, int8)")
     parser.add_argument("--batch-size", type=int, default=16, help="(conservé pour compatibilité, inutilisé)")
     parser.add_argument("--output", required=True, help="Fichier JSON de sortie principal")
-    parser.add_argument("--report", required=True, help="Fichier JSON de rapport complet")
+    parser.add_argument("--report", default=None, required=False, help="Fichier JSON de rapport complet (optionnel)")
     args = parser.parse_args()
 
     start_time = time.time()
@@ -1971,16 +1971,18 @@ def main():
             sys.exit(1)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
-    os.makedirs(os.path.dirname(os.path.abspath(args.report)), exist_ok=True)
+    if args.report:
+        os.makedirs(os.path.dirname(os.path.abspath(args.report)), exist_ok=True)
 
     if not all_words:
         print_progress(100, 100, "Aucune parole détectée dans le fichier.")
         with open(args.output, "w", encoding="utf-8") as f:
             json.dump({"segments": []}, f, ensure_ascii=False, indent=2)
-        with open(args.report, "w", encoding="utf-8") as f:
-            json.dump({"metadata": {"engine": "OmeRyth STT (faster-whisper)", "audio_file": os.path.abspath(args.audio),
-                                    "model": model_name, "language": detected_lang, "total_segments": 0},
-                       "segments": []}, f, ensure_ascii=False, indent=2)
+        if args.report:
+            with open(args.report, "w", encoding="utf-8") as f:
+                json.dump({"metadata": {"engine": "OmeRyth STT (faster-whisper)", "audio_file": os.path.abspath(args.audio),
+                                        "model": model_name, "language": detected_lang, "total_segments": 0},
+                           "segments": []}, f, ensure_ascii=False, indent=2)
         sys.exit(0)
 
     # ── 1. Découpage en répliques ──
@@ -2158,30 +2160,32 @@ def tighten_phrase_boundaries_acoustically(p_start: float, p_end: float, p_words
         prev_end = p_end
         print_segment(seg_data)
 
-    print_progress(98, 100, "Sauvegarde du rapport final...")
+    print_progress(98, 100, "Finalisation de la transcription...")
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump({"segments": final_segments}, f, ensure_ascii=False, indent=2)
 
     processing_time = round(time.time() - start_time, 2)
-    with open(args.report, "w", encoding="utf-8") as f:
-        json.dump({
-            "metadata": {
-                "engine": "OmeRyth STT (faster-whisper séquentiel + Silero VAD + Word Timestamps)",
-                "audio_file": os.path.abspath(args.audio),
-                "model": model_name,
-                "language": detected_lang,
-                "device": used_device,
-                "compute_type": used_compute_type,
-                "threads": cpu_threads,
-                "total_segments": len(final_segments),
-                "total_words": len(all_words),
-                "raw_whisper_segments": raw_segment_count,
-                "processing_time_seconds": processing_time,
-                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            },
-            "full_transcript": " ".join(s["text"] for s in final_segments),
-            "segments": final_segments,
-        }, f, ensure_ascii=False, indent=2)
+    if args.report:
+        os.makedirs(os.path.dirname(os.path.abspath(args.report)), exist_ok=True)
+        with open(args.report, "w", encoding="utf-8") as f:
+            json.dump({
+                "metadata": {
+                    "engine": "OmeRyth STT (faster-whisper séquentiel + Silero VAD + Word Timestamps)",
+                    "audio_file": os.path.abspath(args.audio),
+                    "model": model_name,
+                    "language": detected_lang,
+                    "device": used_device,
+                    "compute_type": used_compute_type,
+                    "threads": cpu_threads,
+                    "total_segments": len(final_segments),
+                    "total_words": len(all_words),
+                    "raw_whisper_segments": raw_segment_count,
+                    "processing_time_seconds": processing_time,
+                    "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                },
+                "full_transcript": " ".join(s["text"] for s in final_segments),
+                "segments": final_segments,
+            }, f, ensure_ascii=False, indent=2)
 
     print_progress(100, 100, f"Transcription terminée ! {len(final_segments)} répliques détectées en {processing_time}s")
 

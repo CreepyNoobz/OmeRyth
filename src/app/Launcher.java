@@ -40,12 +40,7 @@ public class Launcher {
         } catch (Throwable ignored) {}
 
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
-            try {
-                java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.FileWriter("crash.log", true));
-                pw.println("=== CRASH in thread " + t.getName() + " ===");
-                e.printStackTrace(pw);
-                pw.close();
-            } catch (Exception ignored) {}
+            e.printStackTrace();
         });
 
         VlcLogFilter.install();
@@ -54,12 +49,7 @@ public class Launcher {
             try {
                 new MainFenetre(fileToOpen);
             } catch (Throwable t) {
-                try {
-                    java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.FileWriter("crash.log", true));
-                    pw.println("=== ERROR IN MainFenetre CREATION ===");
-                    t.printStackTrace(pw);
-                    pw.close();
-                } catch (Exception ignored) {}
+                t.printStackTrace();
             }
         });
     }
