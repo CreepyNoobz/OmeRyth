@@ -93,7 +93,7 @@ public class SpellSuggestionPopup extends JWindow {
         if (issue.message != null && !issue.message.isBlank()) {
             JLabel descLabel = new JLabel(issue.message);
             descLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            descLabel.setForeground(new Color(40, 40, 45));
+            descLabel.setForeground(Color.BLACK);
             descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
             rootPanel.add(descLabel);
             rootPanel.add(Box.createVerticalStrut(8));
@@ -103,8 +103,8 @@ public class SpellSuggestionPopup extends JWindow {
         List<String> suggestions = issue.suggestions;
         if (suggestions != null && !suggestions.isEmpty()) {
             JLabel suggTitle = new JLabel("Suggestions :");
-            suggTitle.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            suggTitle.setForeground(new Color(60, 60, 65));
+            suggTitle.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            suggTitle.setForeground(Color.BLACK);
             suggTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
             rootPanel.add(suggTitle);
             rootPanel.add(Box.createVerticalStrut(4));
@@ -118,7 +118,7 @@ public class SpellSuggestionPopup extends JWindow {
         } else {
             JLabel noSugg = new JLabel("Aucune suggestion immédiate");
             noSugg.setFont(new Font("Segoe UI", Font.ITALIC, 11));
-            noSugg.setForeground(new Color(110, 110, 115));
+            noSugg.setForeground(Color.BLACK);
             noSugg.setAlignmentX(Component.LEFT_ALIGNMENT);
             rootPanel.add(noSugg);
             rootPanel.add(Box.createVerticalStrut(4));
@@ -133,7 +133,7 @@ public class SpellSuggestionPopup extends JWindow {
 
         JButton ignoreBtn = new JButton("Ignorer");
         ignoreBtn.setFont(new Font("Segoe UI", Font.PLAIN, 10));
-        ignoreBtn.setForeground(new Color(70, 70, 70));
+        ignoreBtn.setForeground(Color.BLACK);
         ignoreBtn.setContentAreaFilled(false);
         ignoreBtn.setBorderPainted(false);
         ignoreBtn.setFocusPainted(false);

@@ -316,8 +316,8 @@ public class EnhancedTutorialDialog extends JDialog {
         // En-tête
         JPanel headerPanel = new JPanel(new BorderLayout());
         headerLabel = new JLabel();
-        headerLabel.setFont(new Font("Arial", Font.BOLD, 18));
-        headerLabel.setForeground(new Color(70, 130, 180));
+        headerLabel.setFont(new Font("Segoe UI", Font.PLAIN, 18));
+        headerLabel.setForeground(Color.BLACK);
         headerPanel.add(headerLabel, BorderLayout.WEST);
 
         // Barre de progression
@@ -333,8 +333,9 @@ public class EnhancedTutorialDialog extends JDialog {
         contentArea.setEditable(false);
         contentArea.setLineWrap(true);
         contentArea.setWrapStyleWord(true);
-        contentArea.setFont(new Font("Arial", Font.PLAIN, 13));
+        contentArea.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         contentArea.setBackground(Color.WHITE);
+        contentArea.setForeground(Color.BLACK);
         contentArea.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
 
         JScrollPane scroll = new JScrollPane(contentArea);

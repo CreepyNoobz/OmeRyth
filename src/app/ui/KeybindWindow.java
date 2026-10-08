@@ -24,7 +24,7 @@ public class KeybindWindow extends JDialog {
     private KeyButton signeNeutralButton = new KeyButton("NUMPAD 6");
     private KeyButton signeVoyelleButton = new KeyButton("NUMPAD 7");
     private KeyButton signeRespirationButton = new KeyButton("NUMPAD 8");
-    private JButton saveButton = new JButton("✔ Enregistrer");
+    private JButton saveButton = new JButton("Enregistrer");
 
     private MainFenetre parent;
 
@@ -41,11 +41,11 @@ public class KeybindWindow extends JDialog {
 
         // En-tête
         JPanel headerPanel = new JPanel(new BorderLayout());
-        headerPanel.setBackground(new Color(30, 30, 30));
+        headerPanel.setBackground(new Color(250, 250, 250));
         headerPanel.setBorder(new EmptyBorder(15, 20, 15, 20));
         JLabel titleLabel = new JLabel("Configuration des touches");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        titleLabel.setForeground(Color.WHITE);
+        titleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 18));
+        titleLabel.setForeground(Color.BLACK);
         headerPanel.add(titleLabel, BorderLayout.WEST);
         add(headerPanel, BorderLayout.NORTH);
 

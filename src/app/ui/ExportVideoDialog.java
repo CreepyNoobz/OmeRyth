@@ -282,14 +282,14 @@ public class ExportVideoDialog extends JDialog {
         JPanel tabBandeauPanel = new JPanel(new BorderLayout(10, 10));
 
         JPanel headerPanel1 = new JPanel(new BorderLayout(5, 5));
-        headerPanel1.setBackground(new Color(30, 30, 35));
+        headerPanel1.setBackground(new Color(245, 245, 247));
         headerPanel1.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 16));
         JLabel titleLabel1 = new JLabel("Exportation Bandeau Seul");
         titleLabel1.setFont(new Font("Segoe UI", Font.PLAIN, 15));
-        titleLabel1.setForeground(Color.WHITE);
+        titleLabel1.setForeground(Color.BLACK);
         JLabel subLabel1 = new JLabel("Exporte la bande rythmo isolée (idéal pour l'incrustation directe en régie ou sous-titrage).");
         subLabel1.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        subLabel1.setForeground(new Color(180, 180, 190));
+        subLabel1.setForeground(Color.BLACK);
         headerPanel1.add(titleLabel1, BorderLayout.NORTH);
         headerPanel1.add(subLabel1, BorderLayout.SOUTH);
         tabBandeauPanel.add(headerPanel1, BorderLayout.NORTH);
@@ -495,16 +495,16 @@ public class ExportVideoDialog extends JDialog {
 
         // En-tête
         JPanel headerPanel = new JPanel(new BorderLayout(5, 5));
-        headerPanel.setBackground(new Color(24, 24, 27));
+        headerPanel.setBackground(new Color(245, 245, 247));
         headerPanel.setBorder(BorderFactory.createEmptyBorder(10, 15, 10, 15));
 
         JLabel title = new JLabel("Atelier de Composition Vidéo & Bande Rythmo");
         title.setFont(new Font("Segoe UI", Font.PLAIN, 15));
-        title.setForeground(Color.WHITE);
+        title.setForeground(Color.BLACK);
 
         JLabel sub = new JLabel("Déplacez et redimensionnez la Vidéo et la Bande directement à la souris sur la maquette ci-dessous.");
         sub.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        sub.setForeground(new Color(161, 161, 170));
+        sub.setForeground(Color.BLACK);
 
         headerPanel.add(title, BorderLayout.NORTH);
         headerPanel.add(sub, BorderLayout.SOUTH);

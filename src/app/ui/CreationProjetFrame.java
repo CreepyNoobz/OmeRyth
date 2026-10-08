@@ -38,7 +38,7 @@ public class CreationProjetFrame extends JDialog {
         JPanel videoPanel = new JPanel(new BorderLayout(5, 5));
         videoPathField = new JTextField();
         videoPathField.setEditable(false);
-        JButton browseVideoBtn = new JButton("📁 Parcourir...");
+        JButton browseVideoBtn = new JButton("Parcourir...");
         browseVideoBtn.addActionListener(e -> {
             File selected = FileUtils.chooseOpenFile(this, "Choisir vidéo/audio", 
                 "mp4", "mp3", "wav", "ogg", "avi", "mkv");
@@ -59,7 +59,7 @@ public class CreationProjetFrame extends JDialog {
         JPanel savePanel = new JPanel(new BorderLayout(5, 5));
         JTextField saveField = new JTextField();
         saveField.setEditable(false);
-        JButton browseSaveBtn = new JButton("📁 Enregistrer sous...");
+        JButton browseSaveBtn = new JButton("Enregistrer sous...");
         browseSaveBtn.addActionListener(e -> {
             File f = FileUtils.chooseSaveFile(this, "Enregistrer projet sous", "rythmo");
             if (f != null) {
@@ -88,8 +88,8 @@ public class CreationProjetFrame extends JDialog {
 
         // Boutons
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton finishBtn = new JButton("✔ Créer le projet");
-        finishBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JButton finishBtn = new JButton("Créer le projet");
+        finishBtn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         JButton cancelBtn = new JButton("Annuler");
 
         finishBtn.addActionListener(e -> finishProject());

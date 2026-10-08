@@ -33,14 +33,14 @@ public class EditorToolbar extends JPanel {
         add(forwardBtn);
 
         // Bouton Retour au début
-        JButton returnBtn = createToolButton("⏮ Début", 
+        JButton returnBtn = createToolButton("Début", 
             "Appuyez sur R", e -> mainFenetre.returnToStart());
         add(returnBtn);
 
         add(new JSeparator(JSeparator.VERTICAL));
 
         // Bouton Ajouter séparateur
-        JButton separatorBtn = createToolButton("➕ Séparateur", 
+        JButton separatorBtn = createToolButton("Séparateur", 
             "Appuyez sur M", e -> mainFenetre.addSeparator());
         separatorBtn.setForeground(new Color(200, 0, 0));
         add(separatorBtn);
@@ -48,12 +48,12 @@ public class EditorToolbar extends JPanel {
         add(new JSeparator(JSeparator.VERTICAL));
 
         // Bouton Annuler
-        JButton undoBtn = createToolButton("↶ Annuler", 
+        JButton undoBtn = createToolButton("Annuler", 
             "Appuyez sur CTRL+Z", e -> mainFenetre.undoAction());
         add(undoBtn);
 
         // Bouton Rétablir
-        JButton redoBtn = createToolButton("↷ Rétablir", 
+        JButton redoBtn = createToolButton("Rétablir", 
             "Appuyez sur CTRL+Y", e -> mainFenetre.redoAction());
         add(redoBtn);
 

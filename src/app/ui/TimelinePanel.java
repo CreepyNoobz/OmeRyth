@@ -568,7 +568,7 @@ public class TimelinePanel extends JPanel {
 
         // Pour un séparateur START (début de phrase) : proposer "Changer le rôle", "Changer de bande" et "Supprimer la phrase"
         if (type == SeparatorMark.Type.START) {
-            JMenuItem changerRole = new JMenuItem("🎭 Changer le rôle...");
+            JMenuItem changerRole = new JMenuItem("Changer le rôle...");
             changerRole.addActionListener(ev -> {
                 changePhraseRole(band, worldX);
             });
@@ -655,7 +655,7 @@ public class TimelinePanel extends JPanel {
             }
         });
 
-        JMenuItem changerRole = new JMenuItem("🎭 Changer le rôle...");
+        JMenuItem changerRole = new JMenuItem("Changer le rôle...");
         changerRole.addActionListener(ev -> {
             changePhraseRole(phraseBand, phraseStartX);
         });
@@ -713,7 +713,7 @@ public class TimelinePanel extends JPanel {
 
     private void showPlanMarkerContextMenu(Component parent, int screenX, int screenY, int worldX) {
         JPopupMenu menu = new JPopupMenu();
-        JMenuItem supprimer = new JMenuItem("🗑️ Supprimer le repère de plan");
+        JMenuItem supprimer = new JMenuItem("Supprimer le repère de plan");
         supprimer.addActionListener(ev -> {
             recordUndoSnapshot();
             textManager.removePlanMarker(worldX);

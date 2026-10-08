@@ -39,11 +39,11 @@ public class CustomizationWindow extends JDialog {
 
         // En-tête
         JPanel headerPanel = new JPanel(new BorderLayout());
-        headerPanel.setBackground(new Color(30, 30, 30));
+        headerPanel.setBackground(new Color(245, 245, 245));
         headerPanel.setBorder(new EmptyBorder(15, 20, 15, 20));
         JLabel headerLabel = new JLabel(isEn ? "OmeRyth Settings" : "Paramètres OmeRyth");
-        headerLabel.setFont(new Font("Segoe UI", Font.BOLD, 22));
-        headerLabel.setForeground(Color.WHITE);
+        headerLabel.setFont(new Font("Segoe UI", Font.PLAIN, 20));
+        headerLabel.setForeground(Color.BLACK);
         headerPanel.add(headerLabel, BorderLayout.WEST);
         add(headerPanel, BorderLayout.NORTH);
 

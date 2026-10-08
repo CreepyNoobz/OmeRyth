@@ -36,13 +36,13 @@ public class HomePanel extends JPanel {
         add(Box.createVerticalStrut(50));
 
         // Boutons principaux
-        JButton newProjectBtn = createLargeButton("✚ Nouveau Projet", 
+        JButton newProjectBtn = createLargeButton("Nouveau Projet", 
             e -> mainFenetre.nouveauProjet(null));
         
-        JButton openProjectBtn = createLargeButton("📂 Ouvrir Projet", 
+        JButton openProjectBtn = createLargeButton("Ouvrir Projet", 
             e -> mainFenetre.ouvrirProjet(null));
         
-        JButton tutorialBtn = createLargeButton("📚 Tutoriel Interactif", 
+        JButton tutorialBtn = createLargeButton("Tutoriel Interactif", 
             e -> mainFenetre.afficherTutorial());
 
         add(newProjectBtn);

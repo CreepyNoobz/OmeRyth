@@ -26,15 +26,18 @@ public class TutorialDialog extends JDialog {
         setLayout(new BorderLayout(8, 8));
 
         headerLabel = new JLabel("", SwingConstants.CENTER);
-        headerLabel.setFont(headerLabel.getFont().deriveFont(Font.BOLD, 14f));
+        headerLabel.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        headerLabel.setForeground(Color.BLACK);
         add(headerLabel, BorderLayout.NORTH);
 
         contentArea = new JTextArea();
         contentArea.setEditable(false);
         contentArea.setLineWrap(true);
         contentArea.setWrapStyleWord(true);
+        contentArea.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         contentArea.setOpaque(true);
         contentArea.setBackground(Color.WHITE);
+        contentArea.setForeground(Color.BLACK);
         contentArea.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         JScrollPane scroll = new JScrollPane(contentArea);

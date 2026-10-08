@@ -22,11 +22,11 @@ public class SimplifiedKeybindWindow extends JDialog {
 
         // En-tête
         JPanel headerPanel = new JPanel(new BorderLayout());
-        headerPanel.setBackground(new Color(30, 30, 30));
+        headerPanel.setBackground(new Color(250, 250, 250));
         headerPanel.setBorder(new EmptyBorder(15, 20, 15, 20));
         JLabel titleLabel = new JLabel(isEn ? "Essential keyboard shortcuts" : "Raccourcis clavier essentiels");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        titleLabel.setForeground(Color.WHITE);
+        titleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 18));
+        titleLabel.setForeground(Color.BLACK);
         headerPanel.add(titleLabel, BorderLayout.WEST);
         add(headerPanel, BorderLayout.NORTH);
 
