@@ -109,12 +109,8 @@ public class TimelinePanel extends JPanel {
     private int contextSeparatorX = Integer.MIN_VALUE;
     private boolean caretVisible = true;
     private final Timer caretBlinkTimer;
-    private boolean insertionPulseVisible = false;
-    private int insertionPulseBand = -1;
-    private int insertionPulseWorldX = Integer.MIN_VALUE;
     private boolean separatorsVisible = true;
     private boolean graduationsVisible = true;
-    private final Timer insertionPulseTimer;
     private final AppCustomization customization = new AppCustomization();
     private ArrayList<Role> roles = new ArrayList<>();
     private app.services.AudioWaveformData waveformData;
@@ -173,21 +169,16 @@ public class TimelinePanel extends JPanel {
             repaint();
         });
         caretBlinkTimer.start();
-        insertionPulseTimer = new Timer(220, e -> {
-            insertionPulseVisible = false;
-            repaint();
-        });
-        insertionPulseTimer.setRepeats(false);
 
         // Calcule la sensibilité de glissement selon la largeur moyenne de la lettre 'M' dans la police choisie
         try {
             Font font = new Font(customization.timelineFontFamily != null && !customization.timelineFontFamily.isBlank()
                     ? customization.timelineFontFamily : "Arial", Font.BOLD, Math.max(18, bandHeight));
             FontMetrics fm = getFontMetrics(font);
-            int charW = Math.max(4, fm.charWidth('M'));
-            pixelsPerChar = Math.max(2, charW / 2);
+            int charW = Math.max(10, fm.charWidth('M'));
+            pixelsPerChar = Math.max(22, charW + 8);
         } catch (Exception ignored) {
-            pixelsPerChar = 6;
+            pixelsPerChar = 22;
         }
 
         addMouseMotionListener(new MouseMotionAdapter() {
@@ -276,7 +267,7 @@ public class TimelinePanel extends JPanel {
                 if (shiftingText) {
                     // Clic gauche seul sur INNER : transfère des caractères sans bouger le symbole
                     int pointerX = newWorldX;
-                    int delta = pointerX - shiftingPointerPrevX;
+                    int delta = -(pointerX - shiftingPointerPrevX);
                     dragPixelAccum += delta;
                     shiftingPointerPrevX = pointerX;
                     double ratio = (double) dragPixelAccum / Math.max(1, pixelsPerChar);
@@ -486,12 +477,8 @@ public class TimelinePanel extends JPanel {
                         existing = textManager.getTextInSegmentAt(x, y, intOffsetX, getHeight(), bandCount);
                     }
                     if (existing != null) {
-                        boolean emptyGap = textManager.isInEmptyInnerGap(existing, x, intOffsetX);
                         textManager.startEditingExistingText(existing, 0);
                         textManager.selectAll();
-                        if (emptyGap) {
-                            triggerInsertionPulse(existing.band, x - intOffsetX);
-                        }
                         resetCaretBlink();
                     } else if (phraseCreationListener != null) {
                         // Zone vide : création d'une nouvelle phrase uniquement.
@@ -506,24 +493,16 @@ public class TimelinePanel extends JPanel {
                 // Simple clic: éditer texte existant seulement
                 TextItem clickedText = textManager.getTextAtScaled(x, y, intOffsetX, getHeight(), bandCount);
                 if (clickedText != null) {
-                    boolean emptyGap = textManager.isInEmptyInnerGap(clickedText, x, intOffsetX);
                     int cursorIdx = textManager.getCursorIndexForClick(clickedText, x, intOffsetX);
                     textManager.startEditingExistingText(clickedText, cursorIdx);
                     textManager.clearSelection();
-                    if (emptyGap) {
-                        triggerInsertionPulse(clickedText.band, x - intOffsetX);
-                    }
                     resetCaretBlink();
                 } else {
                     TextItem segmentText = textManager.getTextInSegmentAt(x, y, intOffsetX, getHeight(), bandCount);
                     if (segmentText != null) {
-                        boolean emptyGap = textManager.isInEmptyInnerGap(segmentText, x, intOffsetX);
                         int cursorIdx = textManager.getCursorIndexForClick(segmentText, x, intOffsetX);
                         textManager.startEditingExistingText(segmentText, cursorIdx);
                         textManager.clearSelection();
-                        if (emptyGap) {
-                            triggerInsertionPulse(segmentText.band, x - intOffsetX);
-                        }
                         resetCaretBlink();
                     } else if (textManager.isEditing()) {
                         // Clic sur zone vide : quitte l'édition sans supprimer le texte
@@ -1027,6 +1006,7 @@ public class TimelinePanel extends JPanel {
         super.paintComponent(g);
         renderer.setLastTypingTimestamp(lastTypingTimestamp);
         renderer.setSelection(textManager.getSelectionStart(), textManager.getSelectionEnd());
+        renderer.setActiveSegmentEndMarkX(textManager.getActiveSegmentEndMarkX());
         renderer.render(g,
                 textManager.getBandSeparators(),
                 textManager.getTexts(),
@@ -1047,18 +1027,6 @@ public class TimelinePanel extends JPanel {
                 graduationsVisible,
                 textManager.getPlanMarkers(),
                 waveformData);
-
-        if (insertionPulseVisible && insertionPulseBand >= 0 && insertionPulseWorldX != Integer.MIN_VALUE) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            int bh = getHeight() / Math.max(1, bandCount);
-            int top = insertionPulseBand * bh;
-            int bottom = top + bh;
-            double sx = insertionPulseWorldX + offsetX;
-            g2.setColor(new Color(255, 235, 90, 220));
-            g2.setStroke(new BasicStroke(3f));
-            g2.draw(new Line2D.Double(sx, top + 2, sx, bottom - 2));
-            g2.dispose();
-        }
     }
 
     private boolean typingSessionActive = false;
@@ -1204,13 +1172,6 @@ public class TimelinePanel extends JPanel {
 
     private void resetCaretBlink() {
         caretVisible = true;
-    }
-
-    private void triggerInsertionPulse(int band, int worldX) {
-        insertionPulseBand = band;
-        insertionPulseWorldX = worldX;
-        insertionPulseVisible = true;
-        insertionPulseTimer.restart();
     }
 
     /** Réinitialise l'ensemble de la timeline (textes et séparateurs) avec sauvegarde dans l'historique Annuler. */

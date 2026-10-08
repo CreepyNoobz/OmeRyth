@@ -79,6 +79,12 @@ public class TimelineRenderer {
         this.selectionEnd = end;
     }
 
+    private int activeSegmentEndMarkX = Integer.MAX_VALUE;
+
+    public void setActiveSegmentEndMarkX(int activeSegmentEndMarkX) {
+        this.activeSegmentEndMarkX = activeSegmentEndMarkX;
+    }
+
     // Champs de mise en cache pour fluidité maximale (60+ FPS) sans Garbage Collection
     private Font cachedLabelFont = null;
     private FontMetrics cachedLabelFontMetrics = null;
@@ -481,18 +487,12 @@ public class TimelineRenderer {
                 if (innerMarks.isEmpty()) {
                     // Pas de séparateurs internes : la phrase entière est étirée d'un seul bloc
                     g2.setColor(roleColor);
-                    double leftPad = (leftSep != Integer.MIN_VALUE) ? 8.0 : 2.0;
+                    double leftPad = (leftSep != Integer.MIN_VALUE) ? 6.0 : 2.0;
                     double rightPad = (rightSep != Integer.MAX_VALUE) ? 8.0 : 2.0;
                     double drawX = segmentStart + offsetX + leftPad;
                     double width = Math.max(2.0, availableWidth - (leftPad + rightPad));
 
-                    Shape oldClip = g2.getClip();
-                    int clipX = (int) Math.round(segmentStart + offsetX + 1);
-                    int clipW = Math.max(1, (int) Math.round(segmentEnd - segmentStart - 2));
-                    int bandTop = t.band * bandHeight;
-                    g2.clip(new Rectangle2D.Double(clipX, bandTop, clipW, bandHeight));
                     drawScaledText(g2, fm, t.text, drawX, bandBaselineY, width, targetTextHeight, false);
-                    g2.setClip(oldClip);
                 } else {
                     // Présence de séparateurs syllabiques : chaque portion est étirée et bornée indépendamment
                     int len = t.text.length();
@@ -500,7 +500,6 @@ public class TimelineRenderer {
                     int prevIdx = 0;
                     g2.setColor(roleColor);
                     boolean anyTextDrawn = false;
-                    int bandTop = t.band * bandHeight;
 
                     for (int mi = 0; mi < innerMarks.size(); mi++) {
                         SeparatorMark mark = innerMarks.get(mi);
@@ -509,7 +508,7 @@ public class TimelineRenderer {
                         if (segEnd <= segStart) continue;
 
                         int idx = mark.splitIndex;
-                        if (idx <= prevIdx || idx > len) {
+                        if (idx < 0 || idx > len) {
                             double ratio = (double) (mark.x - segmentStart) / Math.max(1, segmentEnd - segmentStart);
                             idx = (int) Math.round(ratio * len);
                         }
@@ -518,18 +517,13 @@ public class TimelineRenderer {
 
                         String segText = t.text.substring(prevIdx, idx);
                         if (!segText.isEmpty()) {
-                            double leftPad = (prevIdx == 0 && leftSep != Integer.MIN_VALUE) ? 8.0 : 4.0;
+                            double leftPad = (prevIdx == 0 && leftSep != Integer.MIN_VALUE) ? 6.0 : 2.0;
                             double rightPad = 4.0;
                             double segStartX = segStart + offsetX + leftPad;
                             double segEndX = segEnd + offsetX - rightPad;
                             double width = Math.max(2.0, segEndX - segStartX);
 
-                            Shape oldClip = g2.getClip();
-                            int clipX = (int) Math.round(segStart + offsetX + 1);
-                            int clipW = Math.max(1, (int) Math.round(segEnd - segStart - 2));
-                            g2.clip(new Rectangle2D.Double(clipX, bandTop, clipW, bandHeight));
                             drawScaledText(g2, fm, segText, segStartX, bandBaselineY, width, targetTextHeight, false);
-                            g2.setClip(oldClip);
                             anyTextDrawn = true;
                         }
 
@@ -539,23 +533,18 @@ public class TimelineRenderer {
 
                     String remaining = t.text.substring(Math.min(prevIdx, len));
                     if (!remaining.isEmpty()) {
-                        double leftPad = 4.0;
+                        double leftPad = 2.0;
                         double rightPad = (rightSep != Integer.MAX_VALUE) ? 8.0 : 2.0;
                         double segStartX = prevX + offsetX + leftPad;
                         double segEndX = segmentEnd + offsetX - rightPad;
                         double width = Math.max(2.0, segEndX - segStartX);
 
-                        Shape oldClip = g2.getClip();
-                        int clipX = (int) Math.round(prevX + offsetX + 1);
-                        int clipW = Math.max(1, (int) Math.round(segmentEnd - prevX - 2));
-                        g2.clip(new Rectangle2D.Double(clipX, bandTop, clipW, bandHeight));
                         drawScaledText(g2, fm, remaining, segStartX, bandBaselineY, width, targetTextHeight, false);
-                        g2.setClip(oldClip);
                         anyTextDrawn = true;
                     }
 
-                    // Filet de sécurité anti-texte fantôme
-                    if (!anyTextDrawn) {
+                    // Filet de sécurité anti-texte fantôme : uniquement si aucun séparateur interne
+                    if (!anyTextDrawn && innerMarks.isEmpty()) {
                         drawScaledText(g2, fm, t.text, segmentStart + offsetX + 4, bandBaselineY, availableWidth - 8, targetTextHeight, false);
                     }
                 }
@@ -783,6 +772,12 @@ public class TimelineRenderer {
         if (text == null || text.isEmpty()) return;
         double sourceWidth = fm.stringWidth(text);
         if (sourceWidth <= 0) return;
+        try {
+            java.awt.geom.Rectangle2D bounds = fm.getFont().getStringBounds(text, g2.getFontRenderContext());
+            if (bounds != null && bounds.getWidth() > sourceWidth) {
+                sourceWidth = bounds.getWidth();
+            }
+        } catch (Throwable ignored) {}
 
         double scaleY = (double) targetTextHeight / Math.max(1, fm.getHeight());
         double scaleX = scaleY;
@@ -807,7 +802,7 @@ public class TimelineRenderer {
      * Calcule la position horizontale précise en pixels à l'écran du curseur de texte (caret d'édition)
      * en tenant compte des déformations non linéaires introduites par les séparateurs syllabiques internes.
      */
-    private double computeCursorXForSegments(FontMetrics fm,
+    public double computeCursorXForSegments(FontMetrics fm,
                                               TextItem t,
                                               double offsetX,
                                               int startWorldX,
@@ -835,15 +830,16 @@ public class TimelineRenderer {
             if (idx < prevIdx) idx = prevIdx;
             if (idx > len) idx = len;
 
-            if (cursorIdx < idx || (cursorIdx == idx && !cursorRightSide)) {
+            boolean isTargetSegment = (mark.x == activeSegmentEndMarkX);
+            if (isTargetSegment || cursorIdx < idx || (cursorIdx == idx && !cursorRightSide)) {
                 if (cursorIdx == idx && !cursorRightSide) {
                     return segEnd - 4.0; // Côté gauche du signe
                 }
                 if (cursorIdx == prevIdx && cursorRightSide) {
-                    return segStart + 4.0; // Côté droit du signe précédent
+                    return segStart + 2.0; // Côté droit du signe précédent
                 }
                 String segText = t.text.substring(prevIdx, idx);
-                double leftPad = (prevIdx == 0) ? 8.0 : 4.0;
+                double leftPad = (prevIdx == 0) ? 6.0 : 2.0;
                 double rightPad = 4.0;
                 double usableStart = segStart + leftPad;
                 double usableEnd = segEnd - rightPad;
@@ -865,11 +861,11 @@ public class TimelineRenderer {
         if (cursorIdx == len && cursorRightSide) {
             return segEnd + 4.0; // Côté droit du signe de fin
         }
-        if (cursorIdx == prevIdx && cursorRightSide && prevIdx > 0) {
-            return segStart + 4.0; // Côté droit du dernier signe interne
+        if (cursorIdx == prevIdx && cursorRightSide && (!innerMarks.isEmpty() || prevIdx > 0)) {
+            return segStart + 2.0; // Côté droit du dernier signe interne
         }
         String segText = t.text.substring(Math.min(prevIdx, len));
-        double leftPad = (prevIdx == 0) ? 8.0 : 4.0;
+        double leftPad = (prevIdx == 0) ? 6.0 : 2.0;
         double rightPad = 8.0;
         double usableStart = segStart + leftPad;
         double usableEnd = segEnd - rightPad;

@@ -87,22 +87,7 @@ public class CustomizationWindow extends JDialog {
         mainContent.add(createSection(isEn ? "General Settings" : "Réglages Généraux", basicPanel));
         mainContent.add(Box.createVerticalStrut(15));
 
-        JCheckBox advancedToggle = new JCheckBox(isEn ? " Advanced settings (Colors, Images, Font)" : " Paramètres avancés (Couleurs, Images, Police)");
-        advancedToggle.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        advancedToggle.setOpaque(false);
-        advancedToggle.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        advancedToggle.setAlignmentX(Component.CENTER_ALIGNMENT);
-        mainContent.add(advancedToggle);
-        mainContent.add(Box.createVerticalStrut(10));
-
-        // 3. Paramètres avancés (Cachés par défaut)
-        advancedPanel = new JPanel();
-        advancedPanel.setLayout(new BoxLayout(advancedPanel, BoxLayout.Y_AXIS));
-        advancedPanel.setOpaque(false);
-        advancedPanel.setVisible(false);
-        advancedPanel.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        // -- Sous-section : Couleurs
+        // -- Section : Couleurs
         JPanel colorsPanel = new JPanel(new GridLayout(0, 2, 15, 15));
         colorsPanel.setOpaque(false);
         colorsPanel.add(createColorRow(isEn ? "Timer background:" : "Fond zone timer:", timerBgBtn));
@@ -117,10 +102,10 @@ public class CustomizationWindow extends JDialog {
         colorsPanel.add(createColorRow(isEn ? "Separators:" : "Séparateurs:", sepBtn));
         colorsPanel.add(createColorRow(isEn ? "Voice waveform:" : "Forme d'onde vocale:", waveformColorBtn));
 
-        advancedPanel.add(createSection(isEn ? "Colors" : "Couleurs", colorsPanel));
-        advancedPanel.add(Box.createVerticalStrut(15));
+        mainContent.add(createSection(isEn ? "Colors" : "Couleurs", colorsPanel));
+        mainContent.add(Box.createVerticalStrut(15));
 
-        // -- Sous-section : Images et Police
+        // -- Section : Images et Police
         JPanel imagesPanel = new JPanel(new GridBagLayout());
         imagesPanel.setOpaque(false);
         c = new GridBagConstraints();
@@ -141,16 +126,7 @@ public class CustomizationWindow extends JDialog {
         c.gridx = 1; c.weightx = 1;
         imagesPanel.add(new JScrollPane(perBandImages), c);
 
-        advancedPanel.add(createSection(isEn ? "Background Images & Fonts" : "Images de fond & Polices", imagesPanel));
-        
-        mainContent.add(advancedPanel);
-
-        // Événement pour afficher/masquer les options avancées
-        advancedToggle.addActionListener(e -> {
-            advancedPanel.setVisible(advancedToggle.isSelected());
-            revalidate();
-            repaint();
-        });
+        mainContent.add(createSection(isEn ? "Background Images & Fonts" : "Images de fond & Polices", imagesPanel));
 
         JScrollPane scroll = new JScrollPane(mainContent);
         scroll.getVerticalScrollBar().setUnitIncrement(16);
@@ -178,7 +154,7 @@ public class CustomizationWindow extends JDialog {
 
         // Listeners
         reset.addActionListener(e -> resetDefaults());
-        apply.addActionListener(e -> applyChanges(handler, advancedToggle.isSelected()));
+        apply.addActionListener(e -> applyChanges(handler));
         close.addActionListener(e -> dispose());
     }
 
@@ -343,7 +319,7 @@ public class CustomizationWindow extends JDialog {
         timelineFontFamily.setSelectedItem(def.timelineFontFamily);
     }
 
-    private void applyChanges(ApplyHandler handler, boolean applyAdvanced) {
+    private void applyChanges(ApplyHandler handler) {
         customization.bandCount = (Integer) bandCount.getValue();
         customization.bandHeight = (Integer) bandHeight.getValue();
         customization.timelineCursorX = (Integer) cursorX.getValue();
@@ -357,10 +333,9 @@ public class CustomizationWindow extends JDialog {
         else if (keyboardLayout.getSelectedIndex() == 2) customization.keyboardLayout = "qwerty";
         else customization.keyboardLayout = "auto";
 
-        // Only apply advanced (colors/images/font) if the section is enabled
-        if (applyAdvanced) {
-            customization.timerBackground = timerBgBtn.getBackground();
-            customization.timerTextColor = timerTextBtn.getBackground();
+        // Colors, images and font settings
+        customization.timerBackground = timerBgBtn.getBackground();
+        customization.timerTextColor = timerTextBtn.getBackground();
             customization.historyBackground = historyBgBtn.getBackground();
             customization.mediaBackground = mediaBgBtn.getBackground();
             customization.timelineEvenBand = evenBandBtn.getBackground();
@@ -377,12 +352,11 @@ public class CustomizationWindow extends JDialog {
 
             if (bandBgMode.getSelectedIndex() == 1) customization.bandBackgroundMode = AppCustomization.BAND_BG_IMAGE_GLOBAL;
             else if (bandBgMode.getSelectedIndex() == 2) customization.bandBackgroundMode = AppCustomization.BAND_BG_IMAGE_PER_BAND;
-            else customization.bandBackgroundMode = AppCustomization.BAND_BG_COLOR;
+        else customization.bandBackgroundMode = AppCustomization.BAND_BG_COLOR;
 
-            customization.globalBandImagePath = globalBandImagePath.getText().trim();
-            customization.perBandImagePaths = perBandImages.getText().trim();
-            customization.timelineFontFamily = String.valueOf(timelineFontFamily.getSelectedItem());
-        }
+        customization.globalBandImagePath = globalBandImagePath.getText().trim();
+        customization.perBandImagePaths = perBandImages.getText().trim();
+        customization.timelineFontFamily = String.valueOf(timelineFontFamily.getSelectedItem());
 
         handler.onApply(customization);
         dispose();

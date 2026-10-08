@@ -326,7 +326,22 @@ def load_audio(audio_path: str):
                 data = data.reshape(-1, n_ch).mean(axis=1)
             return data, sr
     except Exception:
-        return np.zeros(16000, dtype=np.float32), 16000
+        pass
+    try:
+        import subprocess
+        ffmpeg_bin = "ffmpeg"
+        local_ffmpeg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ffmpeg", "ffmpeg.exe")
+        if os.path.isfile(local_ffmpeg):
+            ffmpeg_bin = local_ffmpeg
+        cmd = [ffmpeg_bin, "-threads", "0", "-i", audio_path, "-vn", "-sn", "-dn", "-ar", "16000", "-ac", "1", "-f", "f32le", "-"]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        out, _ = proc.communicate()
+        if proc.returncode == 0 and len(out) >= 4:
+            data = np.frombuffer(out, dtype=np.float32)
+            return data, 16000
+    except Exception:
+        pass
+    return np.zeros(16000, dtype=np.float32), 16000
 
 
 def detect_silence_intervals(audio, sr: int = 16000, min_silence_sec: float = 0.18, frame_ms: int = 20) -> list:
@@ -893,40 +908,19 @@ def segment_words_into_clean_phrases(words: list, silence_intervals: list = None
         phrase_duration = prev_end - phrase_start
         prev_word_text = current_words[-1].get("word", "").strip()
 
-        # 1. Seuil de pause conversationnel (>= 0.38s est une vraie pause / respiration entre répliques)
-        is_pause = (gap >= pause_threshold)
+        # 1. Seuil de pause naturelle (>= 0.45s est une vraie pause / respiration entre répliques)
+        is_pause = (gap >= 0.45)
 
-        # 2. Ponctuation forte (?, !, ., …, ...) avec pause réelle (>= 0.22s)
+        # 2. Ponctuation forte (?, !, ., …, ...) avec pause nette (>= 0.30s)
         is_strong_punct = any(prev_word_text.endswith(p) for p in ["?", "!", ".", "…", "..."])
-        split_strong_punct = is_strong_punct and (gap >= 0.22)
+        split_strong_punct = is_strong_punct and (gap >= 0.30)
 
-        # 3. Ponctuation intermédiaire (virgule, point-virgule) avec pause nette (>= 0.25s)
-        is_comma = any(prev_word_text.endswith(p) for p in [",", ";"])
-        split_comma = is_comma and (gap >= 0.25)
+        # 3. Limites de durée de phrase pour le doublage (éviter les répliques > 7.0s si pause nette >= 0.30s)
+        split_long_phrase = (phrase_duration >= 7.0 and gap >= 0.30)
 
-        # 4. Check acoustique : vérifier si un temps mort ou silence net >= 0.20s est présent entre les mots
-        has_acoustic_silence = False
-        if silence_intervals:
-            for s_start, s_end in silence_intervals:
-                if s_start >= (prev_end - 0.05) and s_end <= (w_start + 0.05):
-                    if (s_end - s_start) >= 0.30:
-                        has_acoustic_silence = True
-                        break
-
-        # 5. Mots déclencheurs après pause nette (>= 0.25s)
-        w_lower = w_text.lower().strip()
-        is_starter = w_lower in {"et", "mais", "alors", "donc", "je", "on", "il", "elle", "ils", "comme"}
-        split_starter = is_starter and (gap >= 0.25)
-
-        # 6. Limites de durée de phrase pour le doublage (éviter les répliques démesurées > 6.5s)
-        split_long_phrase = (phrase_duration >= 6.5 and gap >= 0.20)
-
-        should_split = is_pause or \
-                       has_acoustic_silence or \
-                       split_strong_punct or \
-                       split_comma or \
-                       split_starter or \
-                       split_long_phrase
+        # Ne jamais scinder une phrase sur une simple virgule ou un mot courant :
+        # les virgules et micro-pauses restent DANS la phrase et reçoivent des séparateurs INNER
+        should_split = is_pause or split_strong_punct or split_long_phrase
 
         # Répétition mot à mot (ex: comme... comme, on a, on a, qu'on va, qu'on va) : ne jamais couper en deux répliques distinctes
         is_word_repetition = (norm_word(w_text) == norm_word(prev_word_text) and len(norm_word(w_text)) >= 2)
@@ -1708,7 +1702,8 @@ def find_uncovered_speech_regions(audio, sr: int, words: list, min_len: float = 
         freqs = np.fft.rfftfreq(len(seg), 1.0 / sr)
         total = float(np.sum(spec)) + 1e-12
         voice = float(np.sum(spec[(freqs >= 200) & (freqs <= 3400)]))
-        if voice / total >= 0.55:
+        # Seuil adapté aux scènes avec musique/ambiance de fond (anime, cinéma)
+        if voice / total >= 0.35:
             kept.append((r_s, r_e))
     return kept
 
@@ -1765,30 +1760,28 @@ def recover_missed_speech(model, audio, sr: int, words: list, lang, lang_hint: s
 
 def build_transcribe_options(lang_param, beam: int) -> dict:
     """
-    Options de décodage fiables : séquentiel (le mode batch dégrade les mots très courts),
-    aucun prompt (un prompt provoque des hallucinations), VAD modéré, repli en température.
+    Options de décodage fiables et directes :
+    - vad_filter=False : Whisper traite le signal audio complet de manière continue,
+      sans jamais tronquer le début des phrases, les attaques ni les interjections.
+    - initial_prompt ciblé pour ancrer le vocabulaire et la grammaire française.
     """
-    return dict(
+    opts = dict(
         language=lang_param,
         beam_size=beam,
         best_of=beam,
         patience=1.0,
         word_timestamps=True,
-        vad_filter=True,
-        vad_parameters=dict(
-            threshold=0.30,
-            min_speech_duration_ms=80,
-            min_silence_duration_ms=600,
-            speech_pad_ms=300,
-        ),
+        vad_filter=False,
         condition_on_previous_text=False,
-        initial_prompt=INFORMAL_PROMPTS.get(lang_param),
         no_speech_threshold=0.6,
         log_prob_threshold=-1.0,
         compression_ratio_threshold=2.4,
         hallucination_silence_threshold=2.0,
-        temperature=[0.0, 0.2, 0.4, 0.6],
+        temperature=[0.0, 0.2],
     )
+    if not lang_param or lang_param.lower().strip() in ("fr", "auto", "français", "francais"):
+        opts["initial_prompt"] = "Transcription fidèle et soignée en français, ponctuation naturelle."
+    return opts
 
 
 def finalize_phrase_text(text: str) -> str:
@@ -1870,7 +1863,7 @@ def main():
         print_progress(10, 100, f"Chargement du modèle {model_name.upper()} sur {dev.upper()} ({comp_type})...")
         mdl = WhisperModel(model_name, device=dev, compute_type=comp_type,
                            cpu_threads=cpu_threads, download_root=download_root)
-        beam = 5 if dev == "cuda" else (2 if model_name in ("tiny", "base") else 3)
+        beam = 5 if dev == "cuda" else (3 if model_name in ("tiny", "base") else 5)
         opts = build_transcribe_options(lang_param, beam)
 
         print_progress(20, 100, f"Transcription en cours ({model_name.upper()} sur {dev.upper()})...")
@@ -1945,17 +1938,7 @@ def main():
                     "text": lp["text"], "words": lp.get("words", []),
                 })
 
-        # Passe de rattrapage prudente : interjections / rires parlés ignorés par le VAD
-        try:
-            print_progress(86, 100, "Rattrapage des interjections et mots peu intelligibles...")
-            recovered = recover_missed_speech(mdl, audio_data, audio_sr, collected_words,
-                                              lang_param or det_lang, det_lang, beam)
-            if recovered:
-                print_info(f"Rattrapage : {len(recovered)} mot(s) supplémentaire(s) capté(s).")
-                collected_words.extend(recovered)
-        except Exception as rec_err:
-            print_info(f"Rattrapage ignoré : {rec_err}")
-
+        # Pas de passe de découpage aveugle : le décodage continu sans VAD a déjà tout capté proprement
         collected_words = sanitize_words(collected_words)
         collected_words = deduplicate_adjacent_words(collected_words)
         collected_words = sanitize_words(merge_split_french_words(collected_words))
@@ -2033,6 +2016,100 @@ def main():
         p["words"] = p_words
     phrases = [p for p in phrases if p.get("words")]
 
+def tighten_phrase_boundaries_acoustically(p_start: float, p_end: float, p_words: list,
+                                           silence_intervals: list = None,
+                                           audio_data=None, sr: int = 16000) -> tuple:
+    """
+    Resserre acoustiquement les bornes de la réplique (début et fin) au plus près de la voix réelle :
+    - Élimine le blanc inutile avant la première attaque vocale.
+    - Coupe net dès que la voix s'éteint sans prolonger artificiellement dans le silence traînant.
+    """
+    if not p_words:
+        return p_start, p_end
+
+    first_start = float(p_words[0]["start"])
+    first_end = float(p_words[0].get("end", first_start + 0.1))
+    last_start = float(p_words[-1]["start"])
+    last_end = float(p_words[-1]["end"])
+
+    # 1. Resserrement de fin de réplique (élimine le prolongement traînant dans le silence)
+    # A. Via les intervalles de silence acoustique détectés
+    if silence_intervals:
+        for s_start, s_end in silence_intervals:
+            if s_start >= (last_start + 0.04) and s_start < p_end:
+                p_end = min(p_end, round(s_start + 0.04, 2))
+                last_end = min(last_end, p_end)
+                break
+
+    # B. Via l'analyse d'énergie RMS fine sur les dernières fractions de seconde
+    if audio_data is not None and len(audio_data) > 0 and sr > 0:
+        win_start_sec = max(last_start + 0.04, p_end - 0.70)
+        win_end_sec = min(len(audio_data) / float(sr), p_end + 0.05)
+        if win_end_sec > win_start_sec:
+            start_samp = int(win_start_sec * sr)
+            end_samp = int(win_end_sec * sr)
+            chunk = audio_data[start_samp:end_samp]
+            if len(chunk) > 0:
+                frame_len = int(sr * 0.02)
+                hop = frame_len // 2
+                num_frames = max(1, 1 + (len(chunk) - frame_len) // hop)
+                rms = [float(np.sqrt(np.mean(chunk[i*hop : i*hop + frame_len] ** 2))) for i in range(num_frames)]
+                if rms:
+                    peak_rms = max(rms)
+                    noise_floor = min(rms)
+                    thresh = max(0.003, noise_floor + 0.10 * (peak_rms - noise_floor))
+                    last_voice_f = -1
+                    for fi in range(len(rms) - 1, -1, -1):
+                        if rms[fi] >= thresh:
+                            last_voice_f = fi
+                            break
+                    if last_voice_f >= 0:
+                        voice_offset = win_start_sec + ((last_voice_f + 1) * hop / float(sr))
+                        if voice_offset < (p_end - 0.05):
+                            p_end = max(round(last_start + 0.08, 2), round(voice_offset + 0.04, 2))
+                            last_end = min(last_end, p_end)
+
+    p_words[-1]["end"] = round(min(last_end, p_end), 2)
+
+    # 2. Resserrement de début de réplique (élimine le blanc avant la première attaque)
+    if silence_intervals:
+        for s_start, s_end in silence_intervals:
+            if s_start <= (p_start + 0.02) and s_end > p_start and s_end < (first_end - 0.04):
+                p_start = max(p_start, round(s_end, 2))
+                first_start = max(first_start, p_start)
+                break
+
+    if audio_data is not None and len(audio_data) > 0 and sr > 0:
+        win_start_sec = max(0.0, p_start - 0.05)
+        win_end_sec = min(len(audio_data) / float(sr), min(p_start + 0.60, first_end))
+        if win_end_sec > win_start_sec:
+            start_samp = int(win_start_sec * sr)
+            end_samp = int(win_end_sec * sr)
+            chunk = audio_data[start_samp:end_samp]
+            if len(chunk) > 0:
+                frame_len = int(sr * 0.02)
+                hop = frame_len // 2
+                num_frames = max(1, 1 + (len(chunk) - frame_len) // hop)
+                rms = [float(np.sqrt(np.mean(chunk[i*hop : i*hop + frame_len] ** 2))) for i in range(num_frames)]
+                if rms:
+                    peak_rms = max(rms)
+                    noise_floor = min(rms)
+                    thresh = max(0.003, noise_floor + 0.10 * (peak_rms - noise_floor))
+                    first_voice_f = -1
+                    for fi in range(len(rms)):
+                        if rms[fi] >= thresh:
+                            first_voice_f = fi
+                            break
+                    if first_voice_f >= 0:
+                        voice_onset = win_start_sec + (first_voice_f * hop / float(sr))
+                        if voice_onset > (p_start + 0.05):
+                            p_start = min(round(first_end - 0.06, 2), round(max(0.0, voice_onset - 0.02), 2))
+                            first_start = max(first_start, p_start)
+
+    p_words[0]["start"] = round(max(0.0, p_start), 2)
+    return p_start, p_end
+
+
     # ── 4. Segments finaux ──
     print_progress(95, 100, "Génération des repères et envoi vers OmeRyth...")
     final_segments = []
@@ -2040,27 +2117,27 @@ def main():
     for phrase in phrases:
         p_words = phrase["words"]
         raw_start = round(max(0.0, float(p_words[0]["start"])), 2)
-        # Calage acoustique ultra-précis sur l'attaque réelle de la voix
-        p_start = detect_vocal_onset(audio_data, raw_start, prev_end_sec=prev_end, sr=audio_sr)
+        p_start = max(round(prev_end + 0.04, 2) if prev_end > 0 else 0.0, raw_start)
         p_end = round(max(p_start + 0.15, float(p_words[-1]["end"])), 2)
+
+        p_start, p_end = tighten_phrase_boundaries_acoustically(
+            p_start, p_end, p_words, silence_intervals=silence_intervals,
+            audio_data=audio_data, sr=audio_sr
+        )
 
         if p_words:
             p_words[0]["start"] = p_start
             if p_words[0]["end"] <= p_start + 0.04:
                 p_words[0]["end"] = round(p_start + 0.10, 2)
 
-        # Caler également chaque mot interne s'il suit une pause (>= 0.18s)
         for w_idx in range(1, len(p_words)):
             w = p_words[w_idx]
             prev_w = p_words[w_idx - 1]
             w_s = round(float(w["start"]), 2)
             prev_e = round(float(prev_w["end"]), 2)
-            if (w_s - prev_e) >= 0.18:
-                w_snapped = detect_vocal_onset(audio_data, w_s, prev_end_sec=prev_e, sr=audio_sr)
-                w["start"] = w_snapped
-            else:
-                w["start"] = max(prev_e, w_s)
+            w["start"] = max(prev_e, w_s)
             w["end"] = round(max(float(w["end"]), float(w["start"]) + 0.05), 2)
+        p_end = round(max(p_start + 0.15, float(p_words[-1]["end"])), 2)
 
         text = finalize_phrase_text(phrase["text"])
         if not text:

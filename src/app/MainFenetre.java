@@ -201,6 +201,7 @@ public class MainFenetre extends JFrame {
         this.mediaContentPanel = parts.mediaContentPanel;
         this.mediaPlayerComponent = parts.mediaPlayerComponent;
         this.mediaPlayerFactory = parts.mediaPlayerFactory;
+
         this.actionHistoryService = parts.actionHistoryService;
         this.autosaveService = parts.autosaveService;
         this.dropImportService = parts.dropImportService;

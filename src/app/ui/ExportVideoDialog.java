@@ -79,7 +79,57 @@ public class ExportVideoDialog extends JDialog {
         public boolean approved = false;
     }
 
+    public static class MontagePreset {
+        public String name;
+        public int width;
+        public int height;
+        public Rectangle videoRect;
+        public Rectangle bandRect;
+        public String templateName;
+        public boolean removeVocals;
+        public boolean antiCopyright;
+        public int antiCopyrightOpacity;
+        public boolean blurBackground;
+        public int blurRadius;
+        public int blurOpacity;
+        public int fps;
+        public double visibleSeconds;
+        public String encoder;
+        public java.util.List<String> layerOrder;
+        public boolean isBuiltin;
+
+        public MontagePreset(String name, int width, int height, Rectangle videoRect, Rectangle bandRect,
+                             String templateName, boolean removeVocals, boolean antiCopyright,
+                             int antiCopyrightOpacity, boolean blurBackground, int blurRadius,
+                             int blurOpacity, int fps, double visibleSeconds, String encoder,
+                             java.util.List<String> layerOrder, boolean isBuiltin) {
+            this.name = name;
+            this.width = width;
+            this.height = height;
+            this.videoRect = (videoRect != null) ? new Rectangle(videoRect) : new Rectangle(0, 0, width, (int)(height*0.75));
+            this.bandRect = (bandRect != null) ? new Rectangle(bandRect) : new Rectangle(0, (int)(height*0.75), width, (int)(height*0.25));
+            this.templateName = templateName != null ? templateName : "OMERYTH_ORIGINAL";
+            this.removeVocals = removeVocals;
+            this.antiCopyright = antiCopyright;
+            this.antiCopyrightOpacity = antiCopyrightOpacity;
+            this.blurBackground = blurBackground;
+            this.blurRadius = blurRadius;
+            this.blurOpacity = blurOpacity;
+            this.fps = fps;
+            this.visibleSeconds = visibleSeconds;
+            this.encoder = encoder != null ? encoder : "auto";
+            this.layerOrder = (layerOrder != null) ? new java.util.ArrayList<>(layerOrder) : new java.util.ArrayList<>(java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"));
+            this.isBuiltin = isBuiltin;
+        }
+
+        @Override
+        public String toString() {
+            return name;
+        }
+    }
+
     private static final String PRESETS_FILE = "export_presets.properties";
+    private static final String MONTAGE_PRESETS_FILE = "montage_presets.properties";
 
     private final TimelinePanel timelinePanel;
     private final BufferedImage videoSnapshot;
@@ -90,6 +140,7 @@ public class ExportVideoDialog extends JDialog {
     private final DefaultComboBoxModel<ExportPreset> presetModel = new DefaultComboBoxModel<>();
     private final JComboBox<ExportPreset> comboPreset;
     private final JButton btnSavePreset;
+    private final JButton btnRenamePreset;
     private final JButton btnDeletePreset;
     private final JSpinner spinnerWidth;
     private final JSpinner spinnerHeight;
@@ -98,6 +149,14 @@ public class ExportVideoDialog extends JDialog {
     private final JComboBox<String> comboEncoder;
 
     // Composants Onglet 2 : Montage Vidéo + Bandeau
+    private final DefaultComboBoxModel<MontagePreset> montagePresetModel = new DefaultComboBoxModel<>();
+    private JComboBox<MontagePreset> comboMontagePreset;
+    private JButton btnSaveMontagePreset;
+    private JButton btnRenameMontagePreset;
+    private JButton btnDeleteMontagePreset;
+    private MontagePreset customMontagePresetItem;
+    private boolean updatingMontagePreset = false;
+
     private MontagePreviewCanvas montageCanvas;
     private JComboBox<String> comboMontageResolution;
     private JSpinner spinnerMontageWidth;
@@ -172,8 +231,9 @@ public class ExportVideoDialog extends JDialog {
         this.customPresetItem = new ExportPreset("⚙️ Personnalisé (modifié)", initW, initH, 8.0, 60, true);
 
         setLayout(new BorderLayout());
-        setMinimumSize(new Dimension(900, 720));
-        setPreferredSize(new Dimension(980, 800));
+        setMinimumSize(new Dimension(980, 700));
+        setPreferredSize(new Dimension(1180, 840));
+        setSize(new Dimension(1180, 840));
         setResizable(true);
 
         tabbedPane = new JTabbedPane();
@@ -224,6 +284,12 @@ public class ExportVideoDialog extends JDialog {
         btnSavePreset.setToolTipText("Enregistrer les réglages actuels sous un nouveau nom de préréglage");
         btnSavePreset.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnSavePreset.setForeground(Color.BLACK);
+        btnRenamePreset = new JButton("<html><span style='color:#000000;'>✏️ Renommer...</span></html>");
+        btnRenamePreset.setToolTipText("Renommer ce préréglage personnalisé");
+        btnRenamePreset.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        btnRenamePreset.setForeground(Color.BLACK);
+        btnRenamePreset.setEnabled(false);
+        btnRenamePreset.addActionListener(e -> renameSelectedPreset());
         btnDeletePreset = new JButton("<html><span style='color:#000000;'>🗑️</span></html>");
         btnDeletePreset.setToolTipText("Supprimer ce préréglage personnalisé");
         btnDeletePreset.setFont(new Font("Segoe UI", Font.PLAIN, 11));
@@ -231,6 +297,7 @@ public class ExportVideoDialog extends JDialog {
         btnDeletePreset.setEnabled(false);
         presetButtonsPanel.add(btnBandeauMobile);
         presetButtonsPanel.add(btnSavePreset);
+        presetButtonsPanel.add(btnRenamePreset);
         presetButtonsPanel.add(btnDeletePreset);
         presetControlPanel.add(presetButtonsPanel, BorderLayout.EAST);
         formPanel.add(presetControlPanel, gbc);
@@ -302,62 +369,17 @@ public class ExportVideoDialog extends JDialog {
         tabBandeauPanel.add(centerBandeauPanel, BorderLayout.CENTER);
 
         // ==========================================
-        // BARRE D'ACCÈS RAPIDE AUX FORMATS
-        // ==========================================
-        JPanel topFormatBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 8));
-        topFormatBar.setBackground(new Color(24, 24, 28));
-        topFormatBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(45, 45, 52)));
-
-        JLabel lblQuick = new JLabel("⚡ Formats Directs :");
-        lblQuick.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        lblQuick.setForeground(new Color(220, 220, 225));
-        topFormatBar.add(lblQuick);
-
-        JButton btnQuickMobile = new JButton("<html><span style='color:#000000; font-weight:bold;'>📱 Format Mobile 9:16 (1080×1920)</span></html>");
-        btnQuickMobile.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        btnQuickMobile.setBackground(new Color(245, 158, 11)); // Amber / Gold
-        btnQuickMobile.setForeground(Color.BLACK);
-        btnQuickMobile.setOpaque(true);
-        btnQuickMobile.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btnQuickMobile.setToolTipText("Basculer instantanément en résolution verticale 1080×1920 pour TikTok, Reels et Shorts");
-        btnQuickMobile.addActionListener(e -> applyMobileFormatDirect());
-        topFormatBar.add(btnQuickMobile);
-
-        JButton btnQuick1080p = new JButton("<html><span style='color:#000000;'>🖥️ Format Paysage 16:9 (1920×1080)</span></html>");
-        btnQuick1080p.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        btnQuick1080p.setBackground(new Color(225, 225, 230));
-        btnQuick1080p.setForeground(Color.BLACK);
-        btnQuick1080p.setOpaque(true);
-        btnQuick1080p.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btnQuick1080p.setToolTipText("Format horizontal classique 1920×1080 Full HD");
-        btnQuick1080p.addActionListener(e -> applyStandard1080pFormatDirect());
-        topFormatBar.add(btnQuick1080p);
-
-        JButton btnQuickOrigin = new JButton("<html><span style='color:#000000;'>🎯 Format d'origine OmeRyth</span></html>");
-        btnQuickOrigin.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        btnQuickOrigin.setBackground(new Color(225, 225, 230));
-        btnQuickOrigin.setForeground(Color.BLACK);
-        btnQuickOrigin.setOpaque(true);
-        btnQuickOrigin.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btnQuickOrigin.setToolTipText("Rétablir les dimensions et proportions d'origine de la session");
-        btnQuickOrigin.addActionListener(e -> applyOriginalFormatDirect(currentScreenWidth, currentScreenHeight));
-        topFormatBar.add(btnQuickOrigin);
-
-        add(topFormatBar, BorderLayout.NORTH);
-
-        // ==========================================
         // ONGLET 2 : MONTAGE VIDÉO + BANDEAU
         // ==========================================
         JPanel tabMontagePanel = createMontageTabPanel();
 
         tabbedPane.addTab("📦 Bandeau Seul (Format d'origine OmeRyth)", tabBandeauPanel);
         tabbedPane.addTab("🎬 Montage Vidéo + Bande (Format d'origine OmeRyth)", tabMontagePanel);
-        tabbedPane.setSelectedIndex(0); // Sélectionne le format d'origine de base par défaut
-
         add(tabbedPane, BorderLayout.CENTER);
 
-        // Populate Presets pour l'onglet classique
+        // Initialisation des préréglages
         populatePresets(currentScreenWidth, currentScreenHeight);
+        populateMontagePresets();
 
         comboPreset.addItemListener(e -> {
             if (e.getStateChange() == ItemEvent.SELECTED && !updatingPreset) {
@@ -439,11 +461,61 @@ public class ExportVideoDialog extends JDialog {
         }
         panel.add(montageCanvas, BorderLayout.CENTER);
 
-        // Panneau latéral droit : Contrôles & Inspecteur
+        // Panneau latéral droit : Contrôles & Inspecteur (avec défilement fluide et largeur confortable)
         JPanel controlsPanel = new JPanel();
         controlsPanel.setLayout(new BoxLayout(controlsPanel, BoxLayout.Y_AXIS));
-        controlsPanel.setPreferredSize(new Dimension(360, 480));
-        controlsPanel.setBorder(new EmptyBorder(0, 8, 0, 0));
+        controlsPanel.setBorder(new EmptyBorder(0, 8, 15, 8));
+
+        // 0. Préréglages de Montage (Sauvegarde, Renommage, Suppression)
+        JPanel montagePresetPanel = new JPanel(new BorderLayout(4, 4));
+        montagePresetPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(new Color(63, 63, 70)),
+                "⭐ Préréglages de Montage",
+                TitledBorder.LEFT, TitledBorder.TOP,
+                new Font("Segoe UI", Font.BOLD, 11),
+                new Color(212, 212, 216)
+        ));
+        comboMontagePreset = new JComboBox<>(montagePresetModel);
+        comboMontagePreset.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        comboMontagePreset.addActionListener(e -> {
+            if (!updatingMontagePreset) {
+                MontagePreset sel = (MontagePreset) comboMontagePreset.getSelectedItem();
+                if (sel != null && sel != customMontagePresetItem) {
+                    applyMontagePreset(sel);
+                } else {
+                    updateMontagePresetButtonStates();
+                }
+            }
+        });
+        montagePresetPanel.add(comboMontagePreset, BorderLayout.CENTER);
+
+        JPanel montagePresetBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        btnSaveMontagePreset = new JButton("<html><span style='color:#000000;'>➕ Enregistrer...</span></html>");
+        btnSaveMontagePreset.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        btnSaveMontagePreset.setForeground(Color.BLACK);
+        btnSaveMontagePreset.setToolTipText("Enregistrer tous les réglages de ce montage sous un nouveau nom");
+        btnSaveMontagePreset.addActionListener(e -> saveCurrentMontageAsPreset());
+
+        btnRenameMontagePreset = new JButton("<html><span style='color:#000000;'>✏️ Renommer...</span></html>");
+        btnRenameMontagePreset.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        btnRenameMontagePreset.setForeground(Color.BLACK);
+        btnRenameMontagePreset.setToolTipText("Renommer le préréglage de montage sélectionné");
+        btnRenameMontagePreset.setEnabled(false);
+        btnRenameMontagePreset.addActionListener(e -> renameSelectedMontagePreset());
+
+        btnDeleteMontagePreset = new JButton("<html><span style='color:#000000;'>🗑️</span></html>");
+        btnDeleteMontagePreset.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        btnDeleteMontagePreset.setForeground(Color.BLACK);
+        btnDeleteMontagePreset.setToolTipText("Supprimer ce préréglage de montage");
+        btnDeleteMontagePreset.setEnabled(false);
+        btnDeleteMontagePreset.addActionListener(e -> deleteSelectedMontagePreset());
+
+        montagePresetBtns.add(btnSaveMontagePreset);
+        montagePresetBtns.add(btnRenameMontagePreset);
+        montagePresetBtns.add(btnDeleteMontagePreset);
+        montagePresetPanel.add(montagePresetBtns, BorderLayout.SOUTH);
+        controlsPanel.add(montagePresetPanel);
+        controlsPanel.add(Box.createVerticalStrut(8));
 
         // 1. Résolution d'export
         JPanel resPanel = new JPanel(new GridLayout(0, 1, 4, 4));
@@ -765,7 +837,8 @@ public class ExportVideoDialog extends JDialog {
         controlsPanel.add(optionsPanel);
         JScrollPane scrollControls = new JScrollPane(controlsPanel, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         scrollControls.setBorder(null);
-        scrollControls.getVerticalScrollBar().setUnitIncrement(16);
+        scrollControls.setPreferredSize(new Dimension(460, 720));
+        scrollControls.getVerticalScrollBar().setUnitIncrement(22);
         panel.add(scrollControls, BorderLayout.EAST);
 
         // Écouteurs pour synchroniser le canevas et les contrôles
@@ -802,12 +875,14 @@ public class ExportVideoDialog extends JDialog {
             int w = (Integer) spinnerMontageWidth.getValue();
             int h = (Integer) spinnerMontageHeight.getValue();
             montageCanvas.setExportResolution(w, h);
+            onMontageParamChanged();
         });
 
         spinnerMontageHeight.addChangeListener(e -> {
             int w = (Integer) spinnerMontageWidth.getValue();
             int h = (Integer) spinnerMontageHeight.getValue();
             montageCanvas.setExportResolution(w, h);
+            onMontageParamChanged();
         });
 
         spinnerElemX.addChangeListener(e -> onElementSpinnerChanged());
@@ -818,6 +893,7 @@ public class ExportVideoDialog extends JDialog {
         spinnerMontageVisibleSeconds.addChangeListener(e -> {
             double sec = ((Number) spinnerMontageVisibleSeconds.getValue()).doubleValue();
             montageCanvas.setVisibleSeconds(sec);
+            onMontageParamChanged();
         });
 
         syncMontageSpinnersFromCanvas();
@@ -880,6 +956,7 @@ public class ExportVideoDialog extends JDialog {
         } else {
             montageCanvas.setBandRect(x, y, w, h);
         }
+        onMontageParamChanged();
     }
 
     private void onExportConfirmed() {
@@ -1085,6 +1162,334 @@ public class ExportVideoDialog extends JDialog {
         ExportPreset sel = (ExportPreset) comboPreset.getSelectedItem();
         boolean isCustomUserPreset = (sel != null && !sel.isBuiltin && sel != customPresetItem);
         btnDeletePreset.setEnabled(isCustomUserPreset);
+        btnRenamePreset.setEnabled(isCustomUserPreset);
+    }
+
+    private void renameSelectedPreset() {
+        ExportPreset sel = (ExportPreset) comboPreset.getSelectedItem();
+        if (sel == null || sel.isBuiltin || sel == customPresetItem) return;
+
+        String oldName = sel.name.replaceFirst("^⭐\\s*", "");
+        String newName = (String) JOptionPane.showInputDialog(
+                this,
+                "Entrez un nouveau nom pour ce préréglage :",
+                "Renommer le préréglage",
+                JOptionPane.PLAIN_MESSAGE,
+                null,
+                null,
+                oldName
+        );
+
+        if (newName == null || newName.trim().isEmpty() || newName.trim().equals(oldName)) {
+            return;
+        }
+
+        String finalName = "⭐ " + newName.trim();
+        ExportPreset renamed = new ExportPreset(finalName, sel.width, sel.height, sel.visibleSeconds, sel.fps, false);
+        int idx = presetModel.getIndexOf(sel);
+        if (idx >= 0) {
+            presetModel.removeElementAt(idx);
+            presetModel.insertElementAt(renamed, idx);
+            saveAllCustomPresetsToFile();
+            updatingPreset = true;
+            comboPreset.setSelectedItem(renamed);
+            updatingPreset = false;
+            updateButtonStates();
+        }
+    }
+
+    private void populateMontagePresets() {
+        updatingMontagePreset = true;
+        montagePresetModel.removeAllElements();
+
+        MontagePreset pOrig = new MontagePreset("🎯 Format d'origine OmeRyth", 1920, 1080,
+                new Rectangle(0, 0, 1920, 780), new Rectangle(0, 780, 1920, 300),
+                "OMERYTH_ORIGINAL", false, false, 20, false, 25, 85, 60, 8.0, "auto",
+                java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"), true);
+        montagePresetModel.addElement(pOrig);
+
+        MontagePreset pTiktok = new MontagePreset("📱 TikTok / Shorts 9:16 (Flou + Bande)", 1080, 1920,
+                new Rectangle(0, 420, 1080, 608), new Rectangle(0, 1040, 1080, 240),
+                "TIKTOK_CENTER_9_16", false, false, 20, true, 25, 85, 60, 6.0, "auto",
+                java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"), true);
+        montagePresetModel.addElement(pTiktok);
+
+        MontagePreset pYoutube = new MontagePreset("🎬 YouTube / Cinéma 16:9 (Plein écran)", 1920, 1080,
+                new Rectangle(0, 0, 1920, 1080), new Rectangle(0, 840, 1920, 240),
+                "FULLSCREEN_16_9", false, false, 20, false, 25, 85, 60, 8.0, "auto",
+                java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"), true);
+        montagePresetModel.addElement(pYoutube);
+
+        MontagePreset pStudio = new MontagePreset("🌟 Grand Bandeau Studio (75% Vidéo / 25% Bande)", 1920, 1080,
+                new Rectangle(0, 0, 1920, 810), new Rectangle(0, 810, 1920, 270),
+                "STUDIO_LARGE_BAND", false, false, 20, false, 25, 85, 60, 8.0, "auto",
+                java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"), true);
+        montagePresetModel.addElement(pStudio);
+
+        MontagePreset pCarre = new MontagePreset("📸 Format Carré 1:1 (Réseaux)", 1080, 1080,
+                new Rectangle(0, 0, 1080, 540), new Rectangle(0, 540, 1080, 540),
+                "STACKED_TOP_BOTTOM", false, false, 20, false, 25, 85, 60, 6.0, "auto",
+                java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"), true);
+        montagePresetModel.addElement(pCarre);
+
+        for (MontagePreset custom : loadCustomMontagePresetsFromFile()) {
+            montagePresetModel.addElement(custom);
+        }
+
+        this.customMontagePresetItem = new MontagePreset("⚙️ Personnalisé (modifié)", 1920, 1080,
+                null, null, "CUSTOM", false, false, 20, false, 25, 85, 60, 8.0, "auto", null, true);
+        montagePresetModel.addElement(customMontagePresetItem);
+
+        comboMontagePreset.setSelectedIndex(0);
+        updatingMontagePreset = false;
+        updateMontagePresetButtonStates();
+    }
+
+    private void applyMontagePreset(MontagePreset p) {
+        if (p == null) return;
+        updatingMontagePreset = true;
+        updatingMontageSpinners = true;
+
+        spinnerMontageWidth.setValue(p.width);
+        spinnerMontageHeight.setValue(p.height);
+        montageCanvas.setExportResolution(p.width, p.height);
+
+        if (p.videoRect != null) montageCanvas.setVideoRect(p.videoRect.x, p.videoRect.y, p.videoRect.width, p.videoRect.height);
+        if (p.bandRect != null) montageCanvas.setBandRect(p.bandRect.x, p.bandRect.y, p.bandRect.width, p.bandRect.height);
+
+        checkMontageRemoveVocals.setSelected(p.removeVocals);
+        checkAntiCopyright.setSelected(p.antiCopyright);
+        spinnerAntiCopyrightOpacity.setEnabled(p.antiCopyright);
+        spinnerAntiCopyrightOpacity.setValue(p.antiCopyrightOpacity);
+
+        checkBlurBackground.setSelected(p.blurBackground);
+        spinnerBlurRadius.setEnabled(p.blurBackground);
+        spinnerBlurRadius.setValue(p.blurRadius);
+        spinnerBlurOpacity.setEnabled(p.blurBackground);
+        spinnerBlurOpacity.setValue(p.blurOpacity);
+        montageCanvas.setBlurBackgroundVideo(p.blurBackground);
+        montageCanvas.setBlurRadius(p.blurRadius);
+        montageCanvas.setBlurOpacity(p.blurOpacity);
+
+        comboMontageFps.setSelectedIndex(p.fps == 24 ? 2 : (p.fps == 30 ? 1 : 0));
+        spinnerMontageVisibleSeconds.setValue(p.visibleSeconds);
+
+        if (p.encoder != null) {
+            switch (p.encoder.toLowerCase()) {
+                case "nvenc" -> comboMontageEncoder.setSelectedIndex(1);
+                case "amf" -> comboMontageEncoder.setSelectedIndex(2);
+                case "qsv" -> comboMontageEncoder.setSelectedIndex(3);
+                case "cpu" -> comboMontageEncoder.setSelectedIndex(4);
+                default -> comboMontageEncoder.setSelectedIndex(0);
+            }
+        }
+
+        if (p.layerOrder != null && !p.layerOrder.isEmpty()) {
+            layerListModel.clear();
+            for (String lid : p.layerOrder) {
+                if ("BAND".equals(lid)) layerListModel.addElement(new LayerItem("BAND", "🎵 Bande Rythmo"));
+                else if ("VIDEO".equals(lid)) layerListModel.addElement(new LayerItem("VIDEO", "🎬 Vidéo source"));
+                else if ("BACKGROUND_BLUR".equals(lid)) layerListModel.addElement(new LayerItem("BACKGROUND_BLUR", "✨ Fond Vidéo Flouté"));
+            }
+            applyLayerOrderToCanvas();
+        }
+
+        syncMontageSpinnersFromCanvas();
+        updatingMontageSpinners = false;
+        updatingMontagePreset = false;
+        updateMontagePresetButtonStates();
+    }
+
+    private void onMontageParamChanged() {
+        if (!updatingMontagePreset) {
+            updatingMontagePreset = true;
+            if (customMontagePresetItem != null) {
+                comboMontagePreset.setSelectedItem(customMontagePresetItem);
+            }
+            updatingMontagePreset = false;
+            updateMontagePresetButtonStates();
+        }
+    }
+
+    private void saveCurrentMontageAsPreset() {
+        int w = (Integer) spinnerMontageWidth.getValue();
+        int h = (Integer) spinnerMontageHeight.getValue();
+        Rectangle vr = montageCanvas.getVideoRect();
+        Rectangle br = montageCanvas.getBandRect();
+        String tName = (String) comboMontageTemplate.getSelectedItem();
+        boolean remVoc = checkMontageRemoveVocals.isSelected();
+        boolean antiC = checkAntiCopyright.isSelected();
+        int antiCopac = ((Number) spinnerAntiCopyrightOpacity.getValue()).intValue();
+        boolean blur = checkBlurBackground.isSelected();
+        int blurR = ((Number) spinnerBlurRadius.getValue()).intValue();
+        int blurOp = ((Number) spinnerBlurOpacity.getValue()).intValue();
+        int fps = switch (comboMontageFps.getSelectedIndex()) {
+            case 1 -> 30;
+            case 2 -> 24;
+            default -> 60;
+        };
+        double sec = ((Number) spinnerMontageVisibleSeconds.getValue()).doubleValue();
+        String enc = switch (comboMontageEncoder.getSelectedIndex()) {
+            case 1 -> "nvenc";
+            case 2 -> "amf";
+            case 3 -> "qsv";
+            case 4 -> "cpu";
+            default -> "auto";
+        };
+        java.util.List<String> layers = new ArrayList<>();
+        for (int i = 0; i < layerListModel.getSize(); i++) layers.add(layerListModel.get(i).id);
+
+        String defaultName = w + "x" + h + " (" + sec + "s, " + fps + "fps)";
+        String name = (String) JOptionPane.showInputDialog(
+                this,
+                "Entrez un nom pour votre préréglage de montage :",
+                "Enregistrer un nouveau préréglage de montage",
+                JOptionPane.PLAIN_MESSAGE,
+                null,
+                null,
+                defaultName
+        );
+
+        if (name == null || name.trim().isEmpty()) return;
+
+        String finalName = "⭐ " + name.trim();
+        MontagePreset newPreset = new MontagePreset(finalName, w, h, vr, br, tName, remVoc, antiC, antiCopac, blur, blurR, blurOp, fps, sec, enc, layers, false);
+
+        int insertIdx = montagePresetModel.getSize() - 1;
+        montagePresetModel.insertElementAt(newPreset, Math.max(0, insertIdx));
+        saveAllCustomMontagePresetsToFile();
+
+        updatingMontagePreset = true;
+        comboMontagePreset.setSelectedItem(newPreset);
+        updatingMontagePreset = false;
+        updateMontagePresetButtonStates();
+
+        JOptionPane.showMessageDialog(this,
+                "Préréglage de montage \"" + finalName + "\" enregistré avec succès !",
+                "Préréglage Enregistré",
+                JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void renameSelectedMontagePreset() {
+        MontagePreset sel = (MontagePreset) comboMontagePreset.getSelectedItem();
+        if (sel == null || sel.isBuiltin || sel == customMontagePresetItem) return;
+
+        String oldName = sel.name.replaceFirst("^⭐\\s*", "");
+        String newName = (String) JOptionPane.showInputDialog(
+                this,
+                "Entrez un nouveau nom pour ce préréglage de montage :",
+                "Renommer le préréglage de montage",
+                JOptionPane.PLAIN_MESSAGE,
+                null,
+                null,
+                oldName
+        );
+
+        if (newName == null || newName.trim().isEmpty() || newName.trim().equals(oldName)) return;
+
+        String finalName = "⭐ " + newName.trim();
+        sel.name = finalName;
+        saveAllCustomMontagePresetsToFile();
+        comboMontagePreset.repaint();
+        updateMontagePresetButtonStates();
+    }
+
+    private void deleteSelectedMontagePreset() {
+        MontagePreset sel = (MontagePreset) comboMontagePreset.getSelectedItem();
+        if (sel == null || sel.isBuiltin || sel == customMontagePresetItem) return;
+
+        int response = JOptionPane.showConfirmDialog(
+                this,
+                "Voulez-vous vraiment supprimer le préréglage de montage \"" + sel.name + "\" ?",
+                "Supprimer le préréglage de montage",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE
+        );
+
+        if (response == JOptionPane.YES_OPTION) {
+            montagePresetModel.removeElement(sel);
+            saveAllCustomMontagePresetsToFile();
+            comboMontagePreset.setSelectedIndex(0);
+            updateMontagePresetButtonStates();
+        }
+    }
+
+    private void updateMontagePresetButtonStates() {
+        MontagePreset sel = (MontagePreset) comboMontagePreset.getSelectedItem();
+        boolean isCustomUser = (sel != null && !sel.isBuiltin && sel != customMontagePresetItem);
+        btnDeleteMontagePreset.setEnabled(isCustomUser);
+        btnRenameMontagePreset.setEnabled(isCustomUser);
+    }
+
+    private ArrayList<MontagePreset> loadCustomMontagePresetsFromFile() {
+        ArrayList<MontagePreset> list = new ArrayList<>();
+        File file = new File(MONTAGE_PRESETS_FILE);
+        if (!file.exists()) return list;
+
+        Properties props = new Properties();
+        try (InputStream in = new FileInputStream(file);
+             Reader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+            props.load(reader);
+            for (String key : props.stringPropertyNames()) {
+                if (key.startsWith("montage_preset.")) {
+                    String raw = props.getProperty(key, "");
+                    String[] parts = raw.split("\\|", -1);
+                    if (parts.length >= 15) {
+                        String name = parts[0];
+                        int w = Integer.parseInt(parts[1]);
+                        int h = Integer.parseInt(parts[2]);
+                        String[] vrParts = parts[3].split(",");
+                        Rectangle vr = new Rectangle(Integer.parseInt(vrParts[0]), Integer.parseInt(vrParts[1]), Integer.parseInt(vrParts[2]), Integer.parseInt(vrParts[3]));
+                        String[] brParts = parts[4].split(",");
+                        Rectangle br = new Rectangle(Integer.parseInt(brParts[0]), Integer.parseInt(brParts[1]), Integer.parseInt(brParts[2]), Integer.parseInt(brParts[3]));
+                        String template = parts[5];
+                        boolean remVoc = Boolean.parseBoolean(parts[6]);
+                        boolean antiC = Boolean.parseBoolean(parts[7]);
+                        int antiCopac = Integer.parseInt(parts[8]);
+                        boolean blur = Boolean.parseBoolean(parts[9]);
+                        int blurR = Integer.parseInt(parts[10]);
+                        int blurOp = Integer.parseInt(parts[11]);
+                        int fps = Integer.parseInt(parts[12]);
+                        double sec = Double.parseDouble(parts[13]);
+                        String enc = parts[14];
+                        java.util.List<String> layers = new ArrayList<>();
+                        if (parts.length > 15 && !parts[15].isEmpty()) {
+                            layers.addAll(java.util.Arrays.asList(parts[15].split(",")));
+                        }
+                        list.add(new MontagePreset(name, w, h, vr, br, template, remVoc, antiC, antiCopac, blur, blurR, blurOp, fps, sec, enc, layers, false));
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            System.err.println("Failed to load custom montage presets: " + ex.getMessage());
+        }
+        return list;
+    }
+
+    private void saveAllCustomMontagePresetsToFile() {
+        Properties props = new Properties();
+        int count = 0;
+        for (int i = 0; i < montagePresetModel.getSize(); i++) {
+            MontagePreset p = montagePresetModel.getElementAt(i);
+            if (p != null && !p.isBuiltin && p != customMontagePresetItem) {
+                String vrStr = p.videoRect.x + "," + p.videoRect.y + "," + p.videoRect.width + "," + p.videoRect.height;
+                String brStr = p.bandRect.x + "," + p.bandRect.y + "," + p.bandRect.width + "," + p.bandRect.height;
+                String layersStr = (p.layerOrder != null) ? String.join(",", p.layerOrder) : "";
+                String val = p.name + "|" + p.width + "|" + p.height + "|" + vrStr + "|" + brStr + "|" +
+                        p.templateName + "|" + p.removeVocals + "|" + p.antiCopyright + "|" + p.antiCopyrightOpacity + "|" +
+                        p.blurBackground + "|" + p.blurRadius + "|" + p.blurOpacity + "|" + p.fps + "|" +
+                        p.visibleSeconds + "|" + p.encoder + "|" + layersStr;
+                props.setProperty("montage_preset." + (count++), val);
+            }
+        }
+
+        File file = new File(MONTAGE_PRESETS_FILE);
+        try (OutputStream out = new FileOutputStream(file);
+             Writer writer = new OutputStreamWriter(out, StandardCharsets.UTF_8)) {
+            props.store(writer, "OmeRyth Custom Montage Export Presets");
+        } catch (Exception ex) {
+            System.err.println("Failed to save custom montage presets: " + ex.getMessage());
+        }
     }
 
     private int getSelectedFps() {

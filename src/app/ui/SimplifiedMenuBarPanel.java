@@ -176,7 +176,7 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
         // ===== MENU OPTIONS / SETTINGS =====
         menuOptions = new JMenu("Options");
 
-        personnalisation = new JMenuItem("Personnalisation (Paramètres)");
+        personnalisation = new JMenuItem("Personnalisation...");
         configurer = new JMenuItem("Configurer les touches");
 
         personnalisation.addActionListener(e -> mainFenetre.ouvrirCustomizationWindow());
