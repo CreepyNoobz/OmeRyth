@@ -1652,12 +1652,12 @@ public class SmokeTests {
             System.out.println("Vérification capturePreviewFrame Asynchrone & Non-Bloquante : VALIDÉ !");
         }
 
-        // Test arrondi à 0.1s lors de la mise en pause du TimerClass (barre Espace / toggle)
+        // Test absence de rollback lors de la mise en pause du TimerClass (barre Espace / toggle)
         {
             TimelinePanel snapTimeline = new TimelinePanel();
             app.utils.TimerClass timerSnap = new app.utils.TimerClass(snapTimeline);
 
-            // Simuler lecture et temps arbitraire non aligné (2.347s -> arrondi à 2.3s)
+            // Simuler lecture et vérifier absence de rollback à l'arrêt
             timerSnap.setTime(2.347);
             timerSnap.toggle(1); // Démarrer
             assertTrue(timerSnap.isRunning(), "Le timer doit être en cours de lecture");
@@ -1666,15 +1666,15 @@ public class SmokeTests {
             timerSnap.toggle(1); // Mettre en pause
             assertTrue(!timerSnap.isRunning(), "Le timer doit être arrêté");
             double pausedTime = timerSnap.getTime();
-            assertTrue(Math.abs(pausedTime - 2.3) < 1e-6, "Le temps à la pause doit être arrondi à 0.1s (attendu 2.3s, obtenu " + pausedTime + "s)");
+            assertTrue(pausedTime >= 2.347, "Le temps à la pause ne doit pas subir de rollback en arrière (obtenu " + pausedTime + "s)");
 
-            // Autre test : 4.87 -> 4.9
+            // Autre test : 4.87 -> pas de rollback en arrière
             timerSnap.setTime(4.87);
             timerSnap.toggle(1);
             timerSnap.toggle(1);
-            assertTrue(Math.abs(timerSnap.getTime() - 4.9) < 1e-6, "Le temps à la pause doit être arrondi à 0.1s (attendu 4.9s, obtenu " + timerSnap.getTime() + "s)");
+            assertTrue(timerSnap.getTime() >= 4.87, "Le temps à la pause ne doit pas subir de rollback en arrière (obtenu " + timerSnap.getTime() + "s)");
 
-            // Test KeyBoardListener togglePlayback en pause
+            // Test KeyBoardListener togglePlayback en pause sans rollback
             app.utils.KeyBoardListener kblSnap = new app.utils.KeyBoardListener(
                     snapTimeline, timerSnap, null,
                     java.awt.event.KeyEvent.VK_SPACE,
@@ -1690,9 +1690,9 @@ public class SmokeTests {
             timerSnap.toggle(1);
             kblSnap.togglePlayback(); // Pause via KeyBoardListener
             assertTrue(!timerSnap.isRunning(), "Le timer doit être en pause après togglePlayback");
-            assertTrue(Math.abs(timerSnap.getTime() - 7.2) < 1e-6, "togglePlayback doit arrondir le temps à 0.1s (attendu 7.2s, obtenu " + timerSnap.getTime() + "s)");
+            assertTrue(timerSnap.getTime() >= 7.16, "togglePlayback ne doit pas provoquer de rollback (obtenu " + timerSnap.getTime() + "s)");
 
-            System.out.println("Vérification Arrondi 0.1s à la Pause (Espace / toggle) : VALIDÉ !");
+            System.out.println("Vérification Absence de Rollback à la Pause (Espace / toggle) : VALIDÉ !");
         }
 
         // Test URL de téléchargement du module Whisper

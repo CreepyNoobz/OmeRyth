@@ -588,13 +588,10 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
 
                         // Ne JAMAIS appeler setTime(targetMs) si VLC est déjà calé au bon endroit (diff <= 250ms) !
                         // L'appel à setTime() sur un flux en pause force VLC à purger son pipeline de décodage
-                        // et son tampon audio DirectSound/WASAPI, ce qui coupe le son pendant ~1 seconde
-                        // au redémarrage et décale l'audio par rapport au défilement de la bande rythmo.
+                        // et son tampon audio DirectSound/WASAPI, ce qui coupe le son pendant ~1 seconde.
+                        // Et ne JAMAIS reculer le timer vers vlcTime pour éviter tout rollback visuel de la bande.
                         if (diffMs > 250 || vlcTime < 0) {
                             mp.controls().setTime(targetMs);
-                        } else {
-                            // Aligner le timer exactement sur la position réelle de l'image VLC figée
-                            timer.setTime(vlcTime / 1000.0);
                         }
 
                         if (state == uk.co.caprica.vlcj.player.base.State.PAUSED) {

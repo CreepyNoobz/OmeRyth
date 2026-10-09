@@ -84,7 +84,6 @@ public class TimerClass extends JPanel {
         if (time >= maxTime) {
             time = maxTime; // bloque le timer
             timer.stop();
-            time = Math.max(0.0, Math.round(time * 10.0) / 10.0);
             startRythmoTime = time;
             timerLabel.setText(format());
             timeline.setTime(time);
@@ -128,9 +127,8 @@ public class TimerClass extends JPanel {
     /**
      * Bascule l'état de lecture dans la direction demandée (+1 avance, -1 recul).
      * <p>
-     * À la mise en pause (notamment avec la barre Espace), le temps est automatiquement
-     * arrondi au marquage de 0.1s le plus proche pour garantir un arrêt visuel propre et esthétique,
-     * parfaitement aligné avec les graduations du quadrillage de la bande rythmo.
+     * À la mise en pause (notamment avec la barre Espace), la lecture s'arrête instantanément
+     * sur la position courante exacte sans aucun recul (rollback) ni à-coup visuel.
      * </p>
      *
      * @param newDirection Sens souhaité (>= 0 : avance, < 0 : marche arrière).
@@ -139,11 +137,16 @@ public class TimerClass extends JPanel {
         int requestedDirection = newDirection >= 0 ? 1 : -1;
         if (timer.isRunning()) {
             if (direction == requestedDirection) {
+                // Calage haute précision sur l'instant exact d'arrêt sans rollback ni à-coup
+                long now = System.nanoTime();
+                double elapsedSec = (now - startRealTimeNs) / 1_000_000_000.0;
+                time = startRythmoTime + (elapsedSec * direction);
                 timer.stop();
-                // Arrondi au marquage de 0.1s le plus proche
-                time = Math.max(0.0, Math.round(time * 10.0) / 10.0);
                 if (maxTime > 0 && time > maxTime) {
                     time = maxTime;
+                }
+                if (time < 0) {
+                    time = 0;
                 }
                 startRythmoTime = time;
                 timerLabel.setText(format());
