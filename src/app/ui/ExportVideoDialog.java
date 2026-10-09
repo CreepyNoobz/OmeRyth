@@ -72,6 +72,7 @@ public class ExportVideoDialog extends JDialog {
         public Rectangle videoRect = new Rectangle(0, 0, 1920, 780);
         public Rectangle bandRect = new Rectangle(0, 780, 1920, 300);
         public String encoder = "auto";
+        public int cpuThreads = Runtime.getRuntime().availableProcessors();
         public boolean blurBackgroundVideo = false;
         public int blurRadius = 25;
         public int blurOpacity = 85;
@@ -147,6 +148,29 @@ public class ExportVideoDialog extends JDialog {
     private final JSpinner spinnerVisibleSeconds;
     private final JComboBox<String> comboFps;
     private final JComboBox<String> comboEncoder;
+    private final JComboBox<String> comboCpuCores;
+
+    public static String[] buildCpuCoreOptions() {
+        int totalCores = Runtime.getRuntime().availableProcessors();
+        int balancedCores = Math.max(1, (int) Math.round(totalCores * 0.75));
+        int ecoCores = Math.max(1, Math.min(4, Math.max(2, totalCores / 4)));
+        return new String[]{
+                "Performance Maximale (" + totalCores + " cœurs / 100% de puissance)",
+                "Équilibré (" + balancedCores + " cœurs / 75% de puissance)",
+                "Économe / Silencieux (" + ecoCores + " cœurs)"
+        };
+    }
+
+    public static int getThreadsFromCpuIndex(int index) {
+        int totalCores = Runtime.getRuntime().availableProcessors();
+        int balancedCores = Math.max(1, (int) Math.round(totalCores * 0.75));
+        int ecoCores = Math.max(1, Math.min(4, Math.max(2, totalCores / 4)));
+        return switch (index) {
+            case 1 -> balancedCores;
+            case 2 -> ecoCores;
+            default -> totalCores;
+        };
+    }
 
     // Composants Onglet 2 : Montage Vidéo + Bandeau
     private final DefaultComboBoxModel<MontagePreset> montagePresetModel = new DefaultComboBoxModel<>();
@@ -173,6 +197,7 @@ public class ExportVideoDialog extends JDialog {
     private JSpinner spinnerAntiCopyrightOpacity;
     private JComboBox<String> comboMontageFps;
     private JComboBox<String> comboMontageEncoder;
+    private JComboBox<String> comboMontageCpuCores;
     private JSpinner spinnerMontageVisibleSeconds;
     private boolean updatingMontageSpinners = false;
 
@@ -397,6 +422,16 @@ public class ExportVideoDialog extends JDialog {
         comboEncoder.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         comboEncoder.setSelectedIndex(0);
         formPanel.add(comboEncoder, gbc);
+
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.3;
+        JLabel lblCpuCores = new JLabel("Cœurs & Puissance :");
+        lblCpuCores.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        formPanel.add(lblCpuCores, gbc);
+        gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 0.7;
+        comboCpuCores = new JComboBox<>(buildCpuCoreOptions());
+        comboCpuCores.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        comboCpuCores.setSelectedIndex(0);
+        formPanel.add(comboCpuCores, gbc);
 
         gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
         JLabel infoLabel = new JLabel("Vous pouvez créer, nommer et sauvegarder vos configurations personnalisées.");
@@ -955,6 +990,16 @@ public class ExportVideoDialog extends JDialog {
         encRow.add(comboMontageEncoder, BorderLayout.CENTER);
         optionsPanel.add(encRow);
 
+        JPanel cpuRow = new JPanel(new BorderLayout(6, 0));
+        JLabel lblCpuM = new JLabel("Cœurs CPU :");
+        lblCpuM.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        cpuRow.add(lblCpuM, BorderLayout.WEST);
+        comboMontageCpuCores = new JComboBox<>(buildCpuCoreOptions());
+        comboMontageCpuCores.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        comboMontageCpuCores.setSelectedIndex(0);
+        cpuRow.add(comboMontageCpuCores, BorderLayout.CENTER);
+        optionsPanel.add(cpuRow);
+
         controlsPanel.add(optionsPanel);
         JScrollPane scrollControls = new JScrollPane(controlsPanel, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         scrollControls.setBorder(null);
@@ -1123,6 +1168,7 @@ public class ExportVideoDialog extends JDialog {
                 case 4 -> "cpu";
                 default -> "auto";
             };
+            config.cpuThreads = getThreadsFromCpuIndex(comboMontageCpuCores.getSelectedIndex());
             config.blurBackgroundVideo = (checkBlurBackground != null && checkBlurBackground.isSelected());
             config.blurRadius = (spinnerBlurRadius != null) ? ((Number) spinnerBlurRadius.getValue()).intValue() : 25;
             config.blurOpacity = (spinnerBlurOpacity != null) ? ((Number) spinnerBlurOpacity.getValue()).intValue() : 85;
@@ -1156,6 +1202,7 @@ public class ExportVideoDialog extends JDialog {
                 case 4 -> "cpu";
                 default -> "auto";
             };
+            config.cpuThreads = getThreadsFromCpuIndex(comboCpuCores.getSelectedIndex());
         }
 
         config.approved = true;

@@ -480,7 +480,7 @@ public class MediaWorkflowService {
                             try {
                                 File tempWav = File.createTempFile("omeryth_demucs_", ".wav");
                                 tempWav.deleteOnExit();
-                                boolean ok = runDemucsSeparation(fichierSelectionne, tempWav, (pct, msg) -> {
+                                boolean ok = runDemucsSeparation(fichierSelectionne, tempWav, config.cpuThreads, (pct, msg) -> {
                                     publish(new ExportProgress(Math.min(99, pct), 0, totalFrames, 0, 0, "Demucs IA : " + msg));
                                 }, () -> isCancelled(), ffmpegProcessRef);
                                 if (ok && tempWav.exists() && tempWav.length() > 0) {
@@ -496,11 +496,16 @@ public class MediaWorkflowService {
                         return "CANCELLED";
                     }
 
-                    EncoderSettings encoderSettings = detectEncoder(ffmpegPath, config.encoder);
+                    int threadsToUse = config.cpuThreads > 0 ? config.cpuThreads : Runtime.getRuntime().availableProcessors();
+                    EncoderSettings encoderSettings = detectEncoder(ffmpegPath, config.encoder, threadsToUse);
 
                     java.util.List<String> command = new java.util.ArrayList<>();
                     command.add(ffmpegPath);
                     command.add("-y");
+                    command.add("-threads");
+                    command.add(String.valueOf(threadsToUse));
+                    command.add("-filter_threads");
+                    command.add(String.valueOf(threadsToUse));
 
                     // Entrée 0 : Streaming direct des images brutes par stdin (zéro I/O disque)
                     command.add("-f"); command.add("rawvideo");
@@ -1176,10 +1181,15 @@ public class MediaWorkflowService {
     private static EncoderSettings cachedEncoderSettings = null;
 
     public static synchronized EncoderSettings detectEncoder(String ffmpegPath, String preference) {
+        return detectEncoder(ffmpegPath, preference, Runtime.getRuntime().availableProcessors());
+    }
+
+    public static synchronized EncoderSettings detectEncoder(String ffmpegPath, String preference, int threads) {
+        int safeThreads = threads > 0 ? threads : Runtime.getRuntime().availableProcessors();
         if ("cpu".equalsIgnoreCase(preference)) {
             return new EncoderSettings("libx264",
-                    java.util.List.of("-preset", "veryfast", "-crf", "22", "-threads", "0"),
-                    "CPU Multi-cœurs (x264 veryfast)");
+                    java.util.List.of("-preset", "veryfast", "-crf", "22", "-threads", String.valueOf(safeThreads)),
+                    "CPU Multi-cœurs (x264 veryfast - " + safeThreads + " threads)");
         }
         if ("nvenc".equalsIgnoreCase(preference)) {
             if (testEncoder(ffmpegPath, "h264_nvenc", java.util.List.of("-preset", "p4", "-cq", "23"))) {
@@ -1224,8 +1234,8 @@ public class MediaWorkflowService {
             return cachedEncoderSettings;
         }
         cachedEncoderSettings = new EncoderSettings("libx264",
-                java.util.List.of("-preset", "veryfast", "-crf", "22", "-threads", "0"),
-                "CPU Multi-cœurs (x264 veryfast)");
+                java.util.List.of("-preset", "veryfast", "-crf", "22", "-threads", String.valueOf(safeThreads)),
+                "CPU Multi-cœurs (x264 veryfast - " + safeThreads + " threads)");
         return cachedEncoderSettings;
     }
 
@@ -1336,6 +1346,15 @@ public class MediaWorkflowService {
                                        java.util.function.BiConsumer<Integer, String> progressCallback,
                                        java.util.function.BooleanSupplier cancelChecker,
                                        AtomicReference<Process> activeProcessRef) {
+        return runDemucsSeparation(inputFile, outputFile, Runtime.getRuntime().availableProcessors(), progressCallback, cancelChecker, activeProcessRef);
+    }
+
+    public boolean runDemucsSeparation(File inputFile,
+                                       File outputFile,
+                                       int threads,
+                                       java.util.function.BiConsumer<Integer, String> progressCallback,
+                                       java.util.function.BooleanSupplier cancelChecker,
+                                       AtomicReference<Process> activeProcessRef) {
         String python = findPython();
         File script = findDemucsWorkerScript();
         if (python == null || script == null) return false;
@@ -1352,6 +1371,8 @@ public class MediaWorkflowService {
         cmd.add("no_vocals");
         cmd.add("--device");
         cmd.add("auto");
+        cmd.add("--threads");
+        cmd.add(String.valueOf(threads > 0 ? threads : Runtime.getRuntime().availableProcessors()));
 
         try {
             ProcessBuilder pb = new ProcessBuilder(cmd);

@@ -1815,7 +1815,13 @@ def main():
     model_name = args.model.lower().strip()
     if model_name not in ("tiny", "base", "small", "medium", "large-v2", "large-v3"):
         model_name = "small"
-    cpu_threads = max(1, min(args.threads, 16))
+    total_sys_cores = os.cpu_count() or 4
+    cpu_threads = max(1, min(args.threads, total_sys_cores * 2))
+    try:
+        import torch
+        torch.set_num_threads(cpu_threads)
+    except Exception:
+        pass
     lang_param = None if args.lang.lower() == "auto" else args.lang.lower()
 
     if not os.path.exists(args.audio):

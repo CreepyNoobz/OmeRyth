@@ -140,13 +140,16 @@ public class AutoTranscriptionTestDialog extends JDialog {
         comboModel.setSelectedIndex(1); // Small sélectionné par défaut
 
         int totalCores = Runtime.getRuntime().availableProcessors();
-        int maxThreads = Math.max(4, Math.min(16, totalCores));
+        int maxThreads = Math.max(1, totalCores);
+        int balancedThreads = Math.max(1, (int) Math.round(totalCores * 0.75));
+        int ecoThreads = Math.max(1, Math.min(4, Math.max(2, totalCores / 4)));
 
         comboCpuProfile = new JComboBox<>(new String[]{
-                "Detection Automatique (Recommande - GPU si disponible, sinon CPU Multi-coeurs)",
-                "CPU Multi-coeurs Universel (" + maxThreads + " threads - Compatible tous PC Intel/AMD)",
-                "GPU NVIDIA CUDA (Si carte graphique NVIDIA dediee disponible)",
-                "CPU Econome / Silencieux (2 threads)"
+                "Détection Automatique (Recommandé - Performance Max : " + maxThreads + " cœurs ou GPU)",
+                "CPU Performance Maximale (" + maxThreads + " threads / 100% de puissance)",
+                "CPU Équilibré (" + balancedThreads + " threads / 75% de puissance)",
+                "CPU Économe / Silencieux (" + ecoThreads + " threads)",
+                "GPU NVIDIA CUDA (Si carte graphique NVIDIA dédiée disponible)"
         });
         comboCpuProfile.setSelectedIndex(0);
 
@@ -431,7 +434,9 @@ public class AutoTranscriptionTestDialog extends JDialog {
 
         int cpuIdx = comboCpuProfile.getSelectedIndex();
         int totalCores = Runtime.getRuntime().availableProcessors();
-        int maxThreads = Math.max(4, Math.min(16, totalCores));
+        int maxThreads = Math.max(1, totalCores);
+        int balancedThreads = Math.max(1, (int) Math.round(totalCores * 0.75));
+        int ecoThreads = Math.max(1, Math.min(4, Math.max(2, totalCores / 4)));
 
         String device;
         int threads;
@@ -445,12 +450,20 @@ public class AutoTranscriptionTestDialog extends JDialog {
                 threads = maxThreads;
             }
             case 2 -> {
+                device = "cpu";
+                threads = balancedThreads;
+            }
+            case 3 -> {
+                device = "cpu";
+                threads = ecoThreads;
+            }
+            case 4 -> {
                 device = "cuda";
-                threads = 4;
+                threads = Math.max(4, Math.min(8, totalCores));
             }
             default -> {
-                device = "cpu";
-                threads = 2;
+                device = "auto";
+                threads = maxThreads;
             }
         }
 
