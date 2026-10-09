@@ -560,11 +560,8 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
                     // On met en pause : stopper le timer et figer VLC immédiatement sans seek asynchrone parasite
                     timer.toggle(timer.getDirection());
                     mp.controls().setPause(true);
-                } else if (mp.status().isPlaying()) {
-                    // Si le timer était déjà arrêté (ex: fin de vidéo) mais que VLC tourne encore : coupure nette immédiate
-                    mp.controls().setPause(true);
                 } else {
-                    // Si on est à la fin ou au-delà et qu'on cherche à avancer, ne pas relancer la vidéo dans le vide
+                    // L'utilisateur relance la lecture
                     if (direction > 0 && isAtEnd) {
                         mp.controls().setPause(true);
                         return;
@@ -573,16 +570,38 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
                     if (state == uk.co.caprica.vlcj.player.base.State.ENDED || state == uk.co.caprica.vlcj.player.base.State.STOPPED) {
                         String path = getMediaFilePath();
                         if (path != null) {
-                            mp.media().play(path, ":start-time=" + (targetMs / 1000.0));
+                            mp.media().play(path, ":start-time=" + (targetMs / 1000.0), ":file-caching=150", ":clock-jitter=0", ":clock-synchro=0");
+                        } else {
+                            mp.controls().play();
+                            mp.controls().setTime(targetMs);
+                        }
+                        if (mp.status().rate() != rate) {
+                            mp.controls().setRate(rate);
+                        }
+                    } else {
+                        long vlcTime = mp.status().time();
+                        long diffMs = (vlcTime >= 0) ? Math.abs(vlcTime - targetMs) : Long.MAX_VALUE;
+
+                        if (mp.status().rate() != rate) {
+                            mp.controls().setRate(rate);
+                        }
+
+                        // Ne JAMAIS appeler setTime(targetMs) si VLC est déjà calé au bon endroit (diff <= 250ms) !
+                        // L'appel à setTime() sur un flux en pause force VLC à purger son pipeline de décodage
+                        // et son tampon audio DirectSound/WASAPI, ce qui coupe le son pendant ~1 seconde
+                        // au redémarrage et décale l'audio par rapport au défilement de la bande rythmo.
+                        if (diffMs > 250 || vlcTime < 0) {
+                            mp.controls().setTime(targetMs);
+                        } else {
+                            // Aligner le timer exactement sur la position réelle de l'image VLC figée
+                            timer.setTime(vlcTime / 1000.0);
+                        }
+
+                        if (state == uk.co.caprica.vlcj.player.base.State.PAUSED) {
+                            mp.controls().setPause(false);
                         } else {
                             mp.controls().play();
                         }
-                        mp.controls().setRate(rate);
-                        mp.controls().setTime(targetMs);
-                    } else {
-                        mp.controls().setRate(rate);
-                        mp.controls().setTime(targetMs);
-                        mp.controls().play();
                     }
                     timer.toggle(direction);
                 }
@@ -651,7 +670,7 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
             if (state == uk.co.caprica.vlcj.player.base.State.ENDED || state == uk.co.caprica.vlcj.player.base.State.STOPPED) {
                 String path = getMediaFilePath();
                 if (path != null) {
-                    mp.media().startPaused(path, ":start-time=" + (targetMs / 1000.0));
+                    mp.media().startPaused(path, ":start-time=" + (targetMs / 1000.0), ":file-caching=150", ":clock-jitter=0", ":clock-synchro=0");
                     mp.controls().setTime(targetMs);
                     mp.controls().setPause(true);
                 } else {

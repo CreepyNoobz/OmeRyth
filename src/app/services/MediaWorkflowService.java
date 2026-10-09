@@ -91,7 +91,10 @@ public class MediaWorkflowService {
                 if (mediaPlayerComponent.mediaPlayer().status().isPlaying()) {
                     mediaPlayerComponent.mediaPlayer().controls().stop();
                 }
-                mediaPlayerComponent.mediaPlayer().media().startPaused(videoFile.getAbsolutePath());
+                mediaPlayerComponent.mediaPlayer().media().startPaused(videoFile.getAbsolutePath(),
+                        ":file-caching=150",
+                        ":clock-jitter=0",
+                        ":clock-synchro=0");
                 long dureeMs = -1;
                 for (int i = 0; i < 30; i++) {
                     try {
@@ -204,7 +207,10 @@ public class MediaWorkflowService {
                         path = mp.media().info().mrl();
                     }
                     if (path != null) {
-                        mp.media().startPaused(path, ":start-time=" + (targetMs / 1000.0));
+                        mp.media().startPaused(path, ":start-time=" + (targetMs / 1000.0),
+                                ":file-caching=150",
+                                ":clock-jitter=0",
+                                ":clock-synchro=0");
                         mp.controls().setTime(targetMs);
                         mp.controls().setPause(true);
                     } else {

@@ -111,6 +111,13 @@ public class MainWindowBuilder {
         vlcArgs.add("--quiet");
         vlcArgs.add("--verbose=-1");
         vlcArgs.add("--no-media-library");
+        vlcArgs.add("--no-video-title-show");
+        vlcArgs.add("--file-caching=150");
+        vlcArgs.add("--live-caching=150");
+        vlcArgs.add("--disc-caching=150");
+        vlcArgs.add("--network-caching=1000");
+        vlcArgs.add("--clock-jitter=0");
+        vlcArgs.add("--clock-synchro=0");
         // Note: LibVLC réutilise plugins.dat pour un démarrage quasi-instantané (<50ms)
         p.mediaPlayerFactory = new MediaPlayerFactory(vlcArgs.toArray(new String[0]));
         p.mediaPlayerComponent = MediaPlayerSpecs.embeddedMediaPlayerSpec()
