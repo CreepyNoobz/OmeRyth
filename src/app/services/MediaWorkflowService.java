@@ -800,6 +800,14 @@ public class MediaWorkflowService {
             @Override
             protected void done() {
                 progressDialog.dispose();
+                if (isCancelled()) {
+                    if (finalOutput != null && finalOutput.exists()) {
+                        try {
+                            finalOutput.delete();
+                        } catch (Exception ignored) {}
+                    }
+                    return;
+                }
                 try {
                     String result = get();
                     if ("OK".equals(result)) {
@@ -808,8 +816,10 @@ public class MediaWorkflowService {
                                 "Export Réussi",
                                 JOptionPane.INFORMATION_MESSAGE);
                     } else if ("CANCELLED".equals(result)) {
-                        if (finalOutput.exists()) {
-                            finalOutput.delete();
+                        if (finalOutput != null && finalOutput.exists()) {
+                            try {
+                                finalOutput.delete();
+                            } catch (Exception ignored) {}
                         }
                     } else if ("FFMPEG_NOT_FOUND".equals(result)) {
                         JOptionPane.showMessageDialog(owner,
@@ -824,9 +834,19 @@ public class MediaWorkflowService {
                                 "Erreur lors de l'encodage avec ffmpeg." + details,
                                 "Erreur", JOptionPane.ERROR_MESSAGE);
                     }
+                } catch (java.util.concurrent.CancellationException ex) {
+                    if (finalOutput != null && finalOutput.exists()) {
+                        try {
+                            finalOutput.delete();
+                        } catch (Exception ignored) {}
+                    }
                 } catch (Exception ex) {
+                    String msg = ex.getMessage();
+                    if (msg == null || msg.trim().isEmpty() || "null".equalsIgnoreCase(msg.trim())) {
+                        msg = ex.getClass().getSimpleName();
+                    }
                     JOptionPane.showMessageDialog(owner,
-                            "Erreur lors de l'export : " + ex.getMessage(),
+                            "Erreur lors de l'export : " + msg,
                             "Erreur", JOptionPane.ERROR_MESSAGE);
                 }
             }
@@ -1041,9 +1061,15 @@ public class MediaWorkflowService {
                                 "Erreur",
                                 JOptionPane.ERROR_MESSAGE);
                     }
+                } catch (java.util.concurrent.CancellationException ex) {
+                    if (finalOutput.exists()) finalOutput.delete();
                 } catch (Exception ex) {
+                    String msg = ex.getMessage();
+                    if (msg == null || msg.trim().isEmpty() || "null".equalsIgnoreCase(msg.trim())) {
+                        msg = ex.getClass().getSimpleName();
+                    }
                     JOptionPane.showMessageDialog(owner,
-                            "Erreur : " + ex.getMessage(),
+                            "Erreur : " + msg,
                             "Erreur",
                             JOptionPane.ERROR_MESSAGE);
                 }
@@ -1251,7 +1277,7 @@ public class MediaWorkflowService {
             cmd.add(ffmpegPath);
             cmd.add("-y");
             cmd.add("-f"); cmd.add("lavfi");
-            cmd.add("-i"); cmd.add("color=c=black:s=64x64:d=0.04");
+            cmd.add("-i"); cmd.add("color=c=black:s=256x256:d=0.04");
             cmd.add("-c:v"); cmd.add(codec);
             cmd.addAll(extraArgs);
             cmd.add("-f"); cmd.add("null");
@@ -1378,9 +1404,9 @@ public class MediaWorkflowService {
         cmd.add("--device");
         cmd.add("auto");
         cmd.add("--model");
-        cmd.add("htdemucs_ft");
+        cmd.add("htdemucs");
         cmd.add("--shifts");
-        cmd.add("2");
+        cmd.add("1");
         cmd.add("--method");
         cmd.add("minus");
         cmd.add("--threads");

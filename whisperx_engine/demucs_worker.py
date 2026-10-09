@@ -114,10 +114,10 @@ def main():
                         help="Piste souhaitée : 'no_vocals' (instrumental/bruitages) ou 'vocals' (voix seules)")
     parser.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"],
                         help="Périphérique de calcul : 'auto' (détection GPU), 'cuda' (GPU NVIDIA) ou 'cpu' (processeur)")
-    parser.add_argument("--model", default="htdemucs_ft",
-                        help="Modèle Demucs : 'htdemucs_ft' (Fine-Tuned Haute Fidélité) ou 'htdemucs' (standard)")
-    parser.add_argument("--shifts", type=int, default=2,
-                        help="Nombre de passes temporelles décalées (2 = élimine le bruit de phase 'bzz bzz', 1 = rapide)")
+    parser.add_argument("--model", default="htdemucs",
+                        help="Modèle Demucs : 'htdemucs' (standard ultra-rapide) ou 'htdemucs_ft' (Fine-Tuned)")
+    parser.add_argument("--shifts", type=int, default=1,
+                        help="Nombre de passes temporelles décalées (1 = rapide sans bzz bzz avec minus, 2 = qualité maximale)")
     parser.add_argument("--threads", type=int, default=0,
                         help="Nombre de threads CPU (0 = auto tous les cœurs disponibles)")
     parser.add_argument("--method", default="minus", choices=["minus", "add"],
@@ -167,14 +167,31 @@ def main():
         # Suivi fin de progression renvoyé à la barre de progression d'OmeRyth
         last_percent = [20]
         def progress_callback(data: dict):
+            # Détection du nombre de modèles dans le sac (ex: 4 pour htdemucs_ft, 1 pour htdemucs)
+            total_models = max(1, data.get("models", 1))
+            model_idx = max(0, data.get("model_idx_in_bag", 0))
+
+            # Détection des passes de décalage temporel (shifts)
+            total_shifts = max(1, shifts_val)
+            shift_idx = max(0, data.get("shift_idx", 0))
+
+            total_passes = total_models * total_shifts
+            current_pass = model_idx * total_shifts + shift_idx
+
             audio_len = data.get("audio_length", 1)
             offset = data.get("segment_offset", 0)
-            if audio_len > 0:
-                pct = 20 + int((offset / audio_len) * 75)
-                pct = min(95, max(20, pct))
-                if pct > last_percent[0]:
-                    last_percent[0] = pct
-                    print_progress(pct, 100, f"Séparation vocale neuronale en cours ({pct}%)...")
+
+            pass_frac = (offset / audio_len) if audio_len > 0 else 0.0
+            pass_frac = min(1.0, max(0.0, pass_frac))
+
+            overall_frac = (current_pass + pass_frac) / total_passes
+            pct = 20 + int(overall_frac * 75)  # Échelle continue de 20% à 95%
+            pct = min(95, max(20, pct))
+
+            if pct > last_percent[0]:
+                last_percent[0] = pct
+                pass_info = f" (Passe {current_pass + 1}/{total_passes})" if total_passes > 1 else ""
+                print_progress(pct, 100, f"Séparation vocale neuronale en cours{pass_info} ({pct}%)...")
 
         # Configuration du séparateur HTDemucs :
         # - shifts=2 : 2 décalages temporels équivariants (supprime les cliquetis et bourdonnements périodiques 'bzz bzz')
