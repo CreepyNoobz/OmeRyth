@@ -114,6 +114,14 @@ def main():
                         help="Piste souhaitée : 'no_vocals' (instrumental/bruitages) ou 'vocals' (voix seules)")
     parser.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"],
                         help="Périphérique de calcul : 'auto' (détection GPU), 'cuda' (GPU NVIDIA) ou 'cpu' (processeur)")
+    parser.add_argument("--model", default="htdemucs_ft",
+                        help="Modèle Demucs : 'htdemucs_ft' (Fine-Tuned Haute Fidélité) ou 'htdemucs' (standard)")
+    parser.add_argument("--shifts", type=int, default=2,
+                        help="Nombre de passes temporelles décalées (2 = élimine le bruit de phase 'bzz bzz', 1 = rapide)")
+    parser.add_argument("--threads", type=int, default=0,
+                        help="Nombre de threads CPU (0 = auto tous les cœurs disponibles)")
+    parser.add_argument("--method", default="minus", choices=["minus", "add"],
+                        help="Méthode de mixage sans voix : 'minus' (original - voix, fidélité 100%%) ou 'add' (synthèse stems)")
     args = parser.parse_args()
 
     input_file = os.path.abspath(args.input)
@@ -128,13 +136,22 @@ def main():
     import torch
     import demucs.api
 
+    # Détection et allocation multi-cœurs CPU
+    total_sys_cores = os.cpu_count() or 4
+    num_threads = args.threads if (args.threads and args.threads > 0) else total_sys_cores
+    try:
+        torch.set_num_threads(num_threads)
+    except Exception:
+        pass
+    print_info(f"Allocation processeur : {num_threads} / {total_sys_cores} cœurs alloués pour Demucs")
+
     # Détection automatique du moteur d'accélération (GPU CUDA vs CPU)
     if args.device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
     else:
         device = args.device
 
-    dev_label = "GPU NVIDIA (CUDA)" if device == "cuda" else "CPU Multi-cœurs"
+    dev_label = "GPU NVIDIA (CUDA)" if device == "cuda" else f"CPU Multi-cœurs ({num_threads} threads)"
     print_info(f"Moteur de calcul sélectionné : {dev_label}")
 
     temp_audio_path = None
@@ -143,7 +160,9 @@ def main():
         print_progress(10, 100, "Extraction et conversion du flux audio en format studio...")
         temp_audio_path, is_temp = extract_audio_if_needed(input_file)
 
-        print_progress(20, 100, f"Chargement des poids du modèle HTDemucs sur {dev_label}...")
+        model_name = args.model
+        shifts_val = max(1, args.shifts)
+        print_progress(20, 100, f"Chargement du modèle Demucs ({model_name}) sur {dev_label}...")
 
         # Suivi fin de progression renvoyé à la barre de progression d'OmeRyth
         last_percent = [20]
@@ -158,31 +177,45 @@ def main():
                     print_progress(pct, 100, f"Séparation vocale neuronale en cours ({pct}%)...")
 
         # Configuration du séparateur HTDemucs :
-        # - shifts=1 : 1 seul décalage temporel (excellent compromis rapidité / absence d'artefacts)
-        # - overlap=0.25 : recouvrement de 25% entre segments contigus pour éviter tout "clic" ou coupure
-        separator = demucs.api.Separator(
-            model="htdemucs",
-            device=device,
-            shifts=1,
-            overlap=0.25,
-            callback=progress_callback
-        )
+        # - shifts=2 : 2 décalages temporels équivariants (supprime les cliquetis et bourdonnements périodiques 'bzz bzz')
+        # - overlap=0.25 : recouvrement de 25% entre segments contigus
+        try:
+            separator = demucs.api.Separator(
+                model=model_name,
+                device=device,
+                shifts=shifts_val,
+                overlap=0.25,
+                callback=progress_callback
+            )
+        except Exception as ex_model:
+            print_info(f"Modèle {model_name} non disponible ({ex_model}), repli sur htdemucs standard...")
+            separator = demucs.api.Separator(
+                model="htdemucs",
+                device=device,
+                shifts=shifts_val,
+                overlap=0.25,
+                callback=progress_callback
+            )
 
-        print_progress(25, 100, "Séparation neuronale en cours (décomposition en 4 canaux spectraux)...")
+        print_progress(25, 100, f"Séparation neuronale haute fidélité en cours ({shifts_val} passes)...")
         origin, separated = separator.separate_audio_file(temp_audio_path)
 
-        # HTDemucs décompose l'audio en 4 pistes distinctes :
-        # 'drums' (batterie/percussions), 'bass' (basses), 'other' (instruments/effets/ambiances) et 'vocals' (voix).
         print_progress(96, 100, "Recombinaison acoustique et mixage final...")
         if args.stem == "no_vocals":
-            # Pour obtenir la bande internationale (sans voix), on additionne mathématiquement
-            # tous les tenseurs audio qui ne sont PAS la piste 'vocals'
-            stems_to_sum = [v for k, v in separated.items() if k != "vocals"]
-            if not stems_to_sum:
-                raise RuntimeError("Aucune piste instrumentale n'a pu être isolée par le modèle.")
-            target_wav = stems_to_sum[0]
-            for s in stems_to_sum[1:]:
-                target_wav = target_wav + s
+            if args.method == "minus" and "vocals" in separated:
+                # Méthode Studio Standard : Original - Voix isolée
+                # Préserve 100% de la texture audio originale, des instruments, des bruitages et de l'ambiance,
+                # sans distorsion de phasage ni résidu métallique 'bzz bzz' de transformeur.
+                vocal_wav = separated["vocals"]
+                min_len = min(origin.shape[-1], vocal_wav.shape[-1])
+                target_wav = origin[..., :min_len] - vocal_wav[..., :min_len]
+            else:
+                stems_to_sum = [v for k, v in separated.items() if k != "vocals"]
+                if not stems_to_sum:
+                    raise RuntimeError("Aucune piste instrumentale n'a pu être isolée par le modèle.")
+                target_wav = stems_to_sum[0]
+                for s in stems_to_sum[1:]:
+                    target_wav = target_wav + s
         else:
             # Mode comédien témoin : on isole uniquement la voix originale
             target_wav = separated.get("vocals")

@@ -1371,6 +1371,12 @@ public class MediaWorkflowService {
         cmd.add("no_vocals");
         cmd.add("--device");
         cmd.add("auto");
+        cmd.add("--model");
+        cmd.add("htdemucs_ft");
+        cmd.add("--shifts");
+        cmd.add("2");
+        cmd.add("--method");
+        cmd.add("minus");
         cmd.add("--threads");
         cmd.add(String.valueOf(threads > 0 ? threads : Runtime.getRuntime().availableProcessors()));
 
