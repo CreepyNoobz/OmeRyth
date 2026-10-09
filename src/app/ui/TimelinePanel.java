@@ -321,6 +321,13 @@ public class TimelinePanel extends JPanel {
                 selectedBand = e.getY() / bHeight;
                 hasMovedDuringDrag = false;
 
+                if (e.isPopupTrigger()) {
+                    if (handleContextMenu(e)) {
+                        suppressNextClick = true;
+                        return;
+                    }
+                }
+
                 int intOffsetX = getIntOffsetX();
                 int worldX = e.getX() - intOffsetX;
 
@@ -408,14 +415,9 @@ public class TimelinePanel extends JPanel {
                 }
 
                 if ((e.isPopupTrigger() || SwingUtilities.isRightMouseButton(e)) && !hasMovedDuringDrag) {
-                    int intOffsetX = getIntOffsetX();
-                    int worldX = e.getX() - intOffsetX;
-                    for (Integer markerX : textManager.getPlanMarkers()) {
-                        if (Math.abs(markerX - worldX) <= 14) {
-                            showPlanMarkerContextMenu(e.getComponent(), e.getX(), e.getY(), markerX);
-                            suppressNextClick = true;
-                            return;
-                        }
+                    if (handleContextMenu(e)) {
+                        suppressNextClick = true;
+                        return;
                     }
                 }
             }
@@ -436,26 +438,7 @@ public class TimelinePanel extends JPanel {
 
                 // Clic droit → menu contextuel sur un symbole ou repère de plan ou texte de phrase
                 if (SwingUtilities.isRightMouseButton(e)) {
-                    int worldX = e.getX() - intOffsetX;
-                    for (Integer markerX : textManager.getPlanMarkers()) {
-                        if (Math.abs(markerX - worldX) <= 14) {
-                            showPlanMarkerContextMenu(e.getComponent(), e.getX(), e.getY(), markerX);
-                            return;
-                        }
-                    }
-
-                    int[] hit = textManager.findSeparatorAtScaled(x, y, intOffsetX, getHeight(), bandCount, 10);
-                    if (hit != null) {
-                        showSeparatorContextMenu(e.getComponent(), e.getX(), e.getY(), hit[0], hit[1]);
-                        return;
-                    }
-
-                    TextItem existing = textManager.getTextAtScaled(x, y, intOffsetX, getHeight(), bandCount);
-                    if (existing == null) {
-                        existing = textManager.getTextInSegmentAt(x, y, intOffsetX, getHeight(), bandCount);
-                    }
-                    if (existing != null) {
-                        showPhraseContextMenu(e.getComponent(), e.getX(), e.getY(), existing);
+                    if (handleContextMenu(e)) {
                         return;
                     }
                     return;
@@ -542,10 +525,45 @@ public class TimelinePanel extends JPanel {
     private PhraseCreationListener phraseCreationListener;
     public void setPhraseCreationListener(PhraseCreationListener l) { this.phraseCreationListener = l; }
 
+    // ================= GESTION DU CLIC DROIT / MENUS CONTEXTUELS =================
+    private boolean handleContextMenu(MouseEvent e) {
+        int intOffsetX = getIntOffsetX();
+        int x = e.getX();
+        int y = e.getY();
+        int worldX = x - intOffsetX;
+
+        // 1. Repères de plan (tolérance 14px)
+        for (Integer markerX : textManager.getPlanMarkers()) {
+            if (Math.abs(markerX - worldX) <= 14) {
+                showPlanMarkerContextMenu(e.getComponent(), x, y, markerX);
+                return true;
+            }
+        }
+
+        // 2. Séparateurs et signes labiaux (tolérance 14px)
+        int[] hit = textManager.findSeparatorAtScaled(x, y, intOffsetX, getHeight(), bandCount, 14);
+        if (hit != null) {
+            showSeparatorContextMenu(e.getComponent(), x, y, hit[0], hit[1]);
+            return true;
+        }
+
+        // 3. Texte ou phrases
+        TextItem existing = textManager.getTextAtScaled(x, y, intOffsetX, getHeight(), bandCount);
+        if (existing == null) {
+            existing = textManager.getTextInSegmentAt(x, y, intOffsetX, getHeight(), bandCount);
+        }
+        if (existing != null) {
+            showPhraseContextMenu(e.getComponent(), x, y, existing);
+            return true;
+        }
+
+        return false;
+    }
+
     // ================= MENU CONTEXTUEL SYMBOLES =================
     private void showSeparatorContextMenu(Component parent, int screenX, int screenY, int band, int worldX) {
-        SeparatorMark.Type type = textManager.getSeparatorType(band, worldX);
-        if (type == null) return;
+        ArrayList<SeparatorMark> marksAtPos = textManager.getSeparatorsAtOrNear(band, worldX, 8);
+        if (marksAtPos == null || marksAtPos.isEmpty()) return;
 
         contextSeparatorBand = band;
         contextSeparatorX = worldX;
@@ -566,68 +584,132 @@ public class TimelinePanel extends JPanel {
             }
         });
 
-        // Pour un séparateur START (début de phrase) : proposer "Changer le rôle", "Changer de bande" et "Supprimer la phrase"
-        if (type == SeparatorMark.Type.START) {
-            JMenuItem changerRole = new JMenuItem("🎭 Changer le rôle...");
-            changerRole.addActionListener(ev -> {
-                changePhraseRole(band, worldX);
-            });
-            menu.add(changerRole);
+        if (marksAtPos.size() > 1) {
+            // Cas de plusieurs signes fusionnés ou superposés
+            JMenuItem warningItem = new JMenuItem("⚠️ " + marksAtPos.size() + " signes fusionnés à cette position :");
+            warningItem.setEnabled(false);
+            warningItem.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            menu.add(warningItem);
             menu.addSeparator();
 
-            if (bandCount > 1) {
-                JMenu changerBandeMenu = new JMenu("Changer de bande");
-                for (int b = 0; b < bandCount; b++) {
-                    final int targetB = b;
-                    if (targetB == band) continue;
-                    String label = "Bande " + (targetB + 1);
-                    JMenuItem item = new JMenuItem(label);
-                    item.addActionListener(ev -> {
-                        movePhraseToBandWithFeedback(band, worldX, targetB);
-                    });
-                    changerBandeMenu.add(item);
-                }
-                menu.add(changerBandeMenu);
-                menu.addSeparator();
+            for (SeparatorMark sm : marksAtPos) {
+                String label = getMarkDescription(sm);
+                JMenuItem delItem = new JMenuItem("🗑️ Supprimer : " + label);
+                delItem.addActionListener(ev -> {
+                    recordUndoSnapshot();
+                    textManager.removeSpecificSeparator(band, sm);
+                    markDirty();
+                    repaint();
+                });
+                menu.add(delItem);
             }
 
-            JMenuItem supprimerPhrase = new JMenuItem("Supprimer la phrase");
-            supprimerPhrase.addActionListener(ev -> {
-                deletePhraseAtStartSeparator(band, worldX);
+            menu.addSeparator();
+
+            JMenuItem unmergeItem = new JMenuItem("↔️ Défusionner les signes (espacer)");
+            unmergeItem.addActionListener(ev -> {
+                recordUndoSnapshot();
+                textManager.unmergeSeparators(band, worldX, Math.max(15, (int) Math.round(pixelsPerSecond * 0.1)));
+                markDirty();
+                repaint();
             });
-            menu.add(supprimerPhrase);
+            menu.add(unmergeItem);
+
+            JMenuItem delAllItem = new JMenuItem("🗑️ Supprimer TOUS les signes à cet endroit");
+            delAllItem.addActionListener(ev -> {
+                recordUndoSnapshot();
+                textManager.removeAllSeparatorsAt(band, worldX, 8);
+                markDirty();
+                repaint();
+            });
+            menu.add(delAllItem);
+
         } else {
-            // Changer le type — seulement pour INNER et LEGACY
-            if (type == SeparatorMark.Type.INNER || type == SeparatorMark.Type.LEGACY) {
-                JMenu changeTypeMenu = new JMenu("Changer le symbole");
+            SeparatorMark mark = marksAtPos.get(0);
+            SeparatorMark.Type type = mark.type;
 
-                JMenuItem toInner = new JMenuItem("Séparateur interne");
-                toInner.addActionListener(ev -> {
-                    recordUndoSnapshot();
-                    textManager.setSeparatorType(band, worldX, SeparatorMark.Type.INNER);
-                    repaint();
+            // Pour un séparateur START (début de phrase) : proposer "Changer le rôle", "Changer de bande" et "Supprimer la phrase"
+            if (type == SeparatorMark.Type.START) {
+                JMenuItem changerRole = new JMenuItem("🎭 Changer le rôle...");
+                changerRole.addActionListener(ev -> {
+                    changePhraseRole(band, mark.x);
                 });
-                JMenuItem toLegacy = new JMenuItem("Séparateur double (legacy)");
-                toLegacy.addActionListener(ev -> {
-                    recordUndoSnapshot();
-                    textManager.setSeparatorType(band, worldX, SeparatorMark.Type.LEGACY);
-                    repaint();
-                });
-
-                changeTypeMenu.add(toInner);
-                changeTypeMenu.add(toLegacy);
-                menu.add(changeTypeMenu);
+                menu.add(changerRole);
                 menu.addSeparator();
-            }
 
-            JMenuItem supprimer = new JMenuItem("Supprimer");
-            supprimer.addActionListener(ev -> {
-                deleteContextSelectedSeparator();
-            });
-            menu.add(supprimer);
+                if (bandCount > 1) {
+                    JMenu changerBandeMenu = new JMenu("Changer de bande");
+                    for (int b = 0; b < bandCount; b++) {
+                        final int targetB = b;
+                        if (targetB == band) continue;
+                        String label = "Bande " + (targetB + 1);
+                        JMenuItem item = new JMenuItem(label);
+                        item.addActionListener(ev -> {
+                            movePhraseToBandWithFeedback(band, mark.x, targetB);
+                        });
+                        changerBandeMenu.add(item);
+                    }
+                    menu.add(changerBandeMenu);
+                    menu.addSeparator();
+                }
+
+                JMenuItem supprimerPhrase = new JMenuItem("Supprimer la phrase");
+                supprimerPhrase.addActionListener(ev -> {
+                    deletePhraseAtStartSeparator(band, mark.x);
+                });
+                menu.add(supprimerPhrase);
+            } else {
+                // Changer le type — seulement pour INNER et LEGACY
+                if (type == SeparatorMark.Type.INNER || type == SeparatorMark.Type.LEGACY) {
+                    JMenu changeTypeMenu = new JMenu("Changer le symbole");
+
+                    JMenuItem toInner = new JMenuItem("Séparateur interne");
+                    toInner.addActionListener(ev -> {
+                        recordUndoSnapshot();
+                        mark.type = SeparatorMark.Type.INNER;
+                        markDirty();
+                        repaint();
+                    });
+                    JMenuItem toLegacy = new JMenuItem("Séparateur double (legacy)");
+                    toLegacy.addActionListener(ev -> {
+                        recordUndoSnapshot();
+                        mark.type = SeparatorMark.Type.LEGACY;
+                        markDirty();
+                        repaint();
+                    });
+
+                    changeTypeMenu.add(toInner);
+                    changeTypeMenu.add(toLegacy);
+                    menu.add(changeTypeMenu);
+                    menu.addSeparator();
+                }
+
+                String labelSuppr = (type == SeparatorMark.Type.END) ? "Supprimer la fin de phrase" : "Supprimer le signe (" + getMarkDescription(mark) + ")";
+                JMenuItem supprimer = new JMenuItem(labelSuppr);
+                supprimer.addActionListener(ev -> {
+                    recordUndoSnapshot();
+                    textManager.removeSpecificSeparator(band, mark);
+                    markDirty();
+                    repaint();
+                });
+                menu.add(supprimer);
+            }
         }
 
         menu.show(parent, screenX, screenY);
+    }
+
+    private String getMarkDescription(SeparatorMark sm) {
+        if (sm == null) return "Signe";
+        if (sm.type == SeparatorMark.Type.START) return "Début de phrase [START]";
+        if (sm.type == SeparatorMark.Type.END) return "Fin de phrase [END]";
+        if (sm.type == SeparatorMark.Type.LEGACY) return "Double [LEGACY]";
+        if (sm.signType == SeparatorMark.SignType.MPB) return "Labiale MPB";
+        if (sm.signType == SeparatorMark.SignType.FVR) return "Demi-labiale FVR";
+        if (sm.signType == SeparatorMark.SignType.OPEN_A) return "Grande ouverture A";
+        if (sm.signType == SeparatorMark.SignType.NEUTRAL) return "Consonne neutre N";
+        if (sm.signType == SeparatorMark.SignType.RESPIRATION) return "Respiration h/";
+        return "Séparateur interne";
     }
 
     private void showPhraseContextMenu(Component parent, int screenX, int screenY, TextItem item) {

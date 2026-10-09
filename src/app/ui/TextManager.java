@@ -208,7 +208,8 @@ public class TextManager {
     public void addSeparatorAtCursorWithSign(int band, int x, SeparatorMark.SignType signType) {
         if (bandSeparators.containsKey(band)) {
             for (SeparatorMark sep : bandSeparators.get(band)) {
-                if (sep.x == x) {
+                if (Math.abs(sep.x - x) <= 4 && sep.type == SeparatorMark.Type.INNER) {
+                    sep.signType = signType;
                     return;
                 }
             }
@@ -257,7 +258,13 @@ public class TextManager {
     public SeparatorMark addSeparator(int band, int x, SeparatorMark.Type type, int splitIndex, SeparatorMark.SignType signType) {
         ArrayList<SeparatorMark> list = bandSeparators.computeIfAbsent(band, k -> new ArrayList<>());
         for (SeparatorMark mark : list) {
-            if (mark.x == x && mark.type == type) {
+            if (Math.abs(mark.x - x) <= 2 && mark.type == type) {
+                if (signType != SeparatorMark.SignType.DEFAULT) {
+                    mark.signType = signType;
+                }
+                if (splitIndex >= 0) {
+                    mark.splitIndex = splitIndex;
+                }
                 return mark;
             }
         }
@@ -286,7 +293,11 @@ public class TextManager {
     }
 
     public int[] findSeparatorAtScaled(int mouseX, int mouseY, int offsetX, int panelHeight, int bandCount, int tolerancePx) {
-        int bandHeight = panelHeight / bandCount;
+        int safePanelHeight = (panelHeight > 0) ? panelHeight : 100;
+        int safeBandCount = Math.max(1, bandCount);
+        int bandHeight = Math.max(1, safePanelHeight / safeBandCount);
+        int tolPx = Math.max(12, tolerancePx);
+
         for (Map.Entry<Integer, ArrayList<SeparatorMark>> entry : bandSeparators.entrySet()) {
             int band = entry.getKey();
             int bandTop = band * bandHeight;
@@ -297,16 +308,17 @@ public class TextManager {
                 if (sep.isStartBoundary() || sep.isEndBoundary()) {
                     int imgHeight = Math.max(14, (int) Math.round(bandHeight * 0.40f));
                     int imgWidth = Math.max(16, (int) Math.round(imgHeight * 1.5));
-                    int tolX = Math.max(tolerancePx, imgWidth / 2 + 2);
-                    int yMin = bandTop;
-                    int yMax = bandBottom + imgHeight + 10;
+                    int tolX = Math.max(tolPx, imgWidth / 2 + 4);
+                    int yMin = bandTop - 4;
+                    int yMax = bandBottom + imgHeight + 14;
 
                     if (mouseX >= sx - tolX && mouseX <= sx + tolX && mouseY >= yMin && mouseY <= yMax) {
                         return new int[]{band, sep.x};
                     }
                 } else {
-                    if (mouseY >= bandTop && mouseY <= bandBottom) {
-                        if (Math.abs(mouseX - sx) <= tolerancePx) {
+                    int tolY = Math.max(6, (int) Math.round(bandHeight * 0.20));
+                    if (mouseY >= bandTop - tolY && mouseY <= bandBottom + tolY) {
+                        if (Math.abs(mouseX - sx) <= tolPx) {
                             return new int[]{band, sep.x};
                         }
                     }
@@ -1089,6 +1101,87 @@ public class TextManager {
             }
         }
         return false;
+    }
+
+    /**
+     * Retourne la liste de tous les séparateurs situés exactement ou à proximité (tolerancePx) de worldX.
+     */
+    public ArrayList<SeparatorMark> getSeparatorsAtOrNear(int band, int worldX, int tolerancePx) {
+        ArrayList<SeparatorMark> result = new ArrayList<>();
+        ArrayList<SeparatorMark> list = bandSeparators.get(band);
+        if (list == null) return result;
+        for (SeparatorMark sm : list) {
+            if (Math.abs(sm.x - worldX) <= tolerancePx) {
+                result.add(sm);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Supprime un séparateur spécifique précis.
+     */
+    public boolean removeSpecificSeparator(int band, SeparatorMark mark) {
+        if (mark == null) return false;
+        ArrayList<SeparatorMark> list = bandSeparators.get(band);
+        if (list == null) return false;
+        boolean removed = list.remove(mark);
+        if (removed) {
+            if (mark.type == SeparatorMark.Type.START) {
+                texts.removeIf(t -> t.band == band && t.x == mark.x);
+            }
+            if (list.isEmpty()) {
+                bandSeparators.remove(band);
+            }
+        }
+        return removed;
+    }
+
+    /**
+     * Supprime tous les séparateurs situés à worldX (+/- tolerancePx).
+     */
+    public void removeAllSeparatorsAt(int band, int worldX, int tolerancePx) {
+        ArrayList<SeparatorMark> list = bandSeparators.get(band);
+        if (list == null) return;
+        boolean removedStart = false;
+        java.util.Iterator<SeparatorMark> it = list.iterator();
+        while (it.hasNext()) {
+            SeparatorMark sm = it.next();
+            if (Math.abs(sm.x - worldX) <= tolerancePx) {
+                if (sm.type == SeparatorMark.Type.START) {
+                    removedStart = true;
+                }
+                it.remove();
+            }
+        }
+        if (removedStart) {
+            texts.removeIf(t -> t.band == band && Math.abs(t.x - worldX) <= tolerancePx);
+        }
+        if (list.isEmpty()) {
+            bandSeparators.remove(band);
+        }
+    }
+
+    /**
+     * Défusionne les signes superposés ou trop proches en les espaçant de spacingPx.
+     */
+    public void unmergeSeparators(int band, int worldX, int spacingPx) {
+        ArrayList<SeparatorMark> list = bandSeparators.get(band);
+        if (list == null || list.size() <= 1) return;
+        int minSpacing = Math.max(10, spacingPx);
+        ArrayList<SeparatorMark> matches = new ArrayList<>();
+        for (SeparatorMark sm : list) {
+            if (Math.abs(sm.x - worldX) <= 8) {
+                matches.add(sm);
+            }
+        }
+        if (matches.size() <= 1) return;
+        int currentX = matches.get(0).x;
+        for (int i = 1; i < matches.size(); i++) {
+            currentX += minSpacing;
+            matches.get(i).x = currentX;
+        }
+        sortSeparators(list);
     }
 
     /**
