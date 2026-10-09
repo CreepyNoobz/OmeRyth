@@ -34,8 +34,8 @@ public class AutoTranscriptionTestDialog extends JDialog {
 
     private JComboBox<String> comboSpeakers;
     private JComboBox<String> comboLanguage;
-    private JComboBox<String> comboModel;
-    private JComboBox<String> comboCpuProfile;
+    private JSlider sliderCpuCores;
+    private JLabel labelCpuValue;
     private JComboBox<String> comboBandTarget;
     private JCheckBox checkMultiBandPerSpeaker;
 
@@ -131,27 +131,27 @@ public class AutoTranscriptionTestDialog extends JDialog {
                 "Allemand (de)", "Italien (it)", "Auto-détection (auto)"
         });
 
-        comboModel = new JComboBox<>(new String[]{
-                "Base - Ultra-Rapide (Vitesse Maximale)",
-                "Small - Haute Precision (Recommande)",
-                "Medium - Precision Maximale (Plus lent)",
-                "Tiny - Eclair"
-        });
-        comboModel.setSelectedIndex(1); // Small sélectionné par défaut
-
         int totalCores = Runtime.getRuntime().availableProcessors();
-        int maxThreads = Math.max(1, totalCores);
-        int balancedThreads = Math.max(1, (int) Math.round(totalCores * 0.75));
-        int ecoThreads = Math.max(1, Math.min(4, Math.max(2, totalCores / 4)));
+        sliderCpuCores = new JSlider(1, totalCores, totalCores);
+        sliderCpuCores.setPaintTicks(true);
+        sliderCpuCores.setMinorTickSpacing(1);
+        int majorTick = (totalCores >= 16) ? 4 : (totalCores >= 8 ? 2 : 1);
+        sliderCpuCores.setMajorTickSpacing(majorTick);
+        sliderCpuCores.setPaintLabels(true);
+        sliderCpuCores.setFont(new Font("Segoe UI", Font.PLAIN, 10));
 
-        comboCpuProfile = new JComboBox<>(new String[]{
-                "Détection Automatique (Recommandé - Performance Max : " + maxThreads + " cœurs ou GPU)",
-                "CPU Performance Maximale (" + maxThreads + " threads / 100% de puissance)",
-                "CPU Équilibré (" + balancedThreads + " threads / 75% de puissance)",
-                "CPU Économe / Silencieux (" + ecoThreads + " threads)",
-                "GPU NVIDIA CUDA (Si carte graphique NVIDIA dédiée disponible)"
+        labelCpuValue = new JLabel(totalCores + " cœurs (100% - Vitesse Max)");
+        labelCpuValue.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        labelCpuValue.setPreferredSize(new Dimension(175, 20));
+
+        sliderCpuCores.addChangeListener(e -> {
+            int val = sliderCpuCores.getValue();
+            int pct = (int) Math.round((val * 100.0) / totalCores);
+            String text = (val == totalCores)
+                    ? val + " cœurs (100% - Vitesse Max)"
+                    : val + " cœurs (" + pct + "%)";
+            labelCpuValue.setText(text);
         });
-        comboCpuProfile.setSelectedIndex(0);
 
         // Destination band selector
         int safeBandCount = Math.max(1, bandCount);
@@ -305,13 +305,14 @@ public class AutoTranscriptionTestDialog extends JDialog {
         gbc.gridx = 0; gbc.gridy = 3; paramsPanel.add(new JLabel("Langue :"), gbc);
         gbc.gridx = 1; gbc.gridy = 3; paramsPanel.add(comboLanguage, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 4; paramsPanel.add(new JLabel("Modèle IA :"), gbc);
-        gbc.gridx = 1; gbc.gridy = 4; paramsPanel.add(comboModel, gbc);
+        gbc.gridx = 0; gbc.gridy = 4; paramsPanel.add(new JLabel("Cœurs processeur (CPU) :"), gbc);
+        JPanel cpuSliderPanel = new JPanel(new BorderLayout(8, 0));
+        cpuSliderPanel.setOpaque(false);
+        cpuSliderPanel.add(sliderCpuCores, BorderLayout.CENTER);
+        cpuSliderPanel.add(labelCpuValue, BorderLayout.EAST);
+        gbc.gridx = 1; gbc.gridy = 4; paramsPanel.add(cpuSliderPanel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 5; paramsPanel.add(new JLabel("Accélération matérielle :"), gbc);
-        gbc.gridx = 1; gbc.gridy = 5; paramsPanel.add(comboCpuProfile, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 6; gbc.gridwidth = 2;
+        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2;
         paramsPanel.add(checkAutoInject, gbc);
 
         centerPanel.add(paramsPanel);
@@ -427,45 +428,9 @@ public class AutoTranscriptionTestDialog extends JDialog {
         String langDisplay = comboLanguage.getSelectedItem().toString();
         String language = langDisplay.replaceAll(".*\\((.+)\\)", "$1");
 
-        String modelDisplay = comboModel.getSelectedItem().toString().toLowerCase();
-        String model = modelDisplay.contains("medium") ? "medium" :
-                       modelDisplay.contains("small") ? "small" :
-                       modelDisplay.contains("tiny") ? "tiny" : "base";
-
-        int cpuIdx = comboCpuProfile.getSelectedIndex();
-        int totalCores = Runtime.getRuntime().availableProcessors();
-        int maxThreads = Math.max(1, totalCores);
-        int balancedThreads = Math.max(1, (int) Math.round(totalCores * 0.75));
-        int ecoThreads = Math.max(1, Math.min(4, Math.max(2, totalCores / 4)));
-
-        String device;
-        int threads;
-        switch (cpuIdx) {
-            case 0 -> {
-                device = "auto";
-                threads = maxThreads;
-            }
-            case 1 -> {
-                device = "cpu";
-                threads = maxThreads;
-            }
-            case 2 -> {
-                device = "cpu";
-                threads = balancedThreads;
-            }
-            case 3 -> {
-                device = "cpu";
-                threads = ecoThreads;
-            }
-            case 4 -> {
-                device = "cuda";
-                threads = Math.max(4, Math.min(8, totalCores));
-            }
-            default -> {
-                device = "auto";
-                threads = maxThreads;
-            }
-        }
+        String model = "medium";
+        int threads = (sliderCpuCores != null) ? sliderCpuCores.getValue() : Runtime.getRuntime().availableProcessors();
+        String device = "auto";
 
         service.transcribe(videoFile, numSpeakers, language, model, threads, device, new SpeechWorkflowService.TranscriptionCallback() {
             @Override

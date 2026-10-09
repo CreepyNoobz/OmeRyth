@@ -452,11 +452,11 @@ public class SpeechWorkflowService {
                 if (isCancelled) return;
 
                 // 3. Préparation de la commande WhisperX
-                String cleanModel = (modelName == null || modelName.isBlank()) ? "small" : modelName.toLowerCase().trim();
+                String cleanModel = (modelName == null || modelName.isBlank()) ? "medium" : modelName.toLowerCase().trim();
                 if (cleanModel.contains("base")) cleanModel = "base";
                 else if (cleanModel.contains("tiny")) cleanModel = "tiny";
-                else if (cleanModel.contains("medium")) cleanModel = "medium";
-                else cleanModel = "small";
+                else if (cleanModel.contains("small")) cleanModel = "small";
+                else cleanModel = "medium";
 
                 int safeThreads = threadCount > 0 ? threadCount : 4;
                 String langCode = (language != null && !language.isBlank()) ? language.toLowerCase().trim() : "fr";
