@@ -551,17 +551,25 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
                 float rate = direction >= 0 ? 1.0f : -1.0f;
                 var state = mp.status().state();
 
+                long targetMs = (long) Math.round(timer.getTime() * 1000.0);
+                long length = mp.status().length();
+                boolean isAtEnd = (timer.getMaxTime() > 0 && timer.getTime() >= (timer.getMaxTime() - 0.08))
+                               || (length > 0 && targetMs >= (length - 80));
+
                 if (timer.isRunning()) {
-                    // On met en pause : stopper le timer et VLC avec arrondi net au marquage 0.1s
+                    // On met en pause : stopper le timer et figer VLC immédiatement sans seek asynchrone parasite
                     timer.toggle(timer.getDirection());
-                    if (mp.status().isPlaying()) {
-                        mp.controls().pause();
-                    }
-                    long targetMs = (long) Math.round(timer.getTime() * 1000.0);
-                    mp.controls().setTime(targetMs);
+                    mp.controls().setPause(true);
+                } else if (mp.status().isPlaying()) {
+                    // Si le timer était déjà arrêté (ex: fin de vidéo) mais que VLC tourne encore : coupure nette immédiate
+                    mp.controls().setPause(true);
                 } else {
-                    // On démarre la lecture
-                    long targetMs = (long) Math.round(timer.getTime() * 1000.0);
+                    // Si on est à la fin ou au-delà et qu'on cherche à avancer, ne pas relancer la vidéo dans le vide
+                    if (direction > 0 && isAtEnd) {
+                        mp.controls().setPause(true);
+                        return;
+                    }
+
                     if (state == uk.co.caprica.vlcj.player.base.State.ENDED || state == uk.co.caprica.vlcj.player.base.State.STOPPED) {
                         String path = getMediaFilePath();
                         if (path != null) {
@@ -589,13 +597,11 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
     public void seekTime(double deltaSeconds) {
         if (deltaSeconds == 0) return;
 
-        // Si la lecture est en cours : mettre en pause (comme avec la molette de la souris)
+        // Si la lecture est en cours : mettre en pause
         if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
             try {
                 var mp = mediaPlayerComponent.mediaPlayer();
-                if (mp.status().isPlaying()) {
-                    mp.controls().pause();
-                }
+                mp.controls().setPause(true);
             } catch (Throwable ignored) {}
         }
         if (timer.isRunning()) {
@@ -615,13 +621,11 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
     }
 
     public void seekToTime(double targetSeconds) {
-        // Si la lecture est en cours : mettre en pause (comme avec la molette de la souris)
+        // Si la lecture est en cours : mettre en pause
         if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
             try {
                 var mp = mediaPlayerComponent.mediaPlayer();
-                if (mp.status().isPlaying()) {
-                    mp.controls().pause();
-                }
+                mp.controls().setPause(true);
             } catch (Throwable ignored) {}
         }
         if (timer.isRunning()) {
@@ -640,21 +644,25 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         try {
             var mp = mediaPlayerComponent.mediaPlayer();
             var state = mp.status().state();
+            long length = mp.status().length();
+            if (length > 0 && targetMs >= length) {
+                targetMs = Math.max(0, length - 50);
+            }
             if (state == uk.co.caprica.vlcj.player.base.State.ENDED || state == uk.co.caprica.vlcj.player.base.State.STOPPED) {
                 String path = getMediaFilePath();
                 if (path != null) {
                     mp.media().startPaused(path, ":start-time=" + (targetMs / 1000.0));
                     mp.controls().setTime(targetMs);
+                    mp.controls().setPause(true);
                 } else {
                     mp.controls().play();
                     mp.controls().setTime(targetMs);
-                    mp.controls().pause();
+                    mp.controls().setPause(true);
                 }
             } else {
-                if (mp.status().isPlaying()) {
-                    mp.controls().pause();
-                }
+                mp.controls().setPause(true);
                 mp.controls().setTime(targetMs);
+                mp.controls().setPause(true);
             }
         } catch (Throwable ignored) {}
     }

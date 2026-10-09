@@ -166,8 +166,10 @@ public class MediaWorkflowService {
         double wheelRotation = event.getPreciseWheelRotation();
         if (wheelRotation == 0) return;
 
-        if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer().status().isPlaying()) {
-            mediaPlayerComponent.mediaPlayer().controls().pause();
+        if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+            try {
+                mediaPlayerComponent.mediaPlayer().controls().setPause(true);
+            } catch (Throwable ignored) {}
         }
         if (timer.isRunning()) {
             timer.toggle();
@@ -192,6 +194,10 @@ public class MediaWorkflowService {
                 var mp = mediaPlayerComponent.mediaPlayer();
                 var state = mp.status().state();
                 long targetMs = (long) (next * 1000);
+                long length = mp.status().length();
+                if (length > 0 && targetMs >= length) {
+                    targetMs = Math.max(0, length - 50);
+                }
                 if (state == uk.co.caprica.vlcj.player.base.State.ENDED || state == uk.co.caprica.vlcj.player.base.State.STOPPED) {
                     String path = null;
                     if (mp.media().info() != null) {
@@ -200,16 +206,16 @@ public class MediaWorkflowService {
                     if (path != null) {
                         mp.media().startPaused(path, ":start-time=" + (targetMs / 1000.0));
                         mp.controls().setTime(targetMs);
+                        mp.controls().setPause(true);
                     } else {
                         mp.controls().play();
                         mp.controls().setTime(targetMs);
-                        mp.controls().pause();
+                        mp.controls().setPause(true);
                     }
                 } else {
-                    if (mp.status().isPlaying()) {
-                        mp.controls().pause();
-                    }
+                    mp.controls().setPause(true);
                     mp.controls().setTime(targetMs);
+                    mp.controls().setPause(true);
                 }
             } catch (Throwable ignored) {}
         }

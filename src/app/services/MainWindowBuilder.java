@@ -128,6 +128,9 @@ public class MainWindowBuilder {
                         }
                         p.timer.setTime(p.timer.getMaxTime());
                     }
+                    try {
+                        mediaPlayer.controls().setPause(true);
+                    } catch (Throwable ignored) {}
                 });
             }
 
@@ -145,10 +148,7 @@ public class MainWindowBuilder {
             if (p.mediaPlayerComponent != null && p.mediaPlayerComponent.mediaPlayer() != null) {
                 try {
                     var mp = p.mediaPlayerComponent.mediaPlayer();
-                    if (mp.status().isPlaying()) {
-                        mp.controls().pause();
-                    }
-                    mp.controls().setTime((long) (p.timer.getTime() * 1000));
+                    mp.controls().setPause(true);
                 } catch (Throwable ignored) {}
             }
         });
