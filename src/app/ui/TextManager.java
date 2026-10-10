@@ -1,6 +1,7 @@
 package app.ui;
 
 import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -20,6 +21,9 @@ public class TextManager {
     private final Map<Integer, ArrayList<SeparatorMark>> bandSeparators = new HashMap<>();
     private final ArrayList<Integer> planMarkers = new ArrayList<>();
 
+    private FontMetrics fontMetrics = null;
+    private static FontMetrics fallbackFontMetrics = null;
+
     private boolean isEditing = false;
     private TextItem selectedText = null;
     private int textX = 0;
@@ -31,7 +35,29 @@ public class TextManager {
     private int selectionStart = -1;
     private int selectionEnd = -1;
 
-    // ==================== GETTERS ====================
+    // ==================== GETTERS & SETTERS ====================
+    public void setFontMetrics(FontMetrics fontMetrics) {
+        this.fontMetrics = fontMetrics;
+    }
+
+    public FontMetrics getFontMetrics() {
+        return this.fontMetrics;
+    }
+
+    public FontMetrics getEffectiveFontMetrics() {
+        if (fontMetrics != null) {
+            return fontMetrics;
+        }
+        if (fallbackFontMetrics == null) {
+            try {
+                BufferedImage dummy = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+                Font f = new Font("Arial", Font.BOLD, 50);
+                fallbackFontMetrics = dummy.getGraphics().getFontMetrics(f);
+            } catch (Throwable ignored) {}
+        }
+        return fallbackFontMetrics;
+    }
+
     public ArrayList<TextItem> getTexts() { return texts; }
     public Map<Integer, ArrayList<SeparatorMark>> getBandSeparators() { return bandSeparators; }
     public ArrayList<Integer> getPlanMarkers() { return planMarkers; }
@@ -838,28 +864,57 @@ public class TextManager {
 
     // ==================== SEGMENT BOUNDS ====================
     private int[] getSegmentBounds(TextItem t) {
-        int segmentEnd = t.x + 300;
+        if (t == null) return new int[]{0, 300};
 
         ArrayList<SeparatorMark> sepList = bandSeparators.get(t.band);
         int leftSep = Integer.MIN_VALUE;
         int rightSep = Integer.MAX_VALUE;
+        int nextPhraseStartX = Integer.MAX_VALUE;
 
-        if (sepList != null) {
-            for (SeparatorMark sep : sepList) {
-                if (sep.isStartBoundary() && sep.x <= t.x && sep.x > leftSep) leftSep = sep.x;
-                if (sep.isEndBoundary() && sep.x > t.x && sep.x < rightSep) rightSep = sep.x;
+        if (sepList != null && !sepList.isEmpty()) {
+            int searchIdx = TimelineRenderer.findSepIndex(sepList, t.x);
+            int maxI = Math.min(searchIdx + 1, sepList.size() - 1);
+            for (int i = maxI; i >= 0; i--) {
+                SeparatorMark s = sepList.get(i);
+                if (s.x > t.x) continue;
+                if (s.isStartBoundary()) {
+                    leftSep = s.x;
+                    break;
+                }
+                if (s.isEndBoundary() && s.x < t.x) {
+                    break;
+                }
+            }
+            for (int i = Math.max(0, searchIdx - 1); i < sepList.size(); i++) {
+                SeparatorMark s = sepList.get(i);
+                if (s.x <= t.x) continue;
+                if (s.isEndBoundary()) {
+                    rightSep = s.x;
+                    break;
+                }
+                if (s.isStartBoundary()) {
+                    nextPhraseStartX = s.x;
+                    break;
+                }
             }
         }
 
-        if (leftSep != Integer.MIN_VALUE && rightSep != Integer.MAX_VALUE) {
-            segmentEnd = rightSep;
-        } else if (rightSep != Integer.MAX_VALUE) {
-            segmentEnd = rightSep;
-        } else if (leftSep != Integer.MIN_VALUE) {
-            segmentEnd = leftSep + 300;
+        int segmentStart = (leftSep != Integer.MIN_VALUE) ? leftSep : t.x;
+        int segmentEnd;
+
+        FontMetrics fm = getEffectiveFontMetrics();
+        double textWidth = (fm != null && t.text != null) ? fm.stringWidth(t.text) : (t.text != null ? t.text.length() * 10 : 100);
+        int naturalWidth = Math.max(100, (int) Math.round(textWidth * 1.25));
+
+        if (rightSep != Integer.MAX_VALUE) {
+            segmentEnd = Math.max(segmentStart + 10, rightSep);
+        } else {
+            segmentEnd = segmentStart + naturalWidth;
+            if (nextPhraseStartX != Integer.MAX_VALUE && segmentEnd > nextPhraseStartX - 5) {
+                segmentEnd = Math.max(segmentStart + 10, nextPhraseStartX - 5);
+            }
         }
 
-        int segmentStart = (leftSep != Integer.MIN_VALUE) ? leftSep : t.x;
         return new int[]{segmentStart, segmentEnd};
     }
 
@@ -892,18 +947,15 @@ public class TextManager {
     /**
      * Convertit un clic souris (coordonnée écran mouseX) en index précis de caractère (cursorIndex)
      * au sein d'une réplique déformée élastiquement par des séparateurs internes.
-     * 
-     * Problématique & Algorithme géométrique :
-     * 1. La phrase est divisée en plusieurs sous-intervalles géométriques [segStart, segEnd] par les repères INNER.
-     * 2. Chaque intervalle contient un nombre variable de caractères : segChars = idx - prevIdx.
-     * 3. On identifie dans quel sous-intervalle se trouve la coordonnée monde du clic (worldX = mouseX - offsetX).
-     * 4. On calcule le ratio d'avancement linéaire local :
-     *      rel = (worldX - segStart) / (segEnd - segStart)
-     * 5. L'indice résultant correspond à :
-     *      result = prevIdx + round(rel * segChars)
-     * 6. L'état cursorRightSide est ajusté pour savoir si le caret doit clignoter avant ou après le repère.
+     * Utilise les dimensions réelles des caractères (FontMetrics) pour un positionnement exact
+     * au niveau du caractère cliqué sans décalage.
      */
     public int getCursorIndexForClick(TextItem t, int mouseX, int offsetX) {
+        return getCursorIndexForClick(t, mouseX, offsetX, getEffectiveFontMetrics());
+    }
+
+    public int getCursorIndexForClick(TextItem t, int mouseX, int offsetX, FontMetrics fm) {
+        if (t == null) return 0;
         int[] bounds = getSegmentBounds(t);
         int segmentStart = bounds[0];
         int segmentEnd = bounds[1];
@@ -921,11 +973,12 @@ public class TextManager {
             }
         }
 
-        int len = t.text.length();
+        int len = (t.text != null) ? t.text.length() : 0;
         int prevX = segmentStart;
         int prevIdx = 0;
 
-        for (SeparatorMark mark : innerMarks) {
+        for (int mi = 0; mi < innerMarks.size(); mi++) {
+            SeparatorMark mark = innerMarks.get(mi);
             int segStart = prevX;
             int segEnd = mark.x;
             int idx = mark.splitIndex;
@@ -943,17 +996,58 @@ public class TextManager {
                     cursorRightSide = true;
                     return prevIdx;
                 }
-                double rel = (double) (worldX - segStart) / (double) (segEnd - segStart);
-                rel = Math.max(0.0, Math.min(1.0, rel));
-                int result = prevIdx + (int) Math.round(rel * segChars);
-                if (result == idx) {
-                    cursorRightSide = false;
-                } else if (result == prevIdx && prevIdx > 0) {
-                    cursorRightSide = true;
-                } else {
-                    cursorRightSide = false;
+
+                String segText = t.text.substring(prevIdx, idx);
+                double leftPad = (prevIdx == 0) ? 6.0 : 2.0;
+                double rightPad = 4.0;
+                double usableStart = segStart + leftPad;
+                double usableEnd = segEnd - rightPad;
+                double segWidth = Math.max(2.0, usableEnd - usableStart);
+
+                FontMetrics effFm = (fm != null) ? fm : getEffectiveFontMetrics();
+                if (effFm == null || segText.isEmpty()) {
+                    double rel = (double) (worldX - segStart) / (double) (segEnd - segStart);
+                    rel = Math.max(0.0, Math.min(1.0, rel));
+                    int result = prevIdx + (int) Math.round(rel * segChars);
+                    if (result == idx) {
+                        cursorRightSide = false;
+                    } else if (result == prevIdx && prevIdx > 0) {
+                        cursorRightSide = true;
+                    } else {
+                        cursorRightSide = false;
+                    }
+                    return result;
                 }
-                return result;
+
+                double total = effFm.stringWidth(segText);
+                if (total <= 0) {
+                    cursorRightSide = false;
+                    return prevIdx;
+                }
+
+                if (worldX <= usableStart) {
+                    cursorRightSide = (prevIdx > 0);
+                    return prevIdx;
+                }
+                if (worldX >= usableEnd) {
+                    cursorRightSide = false;
+                    return idx;
+                }
+
+                double prevBoundary = usableStart;
+                for (int c = 0; c < segText.length(); c++) {
+                    double nextBoundary = usableStart + (effFm.stringWidth(segText.substring(0, c + 1)) / total) * segWidth;
+                    double midPoint = (prevBoundary + nextBoundary) / 2.0;
+                    if (worldX < midPoint) {
+                        int res = prevIdx + c;
+                        cursorRightSide = (res == prevIdx && prevIdx > 0);
+                        return res;
+                    }
+                    prevBoundary = nextBoundary;
+                }
+
+                cursorRightSide = false;
+                return idx;
             }
 
             prevX = mark.x;
@@ -973,17 +1067,58 @@ public class TextManager {
             cursorRightSide = true;
             return prevIdx;
         }
-        double rel = (double) (worldX - segStart) / (double) Math.max(1, segEnd - segStart);
-        rel = Math.max(0.0, Math.min(1.0, rel));
-        int result = prevIdx + (int) Math.round(rel * segChars);
-        if (result == prevIdx && prevIdx > 0) {
-            cursorRightSide = true;
-        } else if (result == len) {
-            cursorRightSide = true;
-        } else {
-            cursorRightSide = false;
+
+        String segText = t.text.substring(Math.min(prevIdx, len));
+        double leftPad = (prevIdx == 0) ? 6.0 : 2.0;
+        double rightPad = 8.0;
+        double usableStart = segStart + leftPad;
+        double usableEnd = segEnd - rightPad;
+        double segWidth = Math.max(2.0, usableEnd - usableStart);
+
+        FontMetrics effFm = (fm != null) ? fm : getEffectiveFontMetrics();
+        if (effFm == null || segText.isEmpty()) {
+            double rel = (double) (worldX - segStart) / (double) Math.max(1, segEnd - segStart);
+            rel = Math.max(0.0, Math.min(1.0, rel));
+            int result = prevIdx + (int) Math.round(rel * segChars);
+            if (result == prevIdx && prevIdx > 0) {
+                cursorRightSide = true;
+            } else if (result == len) {
+                cursorRightSide = true;
+            } else {
+                cursorRightSide = false;
+            }
+            return result;
         }
-        return result;
+
+        double total = effFm.stringWidth(segText);
+        if (total <= 0) {
+            cursorRightSide = false;
+            return prevIdx;
+        }
+
+        if (worldX <= usableStart) {
+            cursorRightSide = (prevIdx > 0);
+            return prevIdx;
+        }
+        if (worldX >= usableEnd) {
+            cursorRightSide = true;
+            return len;
+        }
+
+        double prevBoundary = usableStart;
+        for (int c = 0; c < segText.length(); c++) {
+            double nextBoundary = usableStart + (effFm.stringWidth(segText.substring(0, c + 1)) / total) * segWidth;
+            double midPoint = (prevBoundary + nextBoundary) / 2.0;
+            if (worldX < midPoint) {
+                int res = prevIdx + c;
+                cursorRightSide = (res == prevIdx && prevIdx > 0);
+                return res;
+            }
+            prevBoundary = nextBoundary;
+        }
+
+        cursorRightSide = true;
+        return len;
     }
 
     public boolean isInEmptyInnerGap(TextItem t, int mouseX, int offsetX) {
@@ -1031,42 +1166,19 @@ public class TextManager {
     // ==================== MOUSE HIT DETECTION ====================
     public TextItem getTextAtScaled(int mouseX, int mouseY, int offsetX, int panelHeight, int bandCount) {
         int bandHeight = panelHeight / bandCount;
+        int clickBand = mouseY / bandHeight;
 
         for (TextItem t : texts) {
-            int bandY = t.band * bandHeight + bandHeight - 20;
+            if (t.band != clickBand) continue;
 
-            int segmentStart = t.x;
-            int segmentEnd = t.x + 300;
+            int[] bounds = getSegmentBounds(t);
+            int segmentStart = bounds[0];
+            int segmentEnd = bounds[1];
 
-            ArrayList<SeparatorMark> sepList = bandSeparators.get(t.band);
-            int leftSep = Integer.MIN_VALUE;
-            int rightSep = Integer.MAX_VALUE;
+            int scaledStartX = segmentStart + offsetX;
+            int scaledEndX = segmentEnd + offsetX;
 
-            if (sepList != null) {
-                for (SeparatorMark sep : sepList) {
-                    if (sep.isStartBoundary() && sep.x <= t.x && sep.x > leftSep) leftSep = sep.x;
-                    if (sep.isEndBoundary() && sep.x > t.x && sep.x < rightSep) rightSep = sep.x;
-                }
-            }
-
-            if (leftSep != Integer.MIN_VALUE) segmentStart = leftSep;
-            if (rightSep != Integer.MAX_VALUE) segmentEnd = rightSep;
-
-            int availableWidth = segmentEnd - t.x;
-            if (availableWidth <= 0) continue;
-
-            // On utilise FontMetrics approximatif
-            int textWidth = t.text.length() * 10; // approximation si tu n’as pas Graphics ici
-            double scale = (textWidth > 0) ? ((double) availableWidth / textWidth) : 1.0;
-
-            int scaledStartX = t.x + offsetX;
-            int scaledEndX = (int)(scaledStartX + textWidth * scale);
-
-            int textTopY = bandY - 36; // approximé font height
-            int textBottomY = bandY;
-
-            if (mouseX >= scaledStartX && mouseX <= scaledEndX &&
-                mouseY >= textTopY && mouseY <= textBottomY) {
+            if (mouseX >= scaledStartX && mouseX <= scaledEndX) {
                 return t;
             }
         }

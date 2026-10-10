@@ -256,7 +256,7 @@ public class TimelinePanel extends JPanel {
 
                 if (textDragSelecting && textManager.isEditing() && textManager.getEditingItem() != null) {
                     TextItem editing = textManager.getEditingItem();
-                    int curIdx = textManager.getCursorIndexForClick(editing, e.getX(), intOffsetX);
+                    int curIdx = textManager.getCursorIndexForClick(editing, e.getX(), intOffsetX, getTimelineFontMetrics());
                     textManager.setSelection(textSelectionAnchor, curIdx);
                     textManager.setCursorIndex(curIdx);
                     hasMovedDuringDrag = true;
@@ -374,13 +374,14 @@ public class TimelinePanel extends JPanel {
                             hitText = textManager.getTextInSegmentAt(e.getX(), e.getY(), intOffsetX, getHeight(), bandCount);
                         }
                         if (hitText != null) {
+                            FontMetrics tfm = getTimelineFontMetrics();
                             if (!textManager.isEditing() || textManager.getEditingItem() != hitText) {
-                                int clickIdx = textManager.getCursorIndexForClick(hitText, e.getX(), intOffsetX);
+                                int clickIdx = textManager.getCursorIndexForClick(hitText, e.getX(), intOffsetX, tfm);
                                 textManager.startEditingExistingText(hitText, clickIdx);
                                 resetCaretBlink();
                             }
                             textDragSelecting = true;
-                            textSelectionAnchor = textManager.getCursorIndexForClick(hitText, e.getX(), intOffsetX);
+                            textSelectionAnchor = textManager.getCursorIndexForClick(hitText, e.getX(), intOffsetX, tfm);
                             textManager.setSelection(textSelectionAnchor, textSelectionAnchor);
                             textManager.setCursorIndex(textSelectionAnchor);
                         }
@@ -474,16 +475,17 @@ public class TimelinePanel extends JPanel {
                 }
 
                 // Simple clic: éditer texte existant seulement
+                FontMetrics tfm = getTimelineFontMetrics();
                 TextItem clickedText = textManager.getTextAtScaled(x, y, intOffsetX, getHeight(), bandCount);
                 if (clickedText != null) {
-                    int cursorIdx = textManager.getCursorIndexForClick(clickedText, x, intOffsetX);
+                    int cursorIdx = textManager.getCursorIndexForClick(clickedText, x, intOffsetX, tfm);
                     textManager.startEditingExistingText(clickedText, cursorIdx);
                     textManager.clearSelection();
                     resetCaretBlink();
                 } else {
                     TextItem segmentText = textManager.getTextInSegmentAt(x, y, intOffsetX, getHeight(), bandCount);
                     if (segmentText != null) {
-                        int cursorIdx = textManager.getCursorIndexForClick(segmentText, x, intOffsetX);
+                        int cursorIdx = textManager.getCursorIndexForClick(segmentText, x, intOffsetX, tfm);
                         textManager.startEditingExistingText(segmentText, cursorIdx);
                         textManager.clearSelection();
                         resetCaretBlink();
@@ -1083,9 +1085,22 @@ public class TimelinePanel extends JPanel {
         return currentTime;
     }
 
+    public FontMetrics getTimelineFontMetrics() {
+        int h = getHeight() > 0 ? getHeight() : Math.max(20, bandHeight * Math.max(1, bandCount));
+        int bHeight = Math.max(1, h / Math.max(1, bandCount));
+        Font font = renderer.buildTimelineFont(bHeight);
+        try {
+            FontMetrics fm = getFontMetrics(font);
+            if (fm != null) return fm;
+        } catch (Throwable ignored) {}
+        BufferedImage dummy = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        return dummy.getGraphics().getFontMetrics(font);
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
+        textManager.setFontMetrics(getTimelineFontMetrics());
         renderer.setLastTypingTimestamp(lastTypingTimestamp);
         renderer.setSelection(textManager.getSelectionStart(), textManager.getSelectionEnd());
         renderer.setActiveSegmentEndMarkX(textManager.getActiveSegmentEndMarkX());

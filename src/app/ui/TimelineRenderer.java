@@ -648,7 +648,7 @@ public class TimelineRenderer {
         drawScaledText(g2, fm, text, segStartX, baselineY, width, targetTextHeight, false);
     }
 
-    private Font buildTimelineFont(int bandHeight) {
+    public Font buildTimelineFont(int bandHeight) {
         String family = customization.timelineFontFamily != null && !customization.timelineFontFamily.isBlank()
                 ? customization.timelineFontFamily
                 : "Arial";

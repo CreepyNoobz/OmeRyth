@@ -1702,6 +1702,54 @@ public class SmokeTests {
             System.out.println("Vérification Lien Release Whisper : VALIDÉ !");
         }
 
+        // Test Précision du Clic sur les Mots dans une Bande (Alignement Exact & Aucun Décalage de 2-3 Lettres)
+        {
+            java.awt.image.BufferedImage dummyImg = new java.awt.image.BufferedImage(100, 100, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            java.awt.Font font = new java.awt.Font("Arial", java.awt.Font.BOLD, 50);
+            java.awt.FontMetrics fm = dummyImg.getGraphics().getFontMetrics(font);
+
+            app.ui.TimelineRenderer renderer = new app.ui.TimelineRenderer(3, 100);
+            String[] phrases = {
+                "J'ai retourné ton impractique Quirk.",
+                "Mister Isawa a raison de ce qu'il a dit.",
+                "Est-ce qu'il va utiliser son Quirk et devoir défendre les restes des événements comme un fou ?",
+                "Quelle merde, jeune Midoriya !"
+            };
+
+            for (String sample : phrases) {
+                app.ui.TextManager tmWord = new app.ui.TextManager();
+                tmWord.setFontMetrics(fm);
+                int segStart = 500;
+                int segEnd = 500 + (int) Math.round(fm.stringWidth(sample) * 1.25);
+                app.ui.TextItem item = new app.ui.TextItem(sample, segStart, 0);
+                tmWord.getTexts().add(item);
+                tmWord.addSeparator(0, segStart, app.ui.SeparatorMark.Type.START);
+                tmWord.addSeparator(0, segEnd, app.ui.SeparatorMark.Type.END);
+
+                ArrayList<app.ui.SeparatorMark> innerMarks = new ArrayList<>();
+
+                for (int i = 0; i < sample.length(); i++) {
+                    double xStart = renderer.computeCursorXForSegments(fm, item, 0, segStart, segEnd, innerMarks, i, false);
+                    double xEnd = renderer.computeCursorXForSegments(fm, item, 0, segStart, segEnd, innerMarks, i + 1, false);
+                    if (xEnd <= xStart) continue;
+
+                    // Clic dans le quart gauche de la lettre -> doit atterrir précisément à l'index i
+                    double clickLeft = xStart + (xEnd - xStart) * 0.25;
+                    int idxLeft = tmWord.getCursorIndexForClick(item, (int) Math.round(clickLeft), 0, fm);
+                    assertTrue(idxLeft == i, "Clic gauche sur lettre '" + sample.charAt(i) + "' (" + i + ") de '" + sample +
+                            "' doit donner " + i + " et pas " + idxLeft);
+
+                    // Clic dans le quart droit de la lettre -> doit atterrir précisément à l'index i + 1
+                    double clickRight = xStart + (xEnd - xStart) * 0.75;
+                    int idxRight = tmWord.getCursorIndexForClick(item, (int) Math.round(clickRight), 0, fm);
+                    assertTrue(idxRight == i + 1, "Clic droit sur lettre '" + sample.charAt(i) + "' (" + i + ") de '" + sample +
+                            "' doit donner " + (i + 1) + " et pas " + idxRight);
+                }
+            }
+
+            System.out.println("Vérification Précision du Clic sur Mot dans Bande (Aucun Décalage) : VALIDÉ !");
+        }
+
         System.out.println("SmokeTests OK");
         System.exit(0);
     }
