@@ -390,7 +390,7 @@ public class MediaWorkflowService {
         }
 
         // Ouvrir la boîte de dialogue SANS AUCUN BLOCAGE sur l'EDT
-        final app.ui.ExportVideoDialog dialog = new app.ui.ExportVideoDialog(owner, timelinePanel, initialSnapshot);
+        final app.ui.ExportVideoDialog dialog = new app.ui.ExportVideoDialog(owner, timelinePanel, initialSnapshot, fichierSelectionne, dureeSec, mediaPlayerComponent);
 
         // Si pas de miniature immédiate en cache, extraction 100% asynchrone en arrière-plan
         if (initialSnapshot == null) {
@@ -619,9 +619,38 @@ public class MediaWorkflowService {
                         }
 
                         if (separatedAudio != null) {
-                            filter.append(";[2:a]aresample=async=1:first_pts=0[aout]");
+                            if (config.voiceKeepZones != null && !config.voiceKeepZones.isEmpty()) {
+                                StringBuilder keepExpr = new StringBuilder();
+                                for (int i = 0; i < config.voiceKeepZones.size(); i++) {
+                                    double[] z = config.voiceKeepZones.get(i);
+                                    if (i > 0) keepExpr.append("+");
+                                    keepExpr.append(String.format(Locale.US, "between(t,%.3f,%.3f)", z[0], z[1]));
+                                }
+                                filter.append(String.format(Locale.US,
+                                        ";[2:a]volume='if(%s,0,1)':eval=frame[ainst];" +
+                                        "[1:a]volume='if(%s,1,0)':eval=frame[aorig];" +
+                                        "[ainst][aorig]amix=inputs=2:normalize=0:dropout_transition=0,aresample=async=1:first_pts=0[aout]",
+                                        keepExpr, keepExpr));
+                            } else {
+                                filter.append(";[2:a]aresample=async=1:first_pts=0[aout]");
+                            }
                         } else if (config.removeVocals) {
-                            filter.append(";[1:a]stereotools=mlev=0.015625:slev=1.3,highpass=f=80,aresample=async=1:first_pts=0[aout]");
+                            if (config.voiceKeepZones != null && !config.voiceKeepZones.isEmpty()) {
+                                StringBuilder keepExpr = new StringBuilder();
+                                for (int i = 0; i < config.voiceKeepZones.size(); i++) {
+                                    double[] z = config.voiceKeepZones.get(i);
+                                    if (i > 0) keepExpr.append("+");
+                                    keepExpr.append(String.format(Locale.US, "between(t,%.3f,%.3f)", z[0], z[1]));
+                                }
+                                filter.append(String.format(Locale.US,
+                                        ";[1:a]asplit=2[a_orig_in][a_stereo_in];" +
+                                        "[a_stereo_in]stereotools=mlev=0.015625:slev=1.3,highpass=f=80,volume='if(%s,0,1)':eval=frame[ainst];" +
+                                        "[a_orig_in]volume='if(%s,1,0)':eval=frame[aorig];" +
+                                        "[ainst][aorig]amix=inputs=2:normalize=0:dropout_transition=0,aresample=async=1:first_pts=0[aout]",
+                                        keepExpr, keepExpr));
+                            } else {
+                                filter.append(";[1:a]stereotools=mlev=0.015625:slev=1.3,highpass=f=80,aresample=async=1:first_pts=0[aout]");
+                            }
                         } else if (config.includeAudio) {
                             filter.append(";[1:a]aresample=async=1:first_pts=0[aout]");
                         }

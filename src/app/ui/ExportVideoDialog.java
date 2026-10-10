@@ -77,6 +77,7 @@ public class ExportVideoDialog extends JDialog {
         public int blurRadius = 25;
         public int blurOpacity = 85;
         public java.util.List<String> layerOrder = new java.util.ArrayList<>(java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"));
+        public java.util.List<double[]> voiceKeepZones = new java.util.ArrayList<>();
         public boolean approved = false;
     }
 
@@ -227,6 +228,15 @@ public class ExportVideoDialog extends JDialog {
     private boolean updatingPreset = false;
     private final ExportPreset customPresetItem;
 
+    private File videoFile;
+    private double videoDuration = 60.0;
+    private uk.co.caprica.vlcj.player.component.EmbeddedMediaPlayerComponent mediaPlayerComponent;
+    private VoiceExclusionTimelinePanel voiceExclusionTimeline;
+    private javax.swing.Timer previewPlayTimer;
+    private boolean isPreviewPlaying = false;
+    private final app.services.MediaWorkflowService mediaWorkflowService = new app.services.MediaWorkflowService();
+    private volatile long lastSnapshotRequestTime = 0;
+
     public ExportVideoDialog(Frame owner, int currentScreenWidth, int currentScreenHeight) {
         this(owner, null, null, currentScreenWidth, currentScreenHeight);
     }
@@ -241,6 +251,13 @@ public class ExportVideoDialog extends JDialog {
         this(owner, timelinePanel, videoSnapshot,
                 timelinePanel != null && timelinePanel.getWidth() > 0 ? timelinePanel.getWidth() : 1920,
                 timelinePanel != null && timelinePanel.getHeight() > 0 ? timelinePanel.getHeight() : 100);
+    }
+
+    public ExportVideoDialog(Frame owner, TimelinePanel timelinePanel, BufferedImage videoSnapshot, File videoFile, double durationSeconds, uk.co.caprica.vlcj.player.component.EmbeddedMediaPlayerComponent mediaPlayerComponent) {
+        this(owner, timelinePanel, videoSnapshot,
+                timelinePanel != null && timelinePanel.getWidth() > 0 ? timelinePanel.getWidth() : 1920,
+                timelinePanel != null && timelinePanel.getHeight() > 0 ? timelinePanel.getHeight() : 100,
+                videoFile, durationSeconds, mediaPlayerComponent);
     }
 
     private static class ScrollablePanel extends JPanel implements Scrollable {
@@ -270,9 +287,22 @@ public class ExportVideoDialog extends JDialog {
     }
 
     public ExportVideoDialog(Frame owner, TimelinePanel timelinePanel, BufferedImage videoSnapshot, int currentScreenWidth, int currentScreenHeight) {
+        this(owner, timelinePanel, videoSnapshot, currentScreenWidth, currentScreenHeight, null, 0.0, null);
+    }
+
+    public ExportVideoDialog(Frame owner, TimelinePanel timelinePanel, BufferedImage videoSnapshot, int currentScreenWidth, int currentScreenHeight, File videoFile, double durationSeconds, uk.co.caprica.vlcj.player.component.EmbeddedMediaPlayerComponent mediaPlayerComponent) {
         super(owner, "Exportation Vidéo & Bande Rythmo", true);
         this.timelinePanel = timelinePanel;
         this.videoSnapshot = videoSnapshot;
+        this.videoFile = videoFile;
+        this.mediaPlayerComponent = mediaPlayerComponent;
+        if (durationSeconds > 0) {
+            this.videoDuration = durationSeconds;
+        } else if (timelinePanel != null) {
+            this.videoDuration = Math.max(10.0, timelinePanel.getCurrentTime() + 60.0);
+        } else {
+            this.videoDuration = 60.0;
+        }
         this.bandCount = (timelinePanel != null) ? Math.max(1, timelinePanel.getBandCount()) : 1;
 
         int initW = currentScreenWidth > 0 ? currentScreenWidth : 1920;
@@ -293,6 +323,7 @@ public class ExportVideoDialog extends JDialog {
         addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
+                stopPreviewPlayback();
                 config.approved = false;
                 dispose();
             }
@@ -511,6 +542,7 @@ public class ExportVideoDialog extends JDialog {
         finalH = Math.min(finalH, screenSize.height - 40);
         setSize(finalW, finalH);
         setLocationRelativeTo(owner);
+        updateVoiceRemovalTimelineVisibility();
     }
 
     public void setVideoSnapshot(BufferedImage snapshot) {
@@ -545,7 +577,10 @@ public class ExportVideoDialog extends JDialog {
         headerPanel.add(sub, BorderLayout.SOUTH);
         panel.add(headerPanel, BorderLayout.NORTH);
 
-        // Canvas interactif au centre
+        // Canvas interactif au centre avec barre temporelle d'exclusion vocale en dessous
+        JPanel centerContainer = new JPanel(new BorderLayout(0, 4));
+        centerContainer.setOpaque(false);
+
         montageCanvas = new MontagePreviewCanvas();
         montageCanvas.setTimelinePanel(timelinePanel);
         montageCanvas.setBandCount(bandCount);
@@ -553,7 +588,16 @@ public class ExportVideoDialog extends JDialog {
         if (timelinePanel != null) {
             montageCanvas.setPreviewTime(timelinePanel.getCurrentTime());
         }
-        panel.add(montageCanvas, BorderLayout.CENTER);
+        centerContainer.add(montageCanvas, BorderLayout.CENTER);
+
+        voiceExclusionTimeline = new VoiceExclusionTimelinePanel(videoDuration, this::seekPreview, this::togglePreviewPlayback);
+        if (timelinePanel != null) {
+            voiceExclusionTimeline.setCurrentTime(timelinePanel.getCurrentTime());
+        }
+        voiceExclusionTimeline.setVisible(false);
+        centerContainer.add(voiceExclusionTimeline, BorderLayout.SOUTH);
+
+        panel.add(centerContainer, BorderLayout.CENTER);
 
         // Panneau latéral droit : Contrôles & Inspecteur (avec défilement fluide et largeur confortable)
         ScrollablePanel controlsPanel = new ScrollablePanel();
@@ -915,6 +959,10 @@ public class ExportVideoDialog extends JDialog {
         checkMontageRemoveVocals.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         checkMontageRemoveVocals.setForeground(new Color(245, 158, 11));
         checkMontageRemoveVocals.setToolTipText("Supprime les dialogues via le réseau de neurones IA Demucs pour permettre aux comédiens de doubler par-dessus.");
+        checkMontageRemoveVocals.addActionListener(e -> {
+            updateVoiceRemovalTimelineVisibility();
+            onMontageParamChanged();
+        });
         optionsPanel.add(checkMontageRemoveVocals);
 
         JPanel antiCopyrightPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
@@ -1157,6 +1205,11 @@ public class ExportVideoDialog extends JDialog {
             };
             config.includeAudio = true;
             config.removeVocals = checkMontageRemoveVocals.isSelected();
+            if (config.removeVocals && voiceExclusionTimeline != null) {
+                config.voiceKeepZones = voiceExclusionTimeline.getNormalizedZones();
+            } else {
+                config.voiceKeepZones = new java.util.ArrayList<>();
+            }
             config.antiCopyright = (checkAntiCopyright != null && checkAntiCopyright.isSelected());
             config.antiCopyrightOpacity = (spinnerAntiCopyrightOpacity != null)
                     ? ((Number) spinnerAntiCopyrightOpacity.getValue()).intValue()
@@ -1193,6 +1246,7 @@ public class ExportVideoDialog extends JDialog {
             config.fps = getSelectedFps();
             config.includeAudio = true;
             config.removeVocals = false;
+            config.voiceKeepZones = new java.util.ArrayList<>();
             config.antiCopyright = false;
             config.antiCopyrightOpacity = 0;
             config.encoder = switch (comboEncoder.getSelectedIndex()) {
@@ -1207,6 +1261,169 @@ public class ExportVideoDialog extends JDialog {
 
         config.approved = true;
         dispose();
+    }
+
+    @Override
+    public void dispose() {
+        stopPreviewPlayback();
+        super.dispose();
+    }
+
+    private void updateVoiceRemovalTimelineVisibility() {
+        boolean active = (checkMontageRemoveVocals != null && checkMontageRemoveVocals.isSelected());
+        if (voiceExclusionTimeline != null) {
+            voiceExclusionTimeline.setVisible(active);
+            if (!active && isPreviewPlaying) {
+                stopPreviewPlayback();
+            }
+            Container parent = voiceExclusionTimeline.getParent();
+            if (parent != null) {
+                parent.revalidate();
+                parent.repaint();
+            }
+        }
+    }
+
+    private void togglePreviewPlayback() {
+        if (isPreviewPlaying) {
+            stopPreviewPlayback();
+        } else {
+            startPreviewPlayback();
+        }
+    }
+
+    private void startPreviewPlayback() {
+        if (isPreviewPlaying) return;
+        isPreviewPlaying = true;
+        if (voiceExclusionTimeline != null) {
+            voiceExclusionTimeline.setPlaying(true);
+        }
+
+        double curT = (voiceExclusionTimeline != null) ? voiceExclusionTimeline.getCurrentTime() : 0.0;
+        if (curT >= videoDuration - 0.1) {
+            curT = 0.0;
+            if (voiceExclusionTimeline != null) {
+                voiceExclusionTimeline.setCurrentTime(0.0);
+            }
+            seekPreview(0.0);
+        }
+
+        if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+            try {
+                var mp = mediaPlayerComponent.mediaPlayer();
+                long targetMs = (long) Math.round(curT * 1000.0);
+                var state = mp.status().state();
+                if (state == uk.co.caprica.vlcj.player.base.State.ENDED || state == uk.co.caprica.vlcj.player.base.State.STOPPED) {
+                    if (videoFile != null) {
+                        mp.media().play(videoFile.getAbsolutePath(), ":start-time=" + curT, ":file-caching=150", ":clock-jitter=0", ":clock-synchro=0");
+                    } else {
+                        mp.controls().play();
+                        mp.controls().setTime(targetMs);
+                    }
+                } else {
+                    mp.controls().setTime(targetMs);
+                    mp.controls().play();
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        if (previewPlayTimer != null) {
+            previewPlayTimer.stop();
+        }
+        final long startSysTime = System.currentTimeMillis();
+        final double startVidTime = curT;
+
+        previewPlayTimer = new javax.swing.Timer(33, evt -> {
+            if (!isPreviewPlaying) return;
+            double nowT;
+            if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+                try {
+                    long vlcMs = mediaPlayerComponent.mediaPlayer().status().time();
+                    if (vlcMs >= 0) {
+                        nowT = vlcMs / 1000.0;
+                    } else {
+                        long elapsed = System.currentTimeMillis() - startSysTime;
+                        nowT = startVidTime + (elapsed / 1000.0);
+                    }
+                } catch (Throwable t) {
+                    long elapsed = System.currentTimeMillis() - startSysTime;
+                    nowT = startVidTime + (elapsed / 1000.0);
+                }
+            } else {
+                long elapsed = System.currentTimeMillis() - startSysTime;
+                nowT = startVidTime + (elapsed / 1000.0);
+            }
+
+            if (nowT >= videoDuration) {
+                nowT = videoDuration;
+                stopPreviewPlayback();
+            }
+
+            if (voiceExclusionTimeline != null) {
+                voiceExclusionTimeline.setCurrentTime(nowT);
+            }
+            if (montageCanvas != null) {
+                montageCanvas.setPreviewTime(nowT);
+            }
+        });
+        previewPlayTimer.start();
+    }
+
+    private void stopPreviewPlayback() {
+        isPreviewPlaying = false;
+        if (voiceExclusionTimeline != null) {
+            voiceExclusionTimeline.setPlaying(false);
+        }
+        if (previewPlayTimer != null) {
+            previewPlayTimer.stop();
+            previewPlayTimer = null;
+        }
+        if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+            try {
+                mediaPlayerComponent.mediaPlayer().controls().setPause(true);
+            } catch (Throwable ignored) {}
+        }
+    }
+
+    private void seekPreview(double targetSec) {
+        targetSec = Math.max(0.0, Math.min(videoDuration, targetSec));
+        if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+            try {
+                mediaPlayerComponent.mediaPlayer().controls().setTime((long) Math.round(targetSec * 1000.0));
+            } catch (Throwable ignored) {}
+        }
+        if (montageCanvas != null) {
+            montageCanvas.setPreviewTime(targetSec);
+        }
+        if (!isPreviewPlaying && videoFile != null) {
+            requestPreviewSnapshot(targetSec);
+        }
+    }
+
+    private void requestPreviewSnapshot(double targetSec) {
+        if (videoFile == null || !videoFile.exists()) return;
+        long reqId = System.currentTimeMillis();
+        lastSnapshotRequestTime = reqId;
+        javax.swing.Timer debounce = new javax.swing.Timer(120, e -> {
+            if (lastSnapshotRequestTime == reqId) {
+                Thread worker = new Thread(() -> {
+                    try {
+                        BufferedImage snap = mediaWorkflowService.capturePreviewFrame(videoFile, targetSec, mediaPlayerComponent);
+                        if (snap != null && lastSnapshotRequestTime == reqId) {
+                            SwingUtilities.invokeLater(() -> {
+                                if (montageCanvas != null) {
+                                    montageCanvas.setVideoSnapshot(snap);
+                                }
+                            });
+                        }
+                    } catch (Throwable ignored) {}
+                }, "ExportPreviewScrubWorker");
+                worker.setDaemon(true);
+                worker.start();
+            }
+        });
+        debounce.setRepeats(false);
+        debounce.start();
     }
 
     private void populatePresets(int currentScreenWidth, int currentScreenHeight) {
@@ -1428,6 +1645,7 @@ public class ExportVideoDialog extends JDialog {
         if (p.bandRect != null) montageCanvas.setBandRect(p.bandRect.x, p.bandRect.y, p.bandRect.width, p.bandRect.height);
 
         checkMontageRemoveVocals.setSelected(p.removeVocals);
+        updateVoiceRemovalTimelineVisibility();
         checkAntiCopyright.setSelected(p.antiCopyright);
         spinnerAntiCopyrightOpacity.setEnabled(p.antiCopyright);
         spinnerAntiCopyrightOpacity.setValue(p.antiCopyrightOpacity);

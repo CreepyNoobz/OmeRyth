@@ -1750,6 +1750,69 @@ public class SmokeTests {
             System.out.println("Vérification Précision du Clic sur Mot dans Bande (Aucun Décalage) : VALIDÉ !");
         }
 
+        // Test VoiceExclusionTimelinePanel & Balises d'Exclusion Vocale (Retrait Voix IA)
+        {
+            System.out.println("--- Test Balises d'Exclusion Vocale (Demucs Voice Remover Bypass) ---");
+            double testDuration = 60.0;
+            java.util.concurrent.atomic.AtomicReference<Double> soughtTime = new java.util.concurrent.atomic.AtomicReference<>(0.0);
+            java.util.concurrent.atomic.AtomicBoolean playToggled = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+            app.ui.VoiceExclusionTimelinePanel voiceTimeline = new app.ui.VoiceExclusionTimelinePanel(
+                    testDuration,
+                    t -> soughtTime.set(t),
+                    () -> playToggled.set(!playToggled.get())
+            );
+
+            assertTrue(voiceTimeline.getTotalDuration() == 60.0, "La durée totale de la timeline doit être 60.0s");
+            assertTrue(voiceTimeline.getZones().isEmpty(), "Au départ aucune balise d'exclusion ne doit être définie");
+
+            // Positionner à 10.0s et créer une balise de 3s
+            voiceTimeline.setCurrentTime(10.0);
+            assertTrue(Math.abs(voiceTimeline.getCurrentTime() - 10.0) < 0.001, "Le curseur de lecture doit être à 10.0s");
+
+            voiceTimeline.addZoneAtCursor(3.0);
+            assertTrue(voiceTimeline.getZones().size() == 1, "Une balise doit avoir été créée");
+            app.ui.VoiceExclusionTimelinePanel.VoiceZone z1 = voiceTimeline.getZones().get(0);
+            assertTrue(Math.abs(z1.startSec - 10.0) < 0.001, "La balise début doit être à 10.0s");
+            assertTrue(Math.abs(z1.endSec - 13.0) < 0.001, "La balise fin doit être à 13.0s");
+            assertTrue(Math.abs(z1.getDuration() - 3.0) < 0.001, "La durée de la zone doit être de 3.0s");
+
+            // Ajouter une seconde zone à 25.0s
+            voiceTimeline.setCurrentTime(25.0);
+            voiceTimeline.addZoneAtCursor(3.0);
+            assertTrue(voiceTimeline.getZones().size() == 2, "Deux balises doivent exister");
+
+            // Test de normalisation et fusion des zones
+            java.util.List<double[]> normZones = voiceTimeline.getNormalizedZones();
+            assertTrue(normZones.size() == 2, "Deux zones distinctes normalisées");
+            assertTrue(normZones.get(0)[0] == 10.0 && normZones.get(0)[1] == 13.0, "Première zone: [10.0, 13.0]");
+            assertTrue(normZones.get(1)[0] == 25.0 && normZones.get(1)[1] == 28.0, "Deuxième zone: [25.0, 28.0]");
+
+            // Test fusion de deux zones qui se chevauchent : ajout de [12.0, 16.0]
+            voiceTimeline.addZone(12.0, 16.0);
+            java.util.List<double[]> merged = voiceTimeline.getNormalizedZones();
+            assertTrue(merged.size() == 2, "La zone [12, 16] doit fusionner avec [10, 13] pour donner 2 zones totales");
+            assertTrue(merged.get(0)[0] == 10.0 && merged.get(0)[1] == 16.0, "Zone fusionnée doit être [10.0, 16.0]");
+            assertTrue(merged.get(1)[0] == 25.0 && merged.get(1)[1] == 28.0, "Zone 2 inchangée [25.0, 28.0]");
+
+            // Test suppression de la sélection et clear
+            voiceTimeline.deleteSelectedZone(); // La dernière zone ajoutée était sélectionnée
+            assertTrue(voiceTimeline.getZones().size() == 2, "Après suppression de la zone sélectionnée il doit en rester 2");
+
+            voiceTimeline.clearAllZones();
+            assertTrue(voiceTimeline.getZones().isEmpty(), "clearAllZones doit vider toutes les balises");
+            assertTrue(voiceTimeline.getNormalizedZones().isEmpty(), "Normalized zones doit être vide");
+
+            // Test intégration dans ExportConfig
+            app.ui.ExportVideoDialog.ExportConfig exportCfg = new app.ui.ExportVideoDialog.ExportConfig();
+            exportCfg.removeVocals = true;
+            exportCfg.voiceKeepZones.add(new double[]{5.0, 8.0});
+            exportCfg.voiceKeepZones.add(new double[]{20.0, 23.0});
+            assertTrue(exportCfg.voiceKeepZones.size() == 2, "ExportConfig doit conserver les zones de préservation de la voix");
+
+            System.out.println("Vérification Balises d'Exclusion Vocale (Voice Remover Bypass & Playback) : VALIDÉ !");
+        }
+
         System.out.println("SmokeTests OK");
         System.exit(0);
     }
