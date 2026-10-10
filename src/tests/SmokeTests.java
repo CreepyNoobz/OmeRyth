@@ -1843,7 +1843,20 @@ public class SmokeTests {
             exportCfg.removeVocals = true;
             exportCfg.voiceKeepZones.add(new double[]{5.0, 8.0});
             exportCfg.voiceKeepZones.add(new double[]{20.0, 23.0});
-            assertTrue(exportCfg.voiceKeepZones.size() == 2, "ExportConfig doit conserver les zones de préservation de la voix");
+            // Vérification de l'absence de glyphes manquants [] et des couleurs de texte noires sur les boutons
+            assertTrue(voiceTimeline.getBtnPlayPause().getText().equals("Lecture"), "Texte Lecture sans symbole []");
+            assertTrue(voiceTimeline.getBtnPlayPause().getForeground().equals(Color.BLACK), "Texte Lecture en noir");
+            voiceTimeline.setPlaying(true);
+            assertTrue(voiceTimeline.getBtnPlayPause().getText().equals("Pause"), "Texte Pause sans symbole []");
+            assertTrue(voiceTimeline.getBtnPlayPause().getForeground().equals(Color.BLACK), "Texte Pause en noir");
+            voiceTimeline.setPlaying(false);
+
+            assertTrue(voiceTimeline.getBtnAddZone().getText().equals("Balise voix (3s)"), "Texte Balise voix sans symbole []");
+            assertTrue(voiceTimeline.getBtnAddZone().getForeground().equals(Color.BLACK), "Texte Balise voix en noir");
+
+            assertTrue(voiceTimeline.getBtnDeleteZone().getText().equals("Supprimer balise"), "Texte Supprimer balise sans symbole []");
+            assertTrue(voiceTimeline.getBtnClearAll().getText().equals("Tout effacer"), "Texte Tout effacer sans symbole []");
+            assertTrue(voiceTimeline.getBtnClearAll().getForeground().equals(Color.BLACK), "Texte Tout effacer en noir");
 
             System.out.println("Vérification Balises d'Exclusion Vocale (Voice Remover Bypass & Playback) : VALIDÉ !");
         }

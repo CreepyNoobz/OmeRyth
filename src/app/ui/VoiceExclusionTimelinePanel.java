@@ -104,9 +104,9 @@ public class VoiceExclusionTimelinePanel extends JPanel {
     public void setPlaying(boolean playing) {
         this.isPlaying = playing;
         if (btnPlayPause != null) {
-            btnPlayPause.setText(playing ? "⏸ Pause" : "▶ Lecture");
-            btnPlayPause.setBackground(playing ? new Color(217, 119, 6) : new Color(39, 39, 42));
-            btnPlayPause.setForeground(playing ? Color.BLACK : new Color(244, 244, 245));
+            btnPlayPause.setText(playing ? "Pause" : "Lecture");
+            btnPlayPause.setBackground(playing ? new Color(245, 158, 11) : new Color(240, 240, 245));
+            btnPlayPause.setForeground(Color.BLACK);
         }
     }
 
@@ -204,19 +204,14 @@ public class VoiceExclusionTimelinePanel extends JPanel {
 
     private void updateButtonStates() {
         if (btnDeleteZone != null) {
-            btnDeleteZone.setEnabled(selectedZoneIndex >= 0 && selectedZoneIndex < zones.size());
+            boolean enabled = selectedZoneIndex >= 0 && selectedZoneIndex < zones.size();
+            btnDeleteZone.setEnabled(enabled);
+            btnDeleteZone.setForeground(enabled ? Color.BLACK : new Color(140, 140, 150));
         }
     }
 
     private void updateSummary() {
-        if (lblSummary == null) return;
-        if (zones.isEmpty()) {
-            lblSummary.setText("💡 Les voix originales sont conservées entre les balises (Demucs ignoré)");
-        } else {
-            double totalKept = zones.stream().mapToDouble(VoiceZone::getDuration).sum();
-            lblSummary.setText(String.format(Locale.US, "✅ %d zone%s voix balisée%s (%.1fs au total)",
-                    zones.size(), zones.size() > 1 ? "s" : "", zones.size() > 1 ? "s" : "", totalKept));
-        }
+        // Aucun texte résiduel affiché derrière les boutons
     }
 
     private static String formatTime(double sec) {
@@ -227,18 +222,20 @@ public class VoiceExclusionTimelinePanel extends JPanel {
         return String.format(Locale.US, "%02d:%02d.%d", m, s, tenths);
     }
 
+    public JButton getBtnPlayPause() { return btnPlayPause; }
+    public JButton getBtnAddZone() { return btnAddZone; }
+    public JButton getBtnDeleteZone() { return btnDeleteZone; }
+    public JButton getBtnClearAll() { return btnClearAll; }
+
     private void initUI() {
         // --- Barre d'outils supérieure ---
-        JPanel topBar = new JPanel(new BorderLayout(8, 0));
+        JPanel topBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
         topBar.setOpaque(false);
 
-        JPanel leftControls = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        leftControls.setOpaque(false);
-
-        btnPlayPause = new JButton("▶ Lecture");
+        btnPlayPause = new JButton("Lecture");
         btnPlayPause.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        btnPlayPause.setForeground(new Color(244, 244, 245));
-        btnPlayPause.setBackground(new Color(39, 39, 42));
+        btnPlayPause.setForeground(Color.BLACK);
+        btnPlayPause.setBackground(new Color(240, 240, 245));
         btnPlayPause.setFocusPainted(false);
         btnPlayPause.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         btnPlayPause.setToolTipText("Lire / Mettre en pause la prévisualisation sonore pour placer précisément les balises (Espace)");
@@ -250,7 +247,7 @@ public class VoiceExclusionTimelinePanel extends JPanel {
         lblTime.setFont(new Font("Segoe UI", Font.BOLD, 12));
         lblTime.setForeground(new Color(56, 189, 248)); // Sky blue
 
-        btnAddZone = new JButton("➕ Balise voix (3s)");
+        btnAddZone = new JButton("Balise voix (3s)");
         btnAddZone.setFont(new Font("Segoe UI", Font.BOLD, 11));
         btnAddZone.setForeground(Color.BLACK);
         btnAddZone.setBackground(new Color(245, 158, 11)); // Amber
@@ -259,10 +256,10 @@ public class VoiceExclusionTimelinePanel extends JPanel {
         btnAddZone.setToolTipText("Insère deux balises espacées de 3 secondes à la position du curseur pour conserver la voix");
         btnAddZone.addActionListener(e -> addZoneAtCursor(3.0));
 
-        btnDeleteZone = new JButton("🗑 Supprimer balise");
-        btnDeleteZone.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        btnDeleteZone.setForeground(new Color(244, 244, 245));
-        btnDeleteZone.setBackground(new Color(39, 39, 42));
+        btnDeleteZone = new JButton("Supprimer balise");
+        btnDeleteZone.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        btnDeleteZone.setForeground(new Color(140, 140, 150));
+        btnDeleteZone.setBackground(new Color(240, 240, 245));
         btnDeleteZone.setFocusPainted(false);
         btnDeleteZone.setEnabled(false);
         btnDeleteZone.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -270,28 +267,20 @@ public class VoiceExclusionTimelinePanel extends JPanel {
         btnDeleteZone.addActionListener(e -> deleteSelectedZone());
 
         btnClearAll = new JButton("Tout effacer");
-        btnClearAll.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        btnClearAll.setForeground(new Color(161, 161, 170));
-        btnClearAll.setBackground(new Color(39, 39, 42));
+        btnClearAll.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        btnClearAll.setForeground(Color.BLACK);
+        btnClearAll.setBackground(new Color(240, 240, 245));
         btnClearAll.setFocusPainted(false);
         btnClearAll.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         btnClearAll.setToolTipText("Supprimer toutes les balises de voix");
         btnClearAll.addActionListener(e -> clearAllZones());
 
-        leftControls.add(btnPlayPause);
-        leftControls.add(lblTime);
-        leftControls.add(Box.createHorizontalStrut(6));
-        leftControls.add(btnAddZone);
-        leftControls.add(btnDeleteZone);
-        leftControls.add(btnClearAll);
-
-        topBar.add(leftControls, BorderLayout.WEST);
-
-        lblSummary = new JLabel("💡 Les voix originales sont conservées entre les balises (Demucs ignoré)");
-        lblSummary.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        lblSummary.setForeground(new Color(161, 161, 170));
-        lblSummary.setHorizontalAlignment(SwingConstants.RIGHT);
-        topBar.add(lblSummary, BorderLayout.EAST);
+        topBar.add(btnPlayPause);
+        topBar.add(lblTime);
+        topBar.add(Box.createHorizontalStrut(6));
+        topBar.add(btnAddZone);
+        topBar.add(btnDeleteZone);
+        topBar.add(btnClearAll);
 
         add(topBar, BorderLayout.NORTH);
 
