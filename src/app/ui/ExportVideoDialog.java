@@ -1371,6 +1371,15 @@ public class ExportVideoDialog extends JDialog {
     private void stopPreviewPlayback() {
         isPreviewPlaying = false;
         if (voiceExclusionTimeline != null) {
+            double cur = voiceExclusionTimeline.getCurrentTime();
+            double snapped = Math.round(cur * 10.0) / 10.0;
+            voiceExclusionTimeline.setCurrentTime(snapped);
+            if (montageCanvas != null) {
+                montageCanvas.setPreviewTime(snapped);
+            }
+            if (singleBandPreview != null && singleBandPreview.isShowing()) {
+                singleBandPreview.setPreviewTime(snapped);
+            }
             voiceExclusionTimeline.setPlaying(false);
         }
         if (previewPlayTimer != null) {

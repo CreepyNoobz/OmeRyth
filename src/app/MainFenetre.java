@@ -1295,12 +1295,14 @@ public class MainFenetre extends JFrame {
                 // Séparateur Début (vert ▶) et Fin (rouge ◀)
                 textManager.addSeparator(band, segStartX, SeparatorMark.Type.START);
                 if (seg.getSeparators() != null) {
+                    int lastSepX = segStartX;
                     for (SpeechWorkflowService.RhythmicSeparator rsep : seg.getSeparators()) {
                         int rsepX = timelinePanel.snapWorldXToTenth(rsep.getTime() * pps);
-                        if (rsepX <= segStartX) rsepX = segStartX + minGapPixels;
+                        if (rsepX <= lastSepX) rsepX = lastSepX + minGapPixels;
                         if (rsepX >= segEndX) rsepX = segEndX - minGapPixels;
-                        if (rsepX > segStartX && rsepX < segEndX) {
+                        if (rsepX > lastSepX && rsepX < segEndX) {
                             textManager.addSeparator(band, rsepX, SeparatorMark.Type.INNER, rsep.getSplitIndex());
+                            lastSepX = rsepX;
                         }
                     }
                 }

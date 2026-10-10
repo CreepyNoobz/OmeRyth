@@ -592,37 +592,41 @@ def align_words_to_text(phrase_text: str, words: list) -> list:
             start_pos = m.start()
             while start_pos < len(phrase_text) and phrase_text[start_pos] in " \t\n\r":
                 start_pos += 1
-            end_pos = start_pos + len(core)
-            while end_pos < len(phrase_text) and phrase_text[end_pos] in ('.', ',', '…', ';', '!', '?', ':', '-'):
+            end_word_pos = start_pos + len(core)
+            while end_word_pos < len(phrase_text) and phrase_text[end_word_pos] in ('.', ',', '…', ';', '!', '?', ':', '-'):
+                end_word_pos += 1
+            end_pos = end_word_pos
+            while end_pos < len(phrase_text) and phrase_text[end_pos] in " \t":
                 end_pos += 1
-            if end_pos < len(phrase_text) and phrase_text[end_pos] == " ":
-                end_pos += 1
-            word_spans.append((start_pos, end_pos, w))
+            word_spans.append((start_pos, end_pos, end_word_pos, w))
             search_idx = end_pos
             continue
         # 2. Recherche par sous-chaîne directe en repli
         idx = phrase_lower.find(core, search_idx)
         if idx != -1:
             start_pos = idx
-            end_pos = idx + len(core)
-            while end_pos < len(phrase_text) and phrase_text[end_pos] in ('.', ',', '…', ';', '!', '?', ':', '-'):
+            end_word_pos = idx + len(core)
+            while end_word_pos < len(phrase_text) and phrase_text[end_word_pos] in ('.', ',', '…', ';', '!', '?', ':', '-'):
+                end_word_pos += 1
+            end_pos = end_word_pos
+            while end_pos < len(phrase_text) and phrase_text[end_pos] in " \t":
                 end_pos += 1
-            if end_pos < len(phrase_text) and phrase_text[end_pos] == " ":
-                end_pos += 1
-            word_spans.append((start_pos, end_pos, w))
+            word_spans.append((start_pos, end_pos, end_word_pos, w))
             search_idx = end_pos
         else:
-            word_spans.append((search_idx, search_idx, w))
+            word_spans.append((search_idx, search_idx, search_idx, w))
     return word_spans
 
 
 def compute_rhythmic_separators(phrase_text: str, words: list) -> list:
     """
     Calcule les séparateurs rythmiques internes (INNER) au sein d'une réplique :
-    1. Pour les mots parasites/hésitations prolongés (dur >= 0.30s) ou mots étirés (dur >= 0.50s).
-       Pose un séparateur au début ET à la fin du mot pour qu'il soit étendu fidèlement.
-    2. Pour les pauses internes audibles (gap >= 0.12s) ou après ponctuation (virgule, points de suspension, tiret).
-    3. Pour les variations de débit (tempo drift >= 0.15s) afin que chaque mot soit calé précisément sur la tête de lecture.
+    1. Pour chaque mot suivi d'un blanc (pause/silence >= 0.08s) :
+       REFERME le mot à sa fin exacte (w_end) via un séparateur de clôture (split_index = end_word_pos).
+       Et OUVRE le mot suivant à son début exact (next_start) via un séparateur d'attaque (split_index = next_start_pos).
+       Le blanc entre les deux reste ainsi fidèle et vierge sur la bande rythmo.
+    2. Pour les mots parasites/hésitations prolongés ou mots étirés.
+    3. Pour les variations de débit (tempo drift >= 0.15s) ou après ponctuation.
     Garantit que la coupe tombe toujours sur une frontière de mot propre, sans jamais déchirer un mot ou une contraction.
     """
     if not words or len(words) < 2 or not phrase_text:
@@ -640,7 +644,7 @@ def compute_rhythmic_separators(phrase_text: str, words: list) -> list:
     phrase_dur = max(0.1, phrase_end - phrase_start)
 
     def add_sep(t, s_idx):
-        if s_idx <= 2 or s_idx >= p_len - 2:
+        if s_idx <= 1 or s_idx >= p_len - 1:
             return
         # Garantir que s_idx est sur une frontière de mot (après un espace ou une ponctuation)
         if s_idx < p_len and phrase_text[s_idx] not in (" ", "'", "’", "-", ",", ";", ":", ".", "!", "?"):
@@ -658,12 +662,14 @@ def compute_rhythmic_separators(phrase_text: str, words: list) -> list:
 
         t_round = round(float(t), 3)
         for s in separators:
-            if s["split_index"] == s_idx or abs(s["time"] - t_round) < 0.08:
+            if abs(s["time"] - t_round) < 0.05:
+                return
+            if s["split_index"] == s_idx and abs(s["time"] - t_round) < 0.08:
                 return
         separators.append({"time": t_round, "split_index": s_idx})
 
     for i in range(len(word_spans)):
-        start_pos, end_pos, w_curr = word_spans[i]
+        start_pos, end_pos, end_word_pos, w_curr = word_spans[i]
         if start_pos >= end_pos:
             continue
         w_start = float(w_curr.get("start", 0.0))
@@ -682,31 +688,37 @@ def compute_rhythmic_separators(phrase_text: str, words: list) -> list:
             (is_filler and dur >= 0.30) or (dur >= 0.50)
         )
 
-        if is_prolonged:
-            if i > 0 and word_spans[i - 1][0] < word_spans[i - 1][1]:
-                prev_end = float(word_spans[i - 1][2].get("end", w_start))
-                t_before = round((prev_end + w_start) / 2.0, 3) if w_start > prev_end else w_start
-                add_sep(t_before, start_pos)
-            if i < len(word_spans) - 1 and word_spans[i + 1][0] < word_spans[i + 1][1]:
-                next_start = float(word_spans[i + 1][2].get("start", w_end))
-                t_after = round((w_end + next_start) / 2.0, 3) if next_start > w_end else w_end
-                add_sep(t_after, end_pos)
-        else:
-            if i < len(word_spans) - 1 and word_spans[i + 1][0] < word_spans[i + 1][1]:
-                next_start = float(word_spans[i + 1][2].get("start", w_end))
+        if is_prolonged and i > 0 and word_spans[i - 1][0] < word_spans[i - 1][1]:
+            add_sep(w_start, start_pos)
+
+        if i < len(word_spans) - 1:
+            next_start_pos, next_end_pos, next_end_word_pos, w_next = word_spans[i + 1]
+            if next_start_pos < next_end_pos:
+                next_start = float(w_next.get("start", w_end))
                 gap = next_start - w_end
-                w_raw = w_curr.get("word", "")
-                is_punct = any(w_raw.endswith(p) for p in [".", "!", "?", ",", ";", "…", "...", ":", "—"])
-                next_clean = re.sub(r"^[^\w]+|[^\w]+$", "", word_spans[i + 1][2].get("word", "")).lower()
-                is_repetition = (w_clean == next_clean and len(w_clean) >= 2)
 
-                # Écart de débit : si l'interpolation linéaire de caractères dévie de plus de 150ms du timing réel
-                linear_time = phrase_start + (end_pos / max(1, p_len)) * phrase_dur
-                tempo_drift = abs(next_start - linear_time)
+                # RÈGLE MAJEURE : Temps / mot suivi d'un blanc (pause/silence interne >= 0.08s)
+                # Refermer impérativement le mot à sa fin (w_end) par un séparateur,
+                # et ouvrir le mot suivant à son début (next_start) par un séparateur !
+                if gap >= 0.08:
+                    add_sep(w_end, end_word_pos)
+                    add_sep(next_start, next_start_pos)
+                    continue
 
-                if gap >= 0.12 or is_punct or is_repetition or (gap >= 0.02 and tempo_drift >= 0.15):
-                    t_mid = round((w_end + next_start) / 2.0, 3) if gap > 0 else next_start
-                    add_sep(t_mid, end_pos)
+                if is_prolonged:
+                    add_sep(w_end, end_pos)
+                else:
+                    w_raw = w_curr.get("word", "")
+                    is_punct = any(w_raw.endswith(p) for p in [".", "!", "?", ",", ";", "…", "...", ":", "—"])
+                    next_clean = re.sub(r"^[^\w]+|[^\w]+$", "", w_next.get("word", "")).lower()
+                    is_repetition = (w_clean == next_clean and len(w_clean) >= 2)
+
+                    linear_time = phrase_start + (end_pos / max(1, p_len)) * phrase_dur
+                    tempo_drift = abs(next_start - linear_time)
+
+                    if is_punct or is_repetition or tempo_drift >= 0.15:
+                        t_mid = round((w_end + next_start) / 2.0, 3)
+                        add_sep(t_mid, end_pos)
 
     separators.sort(key=lambda s: (s["split_index"], s["time"]))
     return separators
@@ -1860,41 +1872,10 @@ def tighten_phrase_boundaries_acoustically(p_start: float, p_end: float, p_words
 
     p_words[-1]["end"] = round(min(last_end, p_end), 2)
 
-    # 2. Resserrement de début de réplique (élimine le blanc avant la première attaque)
-    if silence_intervals:
-        for s_start, s_end in silence_intervals:
-            if s_start <= (p_start + 0.02) and s_end > p_start and s_end < (first_end - 0.04):
-                p_start = max(p_start, round(s_end, 2))
-                first_start = max(first_start, p_start)
-                break
-
-    if audio_data is not None and len(audio_data) > 0 and sr > 0:
-        win_start_sec = max(0.0, p_start - 0.05)
-        win_end_sec = min(len(audio_data) / float(sr), min(p_start + 0.60, first_end))
-        if win_end_sec > win_start_sec:
-            start_samp = int(win_start_sec * sr)
-            end_samp = int(win_end_sec * sr)
-            chunk = audio_data[start_samp:end_samp]
-            if len(chunk) > 0:
-                frame_len = int(sr * 0.02)
-                hop = frame_len // 2
-                num_frames = max(1, 1 + (len(chunk) - frame_len) // hop)
-                rms = [float(np.sqrt(np.mean(chunk[i*hop : i*hop + frame_len] ** 2))) for i in range(num_frames)]
-                if rms:
-                    peak_rms = max(rms)
-                    noise_floor = min(rms)
-                    thresh = max(0.003, noise_floor + 0.10 * (peak_rms - noise_floor))
-                    first_voice_f = -1
-                    for fi in range(len(rms)):
-                        if rms[fi] >= thresh:
-                            first_voice_f = fi
-                            break
-                    if first_voice_f >= 0:
-                        voice_onset = win_start_sec + (first_voice_f * hop / float(sr))
-                        if voice_onset > (p_start + 0.05):
-                            p_start = min(round(first_end - 0.06, 2), round(max(0.0, voice_onset - 0.02), 2))
-                            first_start = max(first_start, p_start)
-
+    # 2. Début de réplique : préserver fidèlement l'attaque phonétique exacte du premier mot.
+    # Ne jamais repousser le début vers l'avant dans le mot (ce qui produirait un retard de 0.1s
+    # en coupant l'attaque des consonnes douces).
+    p_start = round(min(p_start, first_start), 2)
     p_words[0]["start"] = round(max(0.0, p_start), 2)
     return p_start, p_end
 
@@ -2139,16 +2120,23 @@ def main():
     for phrase in phrases:
         p_words = phrase["words"]
         raw_start = round(max(0.0, float(p_words[0]["start"])), 2)
-        # Garantir au moins 0.10s de décalage entre deux répliques distinctes
-        p_start = max(round(prev_end + 0.10, 2) if prev_end > 0 else 0.0, raw_start)
+        p_start = raw_start
         p_end = round(max(p_start + 0.15, float(p_words[-1]["end"])), 2)
 
         p_start, p_end = tighten_phrase_boundaries_acoustically(
             p_start, p_end, p_words, silence_intervals=silence_intervals,
             audio_data=audio_data, sr=audio_sr
         )
-        if prev_end > 0 and p_start < round(prev_end + 0.10, 2):
-            p_start = round(prev_end + 0.10, 2)
+
+        # Si la réplique précédente empiète sur les 0.10s d'écart requis :
+        # Raccourcir la fin de la réplique précédente sans retarder le début de la nouvelle réplique !
+        if final_segments and final_segments[-1]["end"] > round(p_start - 0.10, 2):
+            prev_seg = final_segments[-1]
+            prev_seg["end"] = max(prev_seg["start"] + 0.15, round(p_start - 0.10, 2))
+            prev_seg["end_timecode"] = format_timecode(prev_seg["end"])
+            prev_seg["duration"] = round(max(0.1, prev_seg["end"] - prev_seg["start"]), 3)
+            if prev_seg.get("words"):
+                prev_seg["words"][-1]["end"] = min(prev_seg["words"][-1]["end"], prev_seg["end"])
 
         if p_words:
             p_words[0]["start"] = p_start

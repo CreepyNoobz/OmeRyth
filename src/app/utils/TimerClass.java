@@ -141,6 +141,8 @@ public class TimerClass extends JPanel {
                 long now = System.nanoTime();
                 double elapsedSec = (now - startRealTimeNs) / 1_000_000_000.0;
                 time = startRythmoTime + (elapsedSec * direction);
+                // Arrondi exact au dixième de seconde (0.1s) à la pause pour calage parfait sur les marquages
+                time = Math.round(time * 10.0) / 10.0;
                 timer.stop();
                 if (maxTime > 0 && time > maxTime) {
                     time = maxTime;
