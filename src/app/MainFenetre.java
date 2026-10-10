@@ -1037,6 +1037,32 @@ public class MainFenetre extends JFrame {
      */
     public void importerTranscriptionDansTimeline(java.util.List<SpeechWorkflowService.TranscriptionSegment> segments, int baseTargetBand) {
         if (segments == null || segments.isEmpty()) return;
+        int maxNeededBand = importerTranscriptionDansTimeline(segments, baseTargetBand, this.timelinePanel, this.roles);
+
+        int distinctSpeakers = Math.max(1, maxNeededBand - baseTargetBand + 1);
+        String message;
+        if (distinctSpeakers > 1) {
+            message = segments.size() + " répliques réparties sur " + distinctSpeakers + " bandes (Bandes " +
+                    (baseTargetBand + 1) + " à " + (maxNeededBand + 1) + ") pour " + distinctSpeakers + " locuteurs !\n" +
+                    "Chaque personne a sa propre bande, son rôle et ses séparateurs.\n" +
+                    "La synchronisation est calée sur la vidéo.";
+        } else {
+            message = segments.size() + " répliques injectées sur la bande " + (baseTargetBand + 1) + " !\n" +
+                    "Les phrases sont enchaînées avec des séparateurs internes pour un rendu fluide et esthétique.\n" +
+                    "La synchronisation est calée sur la vidéo.";
+        }
+
+        if (isVisible()) {
+            JOptionPane.showMessageDialog(this, message, "Transcription Importée", JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    public static int importerTranscriptionDansTimeline(java.util.List<SpeechWorkflowService.TranscriptionSegment> segments,
+                                                         int baseTargetBand,
+                                                         TimelinePanel timelinePanel,
+                                                         java.util.List<Role> roles) {
+        if (segments == null || segments.isEmpty() || timelinePanel == null) return baseTargetBand;
+        if (roles == null) roles = new ArrayList<>();
 
         // Coordonnées de la timeline
         double pps = timelinePanel.getPixelsPerSecond();
@@ -1168,9 +1194,51 @@ public class MainFenetre extends JFrame {
                         continue;
                     }
 
-                    // Éviter le débordement du segment précédent sur le début du nouveau
-                    if (prevSeg.endSeconds > seg.startSeconds - 0.05) {
-                        prevSeg.endSeconds = Math.max(prevSeg.startSeconds + 0.20, seg.startSeconds - 0.05);
+                    // Règle stricte OmeRyth :
+                    // Si l'écart entre la fin de prevSeg et le début de seg est inférieur à 0.10s (gap < 0.10s) :
+                    // NE PAS créer de nouvelle phrase, mais fusionner et insérer un séparateur interne (INNER) !
+                    double gap = seg.getStartSeconds() - prevSeg.getEndSeconds();
+                    if (gap < 0.10) {
+                        String pText = prevSeg.getText().trim();
+                        String cText = seg.getText().trim();
+                        int splitIdx = pText.length() + 1; // position du début du texte ajouté après l'espace
+
+                        prevSeg.text = pText + " " + cText;
+
+                        // Séparateur rythmique interne posé au début du deuxième fragment
+                        double sepTime = seg.getStartSeconds();
+                        if (sepTime <= prevSeg.getStartSeconds()) {
+                            sepTime = prevSeg.getStartSeconds() + 0.10;
+                        }
+                        if (prevSeg.separators == null) {
+                            prevSeg.separators = new ArrayList<>();
+                        }
+                        prevSeg.separators.add(new SpeechWorkflowService.RhythmicSeparator(sepTime, splitIdx));
+
+                        // Décaler et ajouter les séparateurs internes existants de seg
+                        if (seg.getSeparators() != null) {
+                            for (SpeechWorkflowService.RhythmicSeparator rsep : seg.getSeparators()) {
+                                prevSeg.separators.add(new SpeechWorkflowService.RhythmicSeparator(
+                                        rsep.getTime(),
+                                        rsep.getSplitIndex() + splitIdx
+                                ));
+                            }
+                        }
+
+                        // Reporter les mots
+                        if (seg.words != null && !seg.words.isEmpty()) {
+                            if (prevSeg.words == null) prevSeg.words = new ArrayList<>();
+                            prevSeg.words.addAll(seg.words);
+                        }
+
+                        prevSeg.endSeconds = Math.max(prevSeg.endSeconds, seg.endSeconds);
+                        continue;
+                    }
+
+                    // Si l'écart est >= 0.10s (phrases distinctes) :
+                    // Laisser AU MOINS 0.10s de décalage entre la fin de la précédente et le début de la nouvelle !
+                    if (prevSeg.endSeconds > seg.startSeconds - 0.10) {
+                        prevSeg.endSeconds = Math.max(prevSeg.startSeconds + 0.15, seg.startSeconds - 0.10);
                     }
                 }
                 cleanBandSegments.add(seg);
@@ -1178,6 +1246,7 @@ public class MainFenetre extends JFrame {
             bandSegments = cleanBandSegments;
 
             int lastCommittedEndX = 0;
+            int minGapPixels = Math.max(1, (int) Math.round(pps * 0.10));
 
             // Insérer chaque réplique comme une phrase rythmo autonome avec START, INNER et END
             // Les silences et temps morts entre répliques restent fidèlement des zones vierges (blancs) sur la timeline
@@ -1205,17 +1274,19 @@ public class MainFenetre extends JFrame {
                     if (segEndX <= segStartX) segEndX = segStartX + 1;
                 }
 
-                // Si un prochain segment existe sur la même bande, borner la fin pour ne pas chevaucher
+                // Si un prochain segment existe sur la même bande, borner la fin pour laisser AU MOINS 0.10s de décalage (minGapPixels)
+                // pour que le marqueur END ne soit jamais collé au START suivant !
                 if (i + 1 < bandSegments.size()) {
                     int nextStartX = timelinePanel.snapWorldXToTenth(bandSegments.get(i + 1).startSeconds * pps);
-                    if (segEndX > nextStartX) {
-                        segEndX = nextStartX;
+                    int maxAllowedEndX = nextStartX - minGapPixels;
+                    if (segEndX > maxAllowedEndX) {
+                        segEndX = maxAllowedEndX;
                         if (segEndX <= segStartX) {
-                            segEndX = timelinePanel.snapWorldXToTenth(segStartX + pps * 0.1);
+                            segEndX = segStartX + 1;
                         }
                     }
                 }
-                lastCommittedEndX = segEndX;
+                lastCommittedEndX = segEndX + minGapPixels;
 
                 TextItem item = new TextItem(txt, segStartX, band);
                 item.role = spkRole;
@@ -1226,6 +1297,8 @@ public class MainFenetre extends JFrame {
                 if (seg.getSeparators() != null) {
                     for (SpeechWorkflowService.RhythmicSeparator rsep : seg.getSeparators()) {
                         int rsepX = timelinePanel.snapWorldXToTenth(rsep.getTime() * pps);
+                        if (rsepX <= segStartX) rsepX = segStartX + minGapPixels;
+                        if (rsepX >= segEndX) rsepX = segEndX - minGapPixels;
                         if (rsepX > segStartX && rsepX < segEndX) {
                             textManager.addSeparator(band, rsepX, SeparatorMark.Type.INNER, rsep.getSplitIndex());
                         }
@@ -1237,23 +1310,7 @@ public class MainFenetre extends JFrame {
 
         textManager.sortTexts();
         timelinePanel.repaint();
-
-        int distinctSpeakers = speakerRolesMap.size();
-        String message;
-        if (distinctSpeakers > 1) {
-            message = segments.size() + " répliques réparties sur " + distinctSpeakers + " bandes (Bandes " +
-                    (baseTargetBand + 1) + " à " + (maxNeededBand + 1) + ") pour " + distinctSpeakers + " locuteurs !\n" +
-                    "Chaque personne a sa propre bande, son rôle et ses séparateurs.\n" +
-                    "La synchronisation est calée sur la vidéo.";
-        } else {
-            message = segments.size() + " répliques injectées sur la bande " + (baseTargetBand + 1) + " !\n" +
-                    "Les phrases sont enchaînées avec des séparateurs internes pour un rendu fluide et esthétique.\n" +
-                    "La synchronisation est calée sur la vidéo.";
-        }
-
-        if (isVisible()) {
-            JOptionPane.showMessageDialog(this, message, "Transcription Importée", JOptionPane.INFORMATION_MESSAGE);
-        }
+        return maxNeededBand;
     }
 
     /**

@@ -696,7 +696,7 @@ def compute_rhythmic_separators(phrase_text: str, words: list) -> list:
                 next_start = float(word_spans[i + 1][2].get("start", w_end))
                 gap = next_start - w_end
                 w_raw = w_curr.get("word", "")
-                is_punct = any(w_raw.endswith(p) for p in [",", ";", "…", "...", ":", "—"])
+                is_punct = any(w_raw.endswith(p) for p in [".", "!", "?", ",", ";", "…", "...", ":", "—"])
                 next_clean = re.sub(r"^[^\w]+|[^\w]+$", "", word_spans[i + 1][2].get("word", "")).lower()
                 is_repetition = (w_clean == next_clean and len(w_clean) >= 2)
 
@@ -704,7 +704,7 @@ def compute_rhythmic_separators(phrase_text: str, words: list) -> list:
                 linear_time = phrase_start + (end_pos / max(1, p_len)) * phrase_dur
                 tempo_drift = abs(next_start - linear_time)
 
-                if gap >= 0.12 or (is_punct and gap >= 0.04) or is_repetition or (gap >= 0.02 and tempo_drift >= 0.15):
+                if gap >= 0.12 or is_punct or is_repetition or (gap >= 0.02 and tempo_drift >= 0.15):
                     t_mid = round((w_end + next_start) / 2.0, 3) if gap > 0 else next_start
                     add_sep(t_mid, end_pos)
 
@@ -1399,8 +1399,11 @@ def diarize_clean_phrases(audio_path: str, phrases: list, num_speakers: int = 0)
 
 def merge_consecutive_same_speaker_phrases(phrases: list, silence_intervals: list = None, max_gap: float = 0.15, max_duration: float = 6.5, max_words: int = 25) -> list:
     """
-    Fusionne uniquement les micro-fragments immédiatement contigus (< 0.15s) appartenant au même locuteur,
-    sans jamais fusionner par-dessus un silence acoustique ou une ponctuation.
+    Fusionne les micro-fragments immédiatement contigus appartenant au même locuteur :
+    - Règle stricte OmeRyth : Si gap < 0.10s entre deux répliques du même locuteur,
+      NE JAMAIS créer de nouvelle phrase ! Toujours fusionner en une seule phrase (un séparateur rythmique
+      sera positionné au point de jonction).
+    - Si gap >= 0.10s : laisser au moins 0.10s d'écart entre la fin de la première et le début de la suivante.
     """
     if not phrases:
         return []
@@ -1416,27 +1419,40 @@ def merge_consecutive_same_speaker_phrases(phrases: list, silence_intervals: lis
         combined_dur = p["end"] - prev["start"]
         combined_words = len(prev.get("words", [])) + len(p.get("words", []))
 
-        # Si un silence acoustique existe entre les répliques, ne JAMAIS fusionner
+        same_speaker = (prev.get("speaker") == p.get("speaker"))
+
+        # Règle utilisateur absolue : si gap < 0.10s pour le même locuteur,
+        # ne JAMAIS faire de nouvelle phrase, toujours fusionner !
+        must_merge_due_to_gap = same_speaker and (gap < 0.10)
+
+        # Si un silence acoustique marqué (>= 0.20s) existe entre les répliques
         has_silence = False
         if silence_intervals:
             for s_start, s_end in silence_intervals:
-                if s_start < (p["start"] + 0.04) and s_end > (prev["end"] - 0.04) and (s_end - s_start) >= 0.15:
+                if s_start < (p["start"] + 0.04) and s_end > (prev["end"] - 0.04) and (s_end - s_start) >= 0.20:
                     has_silence = True
                     break
 
         prev_text = prev.get("text", "").strip()
         ends_with_strong_punct = any(prev_text.endswith(pt) for pt in [".", "!", "?", "…", "...", ",", ";"])
 
-        if (not has_silence and
+        if must_merge_due_to_gap or (
+            not has_silence and
             not ends_with_strong_punct and
-            prev.get("speaker") == p.get("speaker") and
+            same_speaker and
             gap < max_gap and
             combined_dur <= max_duration and
-            combined_words <= max_words):
-            prev["end"] = p["end"]
+            combined_words <= max_words
+        ):
+            prev["end"] = max(prev["end"], p["end"])
             prev["text"] = (prev["text"] + " " + p["text"]).strip()
             prev["words"] = prev.get("words", []) + p.get("words", [])
         else:
+            # Phrases distinctes : garantir AU MOINS 0.10s de décalage
+            if same_speaker and prev["end"] > p["start"] - 0.10:
+                prev["end"] = max(prev["start"] + 0.15, p["start"] - 0.10)
+                if prev.get("words"):
+                    prev["words"][-1]["end"] = min(prev["words"][-1]["end"], prev["end"])
             merged.append(p)
 
     return merged
@@ -1789,6 +1805,100 @@ def finalize_phrase_text(text: str) -> str:
     return re.sub(r"[\s,;]+$", "", text).strip()
 
 
+def tighten_phrase_boundaries_acoustically(p_start: float, p_end: float, p_words: list,
+                                           silence_intervals: list = None,
+                                           audio_data=None, sr: int = 16000) -> tuple:
+    """
+    Resserre acoustiquement les bornes de la réplique (début et fin) au plus près de la voix réelle :
+    - Élimine le blanc inutile avant la première attaque vocale.
+    - Coupe net dès que la voix s'éteint sans prolonger artificiellement dans le silence traînant.
+    """
+    if not p_words:
+        return p_start, p_end
+
+    first_start = float(p_words[0]["start"])
+    first_end = float(p_words[0].get("end", first_start + 0.1))
+    last_start = float(p_words[-1]["start"])
+    last_end = float(p_words[-1]["end"])
+
+    # 1. Resserrement de fin de réplique (élimine le prolongement traînant dans le silence)
+    # A. Via les intervalles de silence acoustique détectés
+    if silence_intervals:
+        for s_start, s_end in silence_intervals:
+            if s_start >= (last_start + 0.04) and s_start < p_end:
+                p_end = min(p_end, round(s_start + 0.04, 2))
+                last_end = min(last_end, p_end)
+                break
+
+    # B. Via l'analyse d'énergie RMS fine sur les dernières fractions de seconde
+    if audio_data is not None and len(audio_data) > 0 and sr > 0:
+        win_start_sec = max(last_start + 0.04, p_end - 0.70)
+        win_end_sec = min(len(audio_data) / float(sr), p_end + 0.05)
+        if win_end_sec > win_start_sec:
+            start_samp = int(win_start_sec * sr)
+            end_samp = int(win_end_sec * sr)
+            chunk = audio_data[start_samp:end_samp]
+            if len(chunk) > 0:
+                frame_len = int(sr * 0.02)
+                hop = frame_len // 2
+                num_frames = max(1, 1 + (len(chunk) - frame_len) // hop)
+                rms = [float(np.sqrt(np.mean(chunk[i*hop : i*hop + frame_len] ** 2))) for i in range(num_frames)]
+                if rms:
+                    peak_rms = max(rms)
+                    noise_floor = min(rms)
+                    thresh = max(0.003, noise_floor + 0.10 * (peak_rms - noise_floor))
+                    last_voice_f = -1
+                    for fi in range(len(rms) - 1, -1, -1):
+                        if rms[fi] >= thresh:
+                            last_voice_f = fi
+                            break
+                    if last_voice_f >= 0:
+                        voice_offset = win_start_sec + ((last_voice_f + 1) * hop / float(sr))
+                        if voice_offset < (p_end - 0.05):
+                            p_end = max(round(last_start + 0.08, 2), round(voice_offset + 0.04, 2))
+                            last_end = min(last_end, p_end)
+
+    p_words[-1]["end"] = round(min(last_end, p_end), 2)
+
+    # 2. Resserrement de début de réplique (élimine le blanc avant la première attaque)
+    if silence_intervals:
+        for s_start, s_end in silence_intervals:
+            if s_start <= (p_start + 0.02) and s_end > p_start and s_end < (first_end - 0.04):
+                p_start = max(p_start, round(s_end, 2))
+                first_start = max(first_start, p_start)
+                break
+
+    if audio_data is not None and len(audio_data) > 0 and sr > 0:
+        win_start_sec = max(0.0, p_start - 0.05)
+        win_end_sec = min(len(audio_data) / float(sr), min(p_start + 0.60, first_end))
+        if win_end_sec > win_start_sec:
+            start_samp = int(win_start_sec * sr)
+            end_samp = int(win_end_sec * sr)
+            chunk = audio_data[start_samp:end_samp]
+            if len(chunk) > 0:
+                frame_len = int(sr * 0.02)
+                hop = frame_len // 2
+                num_frames = max(1, 1 + (len(chunk) - frame_len) // hop)
+                rms = [float(np.sqrt(np.mean(chunk[i*hop : i*hop + frame_len] ** 2))) for i in range(num_frames)]
+                if rms:
+                    peak_rms = max(rms)
+                    noise_floor = min(rms)
+                    thresh = max(0.003, noise_floor + 0.10 * (peak_rms - noise_floor))
+                    first_voice_f = -1
+                    for fi in range(len(rms)):
+                        if rms[fi] >= thresh:
+                            first_voice_f = fi
+                            break
+                    if first_voice_f >= 0:
+                        voice_onset = win_start_sec + (first_voice_f * hop / float(sr))
+                        if voice_onset > (p_start + 0.05):
+                            p_start = min(round(first_end - 0.06, 2), round(max(0.0, voice_onset - 0.02), 2))
+                            first_start = max(first_start, p_start)
+
+    p_words[0]["start"] = round(max(0.0, p_start), 2)
+    return p_start, p_end
+
+
 def main():
     parser = argparse.ArgumentParser(description="OmeRyth STT Worker – Haute Précision")
     parser.add_argument("--audio", required=True, help="Chemin du fichier audio WAV")
@@ -2022,100 +2132,6 @@ def main():
         p["words"] = p_words
     phrases = [p for p in phrases if p.get("words")]
 
-def tighten_phrase_boundaries_acoustically(p_start: float, p_end: float, p_words: list,
-                                           silence_intervals: list = None,
-                                           audio_data=None, sr: int = 16000) -> tuple:
-    """
-    Resserre acoustiquement les bornes de la réplique (début et fin) au plus près de la voix réelle :
-    - Élimine le blanc inutile avant la première attaque vocale.
-    - Coupe net dès que la voix s'éteint sans prolonger artificiellement dans le silence traînant.
-    """
-    if not p_words:
-        return p_start, p_end
-
-    first_start = float(p_words[0]["start"])
-    first_end = float(p_words[0].get("end", first_start + 0.1))
-    last_start = float(p_words[-1]["start"])
-    last_end = float(p_words[-1]["end"])
-
-    # 1. Resserrement de fin de réplique (élimine le prolongement traînant dans le silence)
-    # A. Via les intervalles de silence acoustique détectés
-    if silence_intervals:
-        for s_start, s_end in silence_intervals:
-            if s_start >= (last_start + 0.04) and s_start < p_end:
-                p_end = min(p_end, round(s_start + 0.04, 2))
-                last_end = min(last_end, p_end)
-                break
-
-    # B. Via l'analyse d'énergie RMS fine sur les dernières fractions de seconde
-    if audio_data is not None and len(audio_data) > 0 and sr > 0:
-        win_start_sec = max(last_start + 0.04, p_end - 0.70)
-        win_end_sec = min(len(audio_data) / float(sr), p_end + 0.05)
-        if win_end_sec > win_start_sec:
-            start_samp = int(win_start_sec * sr)
-            end_samp = int(win_end_sec * sr)
-            chunk = audio_data[start_samp:end_samp]
-            if len(chunk) > 0:
-                frame_len = int(sr * 0.02)
-                hop = frame_len // 2
-                num_frames = max(1, 1 + (len(chunk) - frame_len) // hop)
-                rms = [float(np.sqrt(np.mean(chunk[i*hop : i*hop + frame_len] ** 2))) for i in range(num_frames)]
-                if rms:
-                    peak_rms = max(rms)
-                    noise_floor = min(rms)
-                    thresh = max(0.003, noise_floor + 0.10 * (peak_rms - noise_floor))
-                    last_voice_f = -1
-                    for fi in range(len(rms) - 1, -1, -1):
-                        if rms[fi] >= thresh:
-                            last_voice_f = fi
-                            break
-                    if last_voice_f >= 0:
-                        voice_offset = win_start_sec + ((last_voice_f + 1) * hop / float(sr))
-                        if voice_offset < (p_end - 0.05):
-                            p_end = max(round(last_start + 0.08, 2), round(voice_offset + 0.04, 2))
-                            last_end = min(last_end, p_end)
-
-    p_words[-1]["end"] = round(min(last_end, p_end), 2)
-
-    # 2. Resserrement de début de réplique (élimine le blanc avant la première attaque)
-    if silence_intervals:
-        for s_start, s_end in silence_intervals:
-            if s_start <= (p_start + 0.02) and s_end > p_start and s_end < (first_end - 0.04):
-                p_start = max(p_start, round(s_end, 2))
-                first_start = max(first_start, p_start)
-                break
-
-    if audio_data is not None and len(audio_data) > 0 and sr > 0:
-        win_start_sec = max(0.0, p_start - 0.05)
-        win_end_sec = min(len(audio_data) / float(sr), min(p_start + 0.60, first_end))
-        if win_end_sec > win_start_sec:
-            start_samp = int(win_start_sec * sr)
-            end_samp = int(win_end_sec * sr)
-            chunk = audio_data[start_samp:end_samp]
-            if len(chunk) > 0:
-                frame_len = int(sr * 0.02)
-                hop = frame_len // 2
-                num_frames = max(1, 1 + (len(chunk) - frame_len) // hop)
-                rms = [float(np.sqrt(np.mean(chunk[i*hop : i*hop + frame_len] ** 2))) for i in range(num_frames)]
-                if rms:
-                    peak_rms = max(rms)
-                    noise_floor = min(rms)
-                    thresh = max(0.003, noise_floor + 0.10 * (peak_rms - noise_floor))
-                    first_voice_f = -1
-                    for fi in range(len(rms)):
-                        if rms[fi] >= thresh:
-                            first_voice_f = fi
-                            break
-                    if first_voice_f >= 0:
-                        voice_onset = win_start_sec + (first_voice_f * hop / float(sr))
-                        if voice_onset > (p_start + 0.05):
-                            p_start = min(round(first_end - 0.06, 2), round(max(0.0, voice_onset - 0.02), 2))
-                            first_start = max(first_start, p_start)
-
-    p_words[0]["start"] = round(max(0.0, p_start), 2)
-    return p_start, p_end
-
-
     # ── 4. Segments finaux ──
     print_progress(95, 100, "Génération des repères et envoi vers OmeRyth...")
     final_segments = []
@@ -2123,13 +2139,16 @@ def tighten_phrase_boundaries_acoustically(p_start: float, p_end: float, p_words
     for phrase in phrases:
         p_words = phrase["words"]
         raw_start = round(max(0.0, float(p_words[0]["start"])), 2)
-        p_start = max(round(prev_end + 0.04, 2) if prev_end > 0 else 0.0, raw_start)
+        # Garantir au moins 0.10s de décalage entre deux répliques distinctes
+        p_start = max(round(prev_end + 0.10, 2) if prev_end > 0 else 0.0, raw_start)
         p_end = round(max(p_start + 0.15, float(p_words[-1]["end"])), 2)
 
         p_start, p_end = tighten_phrase_boundaries_acoustically(
             p_start, p_end, p_words, silence_intervals=silence_intervals,
             audio_data=audio_data, sr=audio_sr
         )
+        if prev_end > 0 and p_start < round(prev_end + 0.10, 2):
+            p_start = round(prev_end + 0.10, 2)
 
         if p_words:
             p_words[0]["start"] = p_start

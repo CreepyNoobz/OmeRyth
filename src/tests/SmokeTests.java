@@ -1046,62 +1046,97 @@ public class SmokeTests {
 
             // 9. Test Anti-Superposition des mots parasites & bégaiements
             System.out.println("--- Test Anti-Superposition & Fusion des Mots Parasites ---");
-            if (!java.awt.GraphicsEnvironment.isHeadless()) {
-                try {
-                    app.MainFenetre testWindow = new app.MainFenetre();
-                    testWindow.setVisible(false);
+            {
+                TimelinePanel importTestTimeline = new TimelinePanel();
+                importTestTimeline.setSize(1200, 260);
+                ArrayList<Role> testRoles = new ArrayList<>();
 
-                    java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> testSegments = new java.util.ArrayList<>();
-                    // Segment 1 : "Le football il a changé." (1.00s à 2.50s)
-                    app.services.SpeechWorkflowService.TranscriptionSegment seg1 =
-                            new app.services.SpeechWorkflowService.TranscriptionSegment(1, "SPEAKER_00", 1.00, 2.50, "Le football il a changé.");
-                    // Segment 2 : bégaiement quasi-simultané "on" (1.05s) -> doit être fusionné automatiquement
-                    app.services.SpeechWorkflowService.TranscriptionSegment seg2 =
-                            new app.services.SpeechWorkflowService.TranscriptionSegment(2, "SPEAKER_00", 1.05, 1.25, "on");
-                    // Segment 3 : mot parasite "euh" qui commence immédiatement à 2.50s -> doit avoir son propre espace sans collision de séparateurs
-                    app.services.SpeechWorkflowService.TranscriptionSegment seg3 =
-                            new app.services.SpeechWorkflowService.TranscriptionSegment(3, "SPEAKER_00", 2.50, 2.90, "euh");
+                java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> testSegments = new java.util.ArrayList<>();
+                // Segment 1 : "Le football il a changé." (1.00s à 2.50s)
+                app.services.SpeechWorkflowService.TranscriptionSegment seg1 =
+                        new app.services.SpeechWorkflowService.TranscriptionSegment(1, "SPEAKER_00", 1.00, 2.50, "Le football il a changé.");
+                // Segment 2 : bégaiement quasi-simultané "on" (1.05s) -> doit être fusionné automatiquement
+                app.services.SpeechWorkflowService.TranscriptionSegment seg2 =
+                        new app.services.SpeechWorkflowService.TranscriptionSegment(2, "SPEAKER_00", 1.05, 1.25, "on");
+                // Segment 3 : mot parasite "euh" qui commence immédiatement à 2.50s (gap = 0.0s < 0.10s) -> doit être fusionné avec séparateur INNER
+                app.services.SpeechWorkflowService.TranscriptionSegment seg3 =
+                        new app.services.SpeechWorkflowService.TranscriptionSegment(3, "SPEAKER_00", 2.50, 2.90, "euh");
 
-                    testSegments.add(seg1);
-                    testSegments.add(seg2);
-                    testSegments.add(seg3);
+                testSegments.add(seg1);
+                testSegments.add(seg2);
+                testSegments.add(seg3);
 
-                    testWindow.importerTranscriptionDansTimeline(testSegments, 0);
+                app.MainFenetre.importerTranscriptionDansTimeline(testSegments, 0, importTestTimeline, testRoles);
 
-                    // Vérifications :
-                    app.ui.TextManager tm = testWindow.getTimelinePanel().getTextManager();
-                    java.util.ArrayList<app.ui.TextItem> items = tm.getTexts();
-                    assertTrue(items.size() >= 1, "Des TextItems doivent être présents");
+                // Vérifications :
+                app.ui.TextManager tm = importTestTimeline.getTextManager();
+                java.util.ArrayList<app.ui.TextItem> items = tm.getTexts();
+                assertTrue(items.size() == 1, "Les segments rapprochés (< 0.10s) doivent être fusionnés en une seule phrase (obtenu: " + items.size() + ")");
+                assertTrue(items.get(0).text.contains("changé") && items.get(0).text.contains("euh"), "Le texte fusionné doit contenir les répliques consécutives");
 
-                    // Vérifier que chaque TextItem a une coordonnée X distincte
-                    java.util.Set<Integer> itemXPositions = new java.util.HashSet<>();
-                    for (app.ui.TextItem ti : items) {
-                        if (ti.band == 0) {
-                            boolean isUnique = itemXPositions.add(ti.x);
-                            assertTrue(isUnique, "Chaque réplique sur la bande doit avoir une coordonnée X strictement unique (aucun empilement à " + ti.x + ")");
-                        }
+                // Vérifier la présence d'un séparateur INNER au point de jonction
+                java.util.ArrayList<app.ui.SeparatorMark> seps = tm.getBandSeparators().get(0);
+                assertTrue(seps != null && !seps.isEmpty(), "Des séparateurs doivent être présents sur la bande");
+                boolean hasInner = seps.stream().anyMatch(s -> s.type == SeparatorMark.Type.INNER);
+                assertTrue(hasInner, "Un séparateur rythmique INNER doit être créé lors de la fusion d'une réplique sans blanc");
+
+                // Test Règle utilisateur 1 : Gap < 0.10s -> Pas de nouvelle phrase mais un séparateur
+                // Exemple utilisateur : "...prometteur." suivi à 0s par "Vous faites partie de..."
+                TimelinePanel userCaseTimeline = new TimelinePanel();
+                userCaseTimeline.setSize(1200, 260);
+                ArrayList<Role> userCaseRoles = new ArrayList<>();
+                java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> userCaseSegments = new java.util.ArrayList<>();
+                app.services.SpeechWorkflowService.TranscriptionSegment ucSeg1 =
+                        new app.services.SpeechWorkflowService.TranscriptionSegment(1, "SPEAKER_00", 1.00, 2.00, "C'est très prometteur.");
+                app.services.SpeechWorkflowService.TranscriptionSegment ucSeg2 =
+                        new app.services.SpeechWorkflowService.TranscriptionSegment(2, "SPEAKER_00", 2.02, 3.50, "Vous faites partie du voyage.");
+                userCaseSegments.add(ucSeg1);
+                userCaseSegments.add(ucSeg2);
+
+                app.MainFenetre.importerTranscriptionDansTimeline(userCaseSegments, 0, userCaseTimeline, userCaseRoles);
+
+                app.ui.TextManager ucTm = userCaseTimeline.getTextManager();
+                assertTrue(ucTm.getTexts().size() == 1, "Deux répliques avec gap < 0.10s NE DOIVENT PAS créer une nouvelle phrase (obtenu: " + ucTm.getTexts().size() + ")");
+                assertTrue(ucTm.getTexts().get(0).text.equals("C'est très prometteur. Vous faites partie du voyage."), "Les répliques doivent être réunies en une seule phrase");
+
+                java.util.ArrayList<app.ui.SeparatorMark> ucSeps = ucTm.getBandSeparators().get(0);
+                long startCount = ucSeps.stream().filter(s -> s.type == SeparatorMark.Type.START).count();
+                long endCount = ucSeps.stream().filter(s -> s.type == SeparatorMark.Type.END).count();
+                long innerCount = ucSeps.stream().filter(s -> s.type == SeparatorMark.Type.INNER).count();
+                assertTrue(startCount == 1, "Il doit y avoir exactement 1 marqueur START (obtenu: " + startCount + ")");
+                assertTrue(endCount == 1, "Il doit y avoir exactement 1 marqueur END (obtenu: " + endCount + ")");
+                assertTrue(innerCount >= 1, "Un séparateur INNER doit séparer les répliques enchaînées (obtenu: " + innerCount + ")");
+
+                // Test Règle utilisateur 2 : Gap >= 0.10s -> Phrases distinctes avec AU MOINS 0.10s de décalage entre END et START
+                TimelinePanel gapTimeline = new TimelinePanel();
+                gapTimeline.setSize(1200, 260);
+                ArrayList<Role> gapRoles = new ArrayList<>();
+                java.util.List<app.services.SpeechWorkflowService.TranscriptionSegment> gapSegments = new java.util.ArrayList<>();
+                app.services.SpeechWorkflowService.TranscriptionSegment gSeg1 =
+                        new app.services.SpeechWorkflowService.TranscriptionSegment(1, "SPEAKER_00", 1.00, 2.00, "Première réplique.");
+                app.services.SpeechWorkflowService.TranscriptionSegment gSeg2 =
+                        new app.services.SpeechWorkflowService.TranscriptionSegment(2, "SPEAKER_00", 2.15, 3.50, "Deuxième réplique.");
+                gapSegments.add(gSeg1);
+                gapSegments.add(gSeg2);
+
+                app.MainFenetre.importerTranscriptionDansTimeline(gapSegments, 0, gapTimeline, gapRoles);
+                app.ui.TextManager gapTm = gapTimeline.getTextManager();
+                assertTrue(gapTm.getTexts().size() == 2, "Deux répliques avec gap >= 0.10s doivent former 2 phrases distinctes");
+
+                java.util.ArrayList<app.ui.SeparatorMark> gSeps = gapTm.getBandSeparators().get(0);
+                SeparatorMark firstEnd = null;
+                SeparatorMark secondStart = null;
+                for (SeparatorMark sm : gSeps) {
+                    if (sm.type == SeparatorMark.Type.END && firstEnd == null) {
+                        firstEnd = sm;
+                    } else if (sm.type == SeparatorMark.Type.START && firstEnd != null && secondStart == null) {
+                        secondStart = sm;
                     }
-
-                    // Vérifier qu'aucun séparateur de début (START) n'est superposé sur un séparateur de fin (END) au même pixel
-                    java.util.ArrayList<app.ui.SeparatorMark> seps = tm.getBandSeparators().get(0);
-                    if (seps != null && !seps.isEmpty()) {
-                        int lastEnd = -1;
-                        for (app.ui.SeparatorMark sm : seps) {
-                            if (sm.isStartBoundary()) {
-                                if (lastEnd != -1) {
-                                    assertTrue(sm.x > lastEnd, "Le séparateur START (" + sm.x + "px) doit être strictement après le END précédent (" + lastEnd + "px)");
-                                }
-                            } else if (sm.isEndBoundary()) {
-                                lastEnd = sm.x;
-                            }
-                        }
-                    }
-                    testWindow.dispose();
-                } catch (Throwable t) {
-                    System.out.println("Test GUI ignoré (environnement headless ou affichage non disponible) : " + t.getMessage());
                 }
-            } else {
-                System.out.println("Environnement headless détecté : test fenêtré ignoré.");
+                assertTrue(firstEnd != null && secondStart != null, "Les marqueurs END1 et START2 doivent exister");
+                double pps = gapTimeline.getPixelsPerSecond();
+                int minGapPx = (int) Math.round(pps * 0.10);
+                assertTrue(secondStart.x - firstEnd.x >= minGapPx, "Il doit y avoir au moins 0.10s de décalage physique entre END et START (gap=" + (secondStart.x - firstEnd.x) + "px, requis=" + minGapPx + "px)");
             }
             System.out.println("Anti-Superposition, Fusion des Mots Parasites & Séparation des repères : VALIDÉ !");
 
