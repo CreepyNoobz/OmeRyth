@@ -1975,6 +1975,84 @@ public class SmokeTests {
             System.out.println("Vérification Recherche de Mots & Coupure Vocale Ciblée par Personnage : VALIDÉ !");
         }
 
+        // Test Clôture Manuelle de Phrase & Touche Entrée (phrase ouverte, phrase antérieure et postérieure)
+        {
+            System.out.println("--- Test Clôture Manuelle de Phrase & Touche Entrée ---");
+            app.ui.TimelinePanel tl = new app.ui.TimelinePanel();
+            double pps = tl.getPixelsPerSecond();
+            app.ui.Role actor = new app.ui.Role("Acteur", new Color(0x3B82F6));
+
+            // Scénario A : Phrase ultérieure existante (ex: t=50s avec END à 55s)
+            int p2Start = tl.snapWorldXToTenth(50.0 * pps);
+            int p2End = tl.snapWorldXToTenth(55.0 * pps);
+            tl.getTextManager().addSeparator(0, p2Start, app.ui.SeparatorMark.Type.START);
+            tl.getTextManager().addSeparator(0, p2End, app.ui.SeparatorMark.Type.END);
+            app.ui.TextItem itemFuture = new app.ui.TextItem("Phrase future", p2Start, 0);
+            tl.getTextManager().getTexts().add(itemFuture);
+
+            // Création d'une nouvelle phrase à t=10.0s
+            tl.setTime(10.0);
+            tl.startPhrase(0, actor);
+            tl.typeChar('S'); tl.typeChar('a'); tl.typeChar('l'); tl.typeChar('u'); tl.typeChar('t');
+            assertTrue(tl.isEditing(), "Doit être en mode édition active");
+            assertTrue(tl.getTextManager().hasOpenPhraseInBand(0), "La phrase à t=10s doit être détectée comme ouverte");
+
+            // On avance plus tard dans le temps (t=13.0s) et on clôture avec endPhrase() (Touche Entrée)
+            tl.setTime(13.0);
+            tl.endPhrase();
+            assertTrue(!tl.isEditing(), "Après endPhrase, le mode édition doit être quitté");
+            assertTrue(!tl.getTextManager().hasOpenPhraseInBand(0), "La phrase à t=10s doit être correctement fermée");
+
+            // Vérifier que le séparateur END a bien été créé à t=13.0s (et pas ignoré à cause de la phrase à 50s !)
+            int p1EndExpected = tl.snapWorldXToTenth(13.0 * pps);
+            boolean p1EndFound = false;
+            for (app.ui.SeparatorMark sep : tl.getTextManager().getBandSeparators().get(0)) {
+                if (sep.isEndBoundary() && Math.abs(sep.x - p1EndExpected) <= 2) {
+                    p1EndFound = true;
+                    break;
+                }
+            }
+            assertTrue(p1EndFound, "Un séparateur END doit exister à la position t=13.0s");
+
+            // Scénario B : Clôture hors mode édition via endPhraseAtCursor (Touche Entrée quand isEditing est false)
+            tl.setTime(20.0);
+            tl.startPhrase(0, actor);
+            tl.typeChar('T'); tl.typeChar('e'); tl.typeChar('s'); tl.typeChar('t');
+            tl.stopTyping(); // Simule clic ailleurs / perte de focus
+            assertTrue(!tl.isEditing(), "Hors mode édition");
+            assertTrue(tl.getTextManager().hasOpenPhraseInBand(0), "La phrase à 20s doit être ouverte");
+
+            tl.setTime(24.0);
+            tl.endPhraseAtCursor(0); // Simule appui sur Entrée hors édition
+            assertTrue(!tl.getTextManager().hasOpenPhraseInBand(0), "La phrase à 20s doit être clôturée par endPhraseAtCursor");
+            int p2EndFoundX = tl.snapWorldXToTenth(24.0 * pps);
+            boolean p2EndFound = false;
+            for (app.ui.SeparatorMark sep : tl.getTextManager().getBandSeparators().get(0)) {
+                if (sep.isEndBoundary() && Math.abs(sep.x - p2EndFoundX) <= 2) {
+                    p2EndFound = true;
+                    break;
+                }
+            }
+            assertTrue(p2EndFound, "Un séparateur END doit exister à t=24.0s pour la phrase fermée hors édition");
+
+            // Scénario C : Touche Entrée sans avancer le curseur (tStart == tCursor)
+            tl.setTime(30.0);
+            tl.startPhrase(0, actor);
+            tl.typeChar('O'); tl.typeChar('u'); tl.typeChar('i');
+            tl.endPhrase(); // Entrée immédiatement
+            assertTrue(!tl.getTextManager().hasOpenPhraseInBand(0), "Phrase à 30s fermée");
+            int p3StartX = tl.snapWorldXToTenth(30.0 * pps);
+            Integer p3EndX = null;
+            for (app.ui.SeparatorMark sep : tl.getTextManager().getBandSeparators().get(0)) {
+                if (sep.isEndBoundary() && sep.x > p3StartX) {
+                    if (p3EndX == null || sep.x < p3EndX) p3EndX = sep.x;
+                }
+            }
+            assertTrue(p3EndX != null && p3EndX > p3StartX, "La phrase fermée immédiatement doit avoir une largeur positive");
+
+            System.out.println("Vérification Clôture Manuelle de Phrase & Touche Entrée : VALIDÉ !");
+        }
+
         System.out.println("SmokeTests OK");
         System.exit(0);
     }

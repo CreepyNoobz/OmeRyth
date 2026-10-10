@@ -1032,6 +1032,13 @@ public class TimelinePanel extends JPanel {
             endPhrase();
             return;
         }
+        for (int b = 0; b < bandCount; b++) {
+            if (b != band && textManager.hasOpenPhraseInBand(b)) {
+                textManager.focusOpenPhraseInBand(b);
+                endPhrase();
+                return;
+            }
+        }
         recordUndoSnapshot();
         int worldCursorX = snapWorldXToTenth(cursorX - offsetX);
         textManager.addSeparator(band, worldCursorX, SeparatorMark.Type.END, -1, SeparatorMark.SignType.DEFAULT);

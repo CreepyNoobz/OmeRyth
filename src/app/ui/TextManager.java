@@ -394,12 +394,28 @@ public class TextManager {
     private Integer getRightBoundary(int band, int x) {
         ArrayList<SeparatorMark> sepList = bandSeparators.get(band);
         if (sepList == null) return null;
-        int rightSep = Integer.MAX_VALUE;
         for (SeparatorMark sep : sepList) {
-            if (!sep.isEndBoundary()) continue;
-            if (sep.x > x && sep.x < rightSep) rightSep = sep.x;
+            if (sep.x <= x) continue;
+            // Si on rencontre un nouveau début de phrase avant une fin, la phrase à x est ouverte !
+            if (sep.isStartBoundary()) {
+                return null;
+            }
+            if (sep.isEndBoundary()) {
+                return sep.x;
+            }
         }
-        return (rightSep == Integer.MAX_VALUE) ? null : rightSep;
+        return null;
+    }
+
+    private Integer getNextStartBoundary(int band, int x) {
+        ArrayList<SeparatorMark> sepList = bandSeparators.get(band);
+        if (sepList == null) return null;
+        for (SeparatorMark sep : sepList) {
+            if (sep.x > x && sep.isStartBoundary()) {
+                return sep.x;
+            }
+        }
+        return null;
     }
 
     private Integer getLeftBoundary(int band, int x) {
@@ -533,8 +549,24 @@ public class TextManager {
         } else if (!currentInput.isEmpty()) {
             texts.add(new TextItem(currentInput, textX, activeBand));
         }
+
         if (activeBand >= 0) {
-            addSeparator(activeBand, cursorX, SeparatorMark.Type.END);
+            int targetEnd = cursorX;
+            // Si le curseur est placé avant ou sur le repère de début, on calcule la fin naturelle
+            if (targetEnd <= selectedText.x) {
+                FontMetrics fm = getEffectiveFontMetrics();
+                double textWidth = (fm != null && currentInput != null && !currentInput.isEmpty())
+                        ? fm.stringWidth(currentInput)
+                        : (currentInput != null && !currentInput.isEmpty() ? currentInput.length() * 10 : 80);
+                int naturalWidth = Math.max(80, (int) Math.round(textWidth * 1.25));
+                targetEnd = selectedText.x + naturalWidth;
+            }
+            // S'il y a un début de phrase ultérieur, la fin ne doit pas empiéter dessus
+            Integer nextStart = getNextStartBoundary(activeBand, selectedText.x);
+            if (nextStart != null && targetEnd >= nextStart) {
+                targetEnd = Math.max(selectedText.x + 10, nextStart - 5);
+            }
+            addSeparator(activeBand, targetEnd, SeparatorMark.Type.END);
         }
         stopTyping();
     }

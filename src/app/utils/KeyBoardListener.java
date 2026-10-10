@@ -373,7 +373,15 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
                 return true;
             }
 
+            if ((e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0 && e.getKeyCode() == marcheArretKeyCode) {
+                skipNextTyped = true;
+                togglePlayback();
+                e.consume();
+                return true;
+            }
+
             if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                skipNextTyped = true;
                 timelinePanel.endPhrase();
                 e.consume();
                 return true;
@@ -428,6 +436,16 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
                 return true;
             }
 
+            e.consume();
+            return true;
+        }
+
+        // Touche Entrée (standard ou pavé numérique) hors mode édition : clôturer la phrase ouverte
+        if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+            skipNextTyped = true;
+            int band = timelinePanel.getSelectedBand();
+            if (band < 0) band = 0;
+            timelinePanel.endPhraseAtCursor(band);
             e.consume();
             return true;
         }
