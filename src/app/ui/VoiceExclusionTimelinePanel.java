@@ -198,7 +198,10 @@ public class VoiceExclusionTimelinePanel extends JPanel {
 
     private void updateTimeDisplay() {
         if (lblTime != null) {
-            lblTime.setText(formatTime(currentTime) + " / " + formatTime(totalDuration));
+            String text = formatTime(currentTime) + " / " + formatTime(totalDuration);
+            if (!text.equals(lblTime.getText())) {
+                lblTime.setText(text);
+            }
         }
     }
 

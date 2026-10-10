@@ -934,11 +934,16 @@ public class SmokeTests {
             cfg.width = 1080;
             cfg.height = 1920;
 
-            // Test Fluidité Lecture Preview MontagePreviewCanvas (Zéro lag / 60 FPS)
+            // Test Fluidité Lecture Preview MontagePreviewCanvas (Zéro lag / 60 FPS avec vidéo 1080p et flou)
             canvas.setTimelinePanel(timeline);
+            BufferedImage videoSnap1080p = new BufferedImage(1920, 1080, BufferedImage.TYPE_INT_RGB);
+            canvas.setVideoSnapshot(videoSnap1080p);
+            canvas.setBlurBackgroundVideo(true);
             canvas.setSize(600, 400);
             BufferedImage previewTestImg = new BufferedImage(600, 400, BufferedImage.TYPE_INT_RGB);
             java.awt.Graphics2D gCanvas = previewTestImg.createGraphics();
+            // 1er rendu warm-up (initialisation du flou d'arrière-plan et des caches statiques)
+            canvas.paint(gCanvas);
             long startPreviewBench = System.currentTimeMillis();
             for (int f = 0; f < 60; f++) {
                 canvas.setPreviewTime(f * 0.016);
@@ -948,8 +953,8 @@ public class SmokeTests {
             gCanvas.dispose();
             long totalPreviewMs = endPreviewBench - startPreviewBench;
             double msPerFrame = totalPreviewMs / 60.0;
-            assertTrue(msPerFrame < 15.0, "La lecture de la prévisualisation doit être ultra-fluide (<15ms/frame, mesuré: " + msPerFrame + " ms/frame)");
-            System.out.println("Test Fluidité Lecture Preview Montage (60 frames en " + totalPreviewMs + " ms, soit " + String.format("%.2f", msPerFrame) + " ms/frame) : VALIDÉ !");
+            assertTrue(msPerFrame < 5.0, "La lecture de la prévisualisation doit être ultra-fluide (<5ms/frame, mesuré: " + msPerFrame + " ms/frame)");
+            System.out.println("Test Fluidité Lecture Preview Montage avec vidéo 1080p + flou (60 frames en " + totalPreviewMs + " ms, soit " + String.format("%.2f", msPerFrame) + " ms/frame) : VALIDÉ !");
 
             assertTrue(cfg.isMontageMode && cfg.removeVocals && cfg.antiCopyright && cfg.antiCopyrightOpacity == 45, "Configuration montage, retrait voix et anti-copyright 45% doit être conservée");
             System.out.println("Test MontagePreviewCanvas, Redimensionnement, Retrait de Voix & Anti-Copyright : VALIDÉ !");

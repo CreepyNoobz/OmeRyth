@@ -62,6 +62,28 @@ public class MontagePreviewCanvas extends JPanel {
     private int cachedBlurRadius = -1;
     private BufferedImage cachedBlurSource = null;
 
+    private BufferedImage cachedScaledVideoSnapshot = null;
+    private int cachedScaledVideoW = -1;
+    private int cachedScaledVideoH = -1;
+    private BufferedImage cachedScaledVideoSrc = null;
+
+    private BufferedImage cachedScaledBlurSnapshot = null;
+    private int cachedScaledBlurW = -1;
+    private int cachedScaledBlurH = -1;
+    private BufferedImage cachedScaledBlurSrc = null;
+
+    private static final TexturePaint GRID_TEXTURE;
+    static {
+        BufferedImage gridTile = new BufferedImage(20, 20, BufferedImage.TYPE_INT_RGB);
+        Graphics2D tg = gridTile.createGraphics();
+        tg.setColor(new Color(24, 24, 27));
+        tg.fillRect(0, 0, 20, 20);
+        tg.setColor(new Color(39, 39, 42));
+        tg.fillRect(0, 0, 1, 1);
+        tg.dispose();
+        GRID_TEXTURE = new TexturePaint(gridTile, new Rectangle(0, 0, 20, 20));
+    }
+
     private boolean isDragging = false;
     private boolean isResizing = false;
     private int activeHandle = -1;
@@ -128,6 +150,10 @@ public class MontagePreviewCanvas extends JPanel {
 
     public void setVideoSnapshot(BufferedImage snapshot) {
         this.videoSnapshot = snapshot;
+        this.cachedScaledVideoSnapshot = null;
+        this.cachedScaledVideoSrc = null;
+        this.cachedScaledBlurSnapshot = null;
+        this.cachedScaledBlurSrc = null;
         repaint();
     }
 
@@ -791,13 +817,8 @@ public class MontagePreviewCanvas extends JPanel {
     }
 
     private void drawArtboardGrid(Graphics2D g2) {
-        g2.setColor(new Color(39, 39, 42));
-        int step = 20;
-        for (int x = 0; x < getWidth(); x += step) {
-            for (int y = 0; y < getHeight(); y += step) {
-                g2.fillRect(x, y, 1, 1);
-            }
-        }
+        g2.setPaint(GRID_TEXTURE);
+        g2.fillRect(0, 0, getWidth(), getHeight());
     }
 
     private void drawBadge(Graphics2D g2, SheetMetrics m) {
@@ -848,8 +869,18 @@ public class MontagePreviewCanvas extends JPanel {
                 drawX = m.sheetX;
                 drawY = m.sheetY + (m.sheetH - drawH) / 2;
             }
-            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            g2.drawImage(blurImg, drawX, drawY, drawW, drawH, null);
+
+            if (cachedScaledBlurSnapshot == null || cachedScaledBlurW != drawW || cachedScaledBlurH != drawH || cachedScaledBlurSrc != blurImg) {
+                cachedScaledBlurSrc = blurImg;
+                cachedScaledBlurW = drawW;
+                cachedScaledBlurH = drawH;
+                cachedScaledBlurSnapshot = new BufferedImage(Math.max(1, drawW), Math.max(1, drawH), BufferedImage.TYPE_INT_RGB);
+                Graphics2D bg = cachedScaledBlurSnapshot.createGraphics();
+                bg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                bg.drawImage(blurImg, 0, 0, drawW, drawH, null);
+                bg.dispose();
+            }
+            g2.drawImage(cachedScaledBlurSnapshot, drawX, drawY, null);
         } else {
             g2.setColor(new Color(20, 25, 45));
             g2.fillRect(m.sheetX, m.sheetY, m.sheetW, m.sheetH);
@@ -862,7 +893,17 @@ public class MontagePreviewCanvas extends JPanel {
     private void drawVideoElement(Graphics2D g2, Rectangle r, boolean isSelected) {
         boolean drawnSnapshot = false;
         if (videoSnapshot != null && r.width > 20 && r.height > 10) {
-            g2.drawImage(videoSnapshot, r.x, r.y, r.width, r.height, null);
+            if (cachedScaledVideoSnapshot == null || cachedScaledVideoW != r.width || cachedScaledVideoH != r.height || cachedScaledVideoSrc != videoSnapshot) {
+                cachedScaledVideoSrc = videoSnapshot;
+                cachedScaledVideoW = r.width;
+                cachedScaledVideoH = r.height;
+                cachedScaledVideoSnapshot = new BufferedImage(Math.max(1, r.width), Math.max(1, r.height), BufferedImage.TYPE_INT_RGB);
+                Graphics2D vg = cachedScaledVideoSnapshot.createGraphics();
+                vg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                vg.drawImage(videoSnapshot, 0, 0, r.width, r.height, null);
+                vg.dispose();
+            }
+            g2.drawImage(cachedScaledVideoSnapshot, r.x, r.y, null);
             drawnSnapshot = true;
         }
 

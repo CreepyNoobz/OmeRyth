@@ -1323,8 +1323,16 @@ public class ExportVideoDialog extends JDialog {
                         mp.controls().setTime(targetMs);
                     }
                 } else {
-                    mp.controls().setTime(targetMs);
-                    mp.controls().play();
+                    long vlcTime = mp.status().time();
+                    long diffMs = (vlcTime >= 0) ? Math.abs(vlcTime - targetMs) : Long.MAX_VALUE;
+                    if (diffMs > 250 || vlcTime < 0) {
+                        mp.controls().setTime(targetMs);
+                    }
+                    if (state == uk.co.caprica.vlcj.player.base.State.PAUSED) {
+                        mp.controls().setPause(false);
+                    } else {
+                        mp.controls().play();
+                    }
                 }
             } catch (Throwable ignored) {}
         }
@@ -1340,20 +1348,6 @@ public class ExportVideoDialog extends JDialog {
             long nowNs = System.nanoTime();
             double elapsed = (nowNs - previewPlayStartSysNs) / 1_000_000_000.0;
             double nowT = previewPlayStartVidTime + elapsed;
-
-            if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
-                try {
-                    long vlcMs = mediaPlayerComponent.mediaPlayer().status().time();
-                    if (vlcMs >= 0) {
-                        double vlcT = vlcMs / 1000.0;
-                        if (Math.abs(nowT - vlcT) > 0.15) {
-                            previewPlayStartSysNs = nowNs;
-                            previewPlayStartVidTime = vlcT;
-                            nowT = vlcT;
-                        }
-                    }
-                } catch (Throwable ignored) {}
-            }
 
             if (nowT >= videoDuration) {
                 nowT = videoDuration;
