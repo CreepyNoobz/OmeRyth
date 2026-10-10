@@ -1085,6 +1085,10 @@ public class TimelinePanel extends JPanel {
         return currentTime;
     }
 
+    public TimelineRenderer getTimelineRenderer() {
+        return renderer;
+    }
+
     public FontMetrics getTimelineFontMetrics() {
         int h = getHeight() > 0 ? getHeight() : Math.max(20, bandHeight * Math.max(1, bandCount));
         int bHeight = Math.max(1, h / Math.max(1, bandCount));

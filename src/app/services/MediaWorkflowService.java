@@ -626,11 +626,23 @@ public class MediaWorkflowService {
                                     if (i > 0) keepExpr.append("+");
                                     keepExpr.append(String.format(Locale.US, "between(t,%.3f,%.3f)", z[0], z[1]));
                                 }
-                                filter.append(String.format(Locale.US,
-                                        ";[2:a]volume='if(%s,0,1)':eval=frame[ainst];" +
-                                        "[1:a]volume='if(%s,1,0)':eval=frame[aorig];" +
-                                        "[ainst][aorig]amix=inputs=2:normalize=0:dropout_transition=0,aresample=async=1:first_pts=0[aout]",
-                                        keepExpr, keepExpr));
+                                if (config.voiceCutMode) {
+                                    // Mode Coupure ciblée : on coupe la voix PENDANT la balise (instrumental),
+                                    // et on garde la voix originale en dehors de la balise pour tout le reste !
+                                    filter.append(String.format(Locale.US,
+                                            ";[2:a]volume='if(%s,1,0)':eval=frame[ainst];" +
+                                            "[1:a]volume='if(%s,0,1)':eval=frame[aorig];" +
+                                            "[ainst][aorig]amix=inputs=2:normalize=0:dropout_transition=0,aresample=async=1:first_pts=0[aout]",
+                                            keepExpr, keepExpr));
+                                } else {
+                                    // Mode Conservation : on garde la voix originale PENDANT la balise,
+                                    // et on applique le Voice Remover en dehors !
+                                    filter.append(String.format(Locale.US,
+                                            ";[2:a]volume='if(%s,0,1)':eval=frame[ainst];" +
+                                            "[1:a]volume='if(%s,1,0)':eval=frame[aorig];" +
+                                            "[ainst][aorig]amix=inputs=2:normalize=0:dropout_transition=0,aresample=async=1:first_pts=0[aout]",
+                                            keepExpr, keepExpr));
+                                }
                             } else {
                                 filter.append(";[2:a]aresample=async=1:first_pts=0[aout]");
                             }
@@ -642,12 +654,21 @@ public class MediaWorkflowService {
                                     if (i > 0) keepExpr.append("+");
                                     keepExpr.append(String.format(Locale.US, "between(t,%.3f,%.3f)", z[0], z[1]));
                                 }
-                                filter.append(String.format(Locale.US,
-                                        ";[1:a]asplit=2[a_orig_in][a_stereo_in];" +
-                                        "[a_stereo_in]stereotools=mlev=0.015625:slev=1.3,highpass=f=80,volume='if(%s,0,1)':eval=frame[ainst];" +
-                                        "[a_orig_in]volume='if(%s,1,0)':eval=frame[aorig];" +
-                                        "[ainst][aorig]amix=inputs=2:normalize=0:dropout_transition=0,aresample=async=1:first_pts=0[aout]",
-                                        keepExpr, keepExpr));
+                                if (config.voiceCutMode) {
+                                    filter.append(String.format(Locale.US,
+                                            ";[1:a]asplit=2[a_orig_in][a_stereo_in];" +
+                                            "[a_stereo_in]stereotools=mlev=0.015625:slev=1.3,highpass=f=80,volume='if(%s,1,0)':eval=frame[ainst];" +
+                                            "[a_orig_in]volume='if(%s,0,1)':eval=frame[aorig];" +
+                                            "[ainst][aorig]amix=inputs=2:normalize=0:dropout_transition=0,aresample=async=1:first_pts=0[aout]",
+                                            keepExpr, keepExpr));
+                                } else {
+                                    filter.append(String.format(Locale.US,
+                                            ";[1:a]asplit=2[a_orig_in][a_stereo_in];" +
+                                            "[a_stereo_in]stereotools=mlev=0.015625:slev=1.3,highpass=f=80,volume='if(%s,0,1)':eval=frame[ainst];" +
+                                            "[a_orig_in]volume='if(%s,1,0)':eval=frame[aorig];" +
+                                            "[ainst][aorig]amix=inputs=2:normalize=0:dropout_transition=0,aresample=async=1:first_pts=0[aout]",
+                                            keepExpr, keepExpr));
+                                }
                             } else {
                                 filter.append(";[1:a]stereotools=mlev=0.015625:slev=1.3,highpass=f=80,aresample=async=1:first_pts=0[aout]");
                             }

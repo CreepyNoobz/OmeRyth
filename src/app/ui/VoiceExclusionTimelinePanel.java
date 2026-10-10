@@ -51,11 +51,20 @@ public class VoiceExclusionTimelinePanel extends JPanel {
     private final Runnable onTogglePlay;
     private Runnable onZonesChanged;
 
+    private TimelinePanel timelinePanel;
+    private boolean voiceCutMode = true;
+
     private JButton btnPlayPause;
     private JLabel lblTime;
     private JButton btnAddZone;
     private JButton btnDeleteZone;
     private JButton btnClearAll;
+    private JComboBox<String> cboAction;
+    private JTextField txtWordSearch;
+    private JComboBox<String> cboScope;
+    private JComboBox<String> cboRoles;
+    private JButton btnSearchAndTag;
+    private JLabel lblSearchFeedback;
     private JLabel lblSummary;
     private TrackCanvas trackCanvas;
 
@@ -229,11 +238,273 @@ public class VoiceExclusionTimelinePanel extends JPanel {
     public JButton getBtnAddZone() { return btnAddZone; }
     public JButton getBtnDeleteZone() { return btnDeleteZone; }
     public JButton getBtnClearAll() { return btnClearAll; }
+    public JComboBox<String> getCboAction() { return cboAction; }
+    public JTextField getTxtWordSearch() { return txtWordSearch; }
+    public JComboBox<String> getCboScope() { return cboScope; }
+    public JComboBox<String> getCboRoles() { return cboRoles; }
+    public JButton getBtnSearchAndTag() { return btnSearchAndTag; }
+    public JLabel getLblSearchFeedback() { return lblSearchFeedback; }
+
+    public void setTimelinePanel(TimelinePanel timelinePanel) {
+        this.timelinePanel = timelinePanel;
+        updateRoleList();
+    }
+
+    public TimelinePanel getTimelinePanel() {
+        return timelinePanel;
+    }
+
+    public boolean isVoiceCutMode() {
+        return voiceCutMode;
+    }
+
+    public void setVoiceCutMode(boolean cutMode) {
+        this.voiceCutMode = cutMode;
+        if (cboAction != null) {
+            cboAction.setSelectedIndex(cutMode ? 0 : 1);
+        }
+        if (trackCanvas != null) {
+            trackCanvas.repaint();
+        }
+    }
+
+    public void updateRoleList() {
+        if (cboRoles == null) return;
+        cboRoles.removeAllItems();
+        cboRoles.addItem("Tous les rôles");
+
+        java.util.LinkedHashSet<String> roleNames = new java.util.LinkedHashSet<>();
+        if (timelinePanel != null) {
+            if (timelinePanel.getRoles() != null) {
+                for (Role r : timelinePanel.getRoles()) {
+                    if (r != null && r.name != null && !r.name.trim().isEmpty()) {
+                        roleNames.add(r.name.trim());
+                    }
+                }
+            }
+            if (timelinePanel.getTextManager() != null && timelinePanel.getTextManager().getTexts() != null) {
+                for (TextItem t : timelinePanel.getTextManager().getTexts()) {
+                    if (t != null && t.role != null && t.role.name != null && !t.role.name.trim().isEmpty()) {
+                        roleNames.add(t.role.name.trim());
+                    }
+                }
+            }
+        }
+        for (String rName : roleNames) {
+            cboRoles.addItem(rName);
+        }
+    }
+
+    public static String normalizeForSearch(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = Character.toLowerCase(s.charAt(i));
+            switch (c) {
+                case 'é': case 'è': case 'ê': case 'ë': c = 'e'; break;
+                case 'à': case 'â': case 'ä': case 'á': c = 'a'; break;
+                case 'î': case 'ï': case 'í': c = 'i'; break;
+                case 'ô': case 'ö': case 'ó': c = 'o'; break;
+                case 'ù': case 'û': case 'ü': case 'ú': c = 'u'; break;
+                case 'ç': c = 'c'; break;
+                case 'ñ': c = 'n'; break;
+                case 'ÿ': c = 'y'; break;
+                default: break;
+            }
+            sb.append(c);
+        }
+        return sb.toString();
+    }
+
+    public int searchAndAddWordZones(String query, String scope, String roleFilter) {
+        if (query == null || query.trim().isEmpty() || timelinePanel == null) {
+            return 0;
+        }
+        TextManager tm = timelinePanel.getTextManager();
+        if (tm == null) return 0;
+        List<TextItem> allTexts = tm.getTexts();
+        if (allTexts == null || allTexts.isEmpty()) return 0;
+
+        double pps = Math.max(1.0, timelinePanel.getPixelsPerSecond());
+        TimelineRenderer renderer = timelinePanel.getTimelineRenderer();
+        FontMetrics fm = tm.getEffectiveFontMetrics();
+
+        List<String> rawTerms = new ArrayList<>();
+        if (query.contains(",") || query.contains(";")) {
+            for (String part : query.split("[,;]")) {
+                String pt = part.trim();
+                if (!pt.isEmpty()) rawTerms.add(pt);
+            }
+        } else {
+            String trimmed = query.trim();
+            if (!trimmed.isEmpty()) {
+                rawTerms.add(trimmed);
+            }
+        }
+        if (rawTerms.isEmpty()) return 0;
+
+        boolean fullPhraseScope = "Dialogue complet".equalsIgnoreCase(scope);
+        boolean filterRole = (roleFilter != null && !roleFilter.isEmpty() && !"Tous les rôles".equalsIgnoreCase(roleFilter));
+
+        int addedCount = 0;
+
+        for (TextItem t : allTexts) {
+            if (t == null || t.text == null || t.text.isEmpty()) continue;
+
+            if (filterRole) {
+                if (t.role == null || t.role.name == null || !t.role.name.trim().equalsIgnoreCase(roleFilter.trim())) {
+                    continue;
+                }
+            }
+
+            int[] bounds = tm.getSegmentBounds(t);
+            int segStart = bounds[0];
+            int segEnd = bounds[1];
+            ArrayList<SeparatorMark> innerMarks = tm.getInnerMarksForSegment(t, segStart, segEnd);
+
+            String textNorm = normalizeForSearch(t.text);
+            boolean phraseMatched = false;
+
+            for (String rawTerm : rawTerms) {
+                String termNorm = normalizeForSearch(rawTerm);
+                if (termNorm.isEmpty()) continue;
+
+                int searchFrom = 0;
+                while (searchFrom < textNorm.length()) {
+                    int matchIdx = textNorm.indexOf(termNorm, searchFrom);
+                    if (matchIdx < 0) break;
+
+                    int matchEndIdx = matchIdx + termNorm.length();
+
+                    boolean beforeBoundary = (matchIdx == 0 || !Character.isLetterOrDigit(textNorm.charAt(matchIdx - 1)));
+                    boolean afterBoundary = (matchEndIdx >= textNorm.length() || !Character.isLetterOrDigit(textNorm.charAt(matchEndIdx)));
+                    boolean isWordMatch = (beforeBoundary && afterBoundary) || termNorm.contains(" ");
+
+                    if (isWordMatch) {
+                        if (fullPhraseScope) {
+                            if (!phraseMatched) {
+                                double phraseStart = Math.max(0.0, (double) segStart / pps);
+                                double phraseEnd = Math.min(totalDuration, (double) segEnd / pps);
+                                if (phraseEnd > phraseStart) {
+                                    addZone(phraseStart, phraseEnd);
+                                    addedCount++;
+                                    phraseMatched = true;
+                                }
+                            }
+                            break;
+                        } else {
+                            double charStartX = (renderer != null)
+                                    ? renderer.computeCursorXForSegments(fm, t, 0, segStart, segEnd, innerMarks, matchIdx, false)
+                                    : segStart + ((double) matchIdx / t.text.length()) * (segEnd - segStart);
+                            double charEndX = (renderer != null)
+                                    ? renderer.computeCursorXForSegments(fm, t, 0, segStart, segEnd, innerMarks, matchEndIdx, true)
+                                    : segStart + ((double) matchEndIdx / t.text.length()) * (segEnd - segStart);
+
+                            if (charEndX < charStartX) {
+                                double tmp = charStartX;
+                                charStartX = charEndX;
+                                charEndX = tmp;
+                            }
+
+                            double tStart = charStartX / pps;
+                            double tEnd = charEndX / pps;
+
+                            tStart = Math.max(0.0, tStart - 0.08);
+                            tEnd = Math.min(totalDuration, tEnd + 0.08);
+
+                            if (tEnd - tStart < 0.25) {
+                                double mid = (tStart + tEnd) / 2.0;
+                                tStart = Math.max(0.0, mid - 0.125);
+                                tEnd = Math.min(totalDuration, mid + 0.125);
+                            }
+
+                            addZone(tStart, tEnd);
+                            addedCount++;
+                        }
+                    }
+
+                    searchFrom = matchIdx + Math.max(1, termNorm.length());
+                }
+
+                if (fullPhraseScope && phraseMatched) {
+                    break;
+                }
+            }
+        }
+
+        // Si aucun mot complet n'a correspondu, tenter une passe en correspondance de sous-chaîne
+        if (addedCount == 0) {
+            for (TextItem t : allTexts) {
+                if (t == null || t.text == null || t.text.isEmpty()) continue;
+                if (filterRole) {
+                    if (t.role == null || t.role.name == null || !t.role.name.trim().equalsIgnoreCase(roleFilter.trim())) {
+                        continue;
+                    }
+                }
+                int[] bounds = tm.getSegmentBounds(t);
+                int segStart = bounds[0];
+                int segEnd = bounds[1];
+                ArrayList<SeparatorMark> innerMarks = tm.getInnerMarksForSegment(t, segStart, segEnd);
+                String textNorm = normalizeForSearch(t.text);
+                boolean phraseMatched = false;
+
+                for (String rawTerm : rawTerms) {
+                    String termNorm = normalizeForSearch(rawTerm);
+                    if (termNorm.isEmpty()) continue;
+                    int matchIdx = textNorm.indexOf(termNorm);
+                    if (matchIdx >= 0) {
+                        int matchEndIdx = matchIdx + termNorm.length();
+                        if (fullPhraseScope) {
+                            if (!phraseMatched) {
+                                double phraseStart = Math.max(0.0, (double) segStart / pps);
+                                double phraseEnd = Math.min(totalDuration, (double) segEnd / pps);
+                                if (phraseEnd > phraseStart) {
+                                    addZone(phraseStart, phraseEnd);
+                                    addedCount++;
+                                    phraseMatched = true;
+                                }
+                            }
+                            break;
+                        } else {
+                            double charStartX = (renderer != null)
+                                    ? renderer.computeCursorXForSegments(fm, t, 0, segStart, segEnd, innerMarks, matchIdx, false)
+                                    : segStart + ((double) matchIdx / t.text.length()) * (segEnd - segStart);
+                            double charEndX = (renderer != null)
+                                    ? renderer.computeCursorXForSegments(fm, t, 0, segStart, segEnd, innerMarks, matchEndIdx, true)
+                                    : segStart + ((double) matchEndIdx / t.text.length()) * (segEnd - segStart);
+
+                            if (charEndX < charStartX) {
+                                double tmp = charStartX;
+                                charStartX = charEndX;
+                                charEndX = tmp;
+                            }
+                            double tStart = Math.max(0.0, (charStartX / pps) - 0.08);
+                            double tEnd = Math.min(totalDuration, (charEndX / pps) + 0.08);
+                            if (tEnd - tStart < 0.25) {
+                                double mid = (tStart + tEnd) / 2.0;
+                                tStart = Math.max(0.0, mid - 0.125);
+                                tEnd = Math.min(totalDuration, mid + 0.125);
+                            }
+                            addZone(tStart, tEnd);
+                            addedCount++;
+                        }
+                    }
+                }
+            }
+        }
+
+        return addedCount;
+    }
 
     private void initUI() {
-        // --- Barre d'outils supérieure ---
-        JPanel topBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
-        topBar.setOpaque(false);
+        // --- Barre d'outils supérieure à deux lignes compactes ---
+        JPanel topContainer = new JPanel();
+        topContainer.setLayout(new BoxLayout(topContainer, BoxLayout.Y_AXIS));
+        topContainer.setOpaque(false);
+
+        // Ligne 1 : Contrôles de lecture, timecode, balisage manuel et mode d'action
+        JPanel row1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
+        row1.setOpaque(false);
 
         btnPlayPause = new JButton("Lecture");
         btnPlayPause.setFont(new Font("Segoe UI", Font.BOLD, 11));
@@ -256,7 +527,7 @@ public class VoiceExclusionTimelinePanel extends JPanel {
         btnAddZone.setBackground(new Color(245, 158, 11)); // Amber
         btnAddZone.setFocusPainted(false);
         btnAddZone.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        btnAddZone.setToolTipText("Insère deux balises espacées de 3 secondes à la position du curseur pour conserver la voix");
+        btnAddZone.setToolTipText("Insère deux balises espacées de 3 secondes à la position du curseur");
         btnAddZone.addActionListener(e -> addZoneAtCursor(3.0));
 
         btnDeleteZone = new JButton("Supprimer balise");
@@ -278,14 +549,96 @@ public class VoiceExclusionTimelinePanel extends JPanel {
         btnClearAll.setToolTipText("Supprimer toutes les balises de voix");
         btnClearAll.addActionListener(e -> clearAllZones());
 
-        topBar.add(btnPlayPause);
-        topBar.add(lblTime);
-        topBar.add(Box.createHorizontalStrut(6));
-        topBar.add(btnAddZone);
-        topBar.add(btnDeleteZone);
-        topBar.add(btnClearAll);
+        cboAction = new JComboBox<>(new String[]{"Couper la voix (Balises)", "Conserver la voix (Bypass)"});
+        cboAction.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        cboAction.setForeground(Color.BLACK);
+        cboAction.setBackground(new Color(240, 240, 245));
+        cboAction.setFocusable(false);
+        cboAction.setToolTipText("Mode d'action : couper la voix dans les balises (garde l'original partout ailleurs) ou conserver la voix dans les balises (retire la voix partout ailleurs)");
+        cboAction.addActionListener(e -> {
+            voiceCutMode = (cboAction.getSelectedIndex() == 0);
+            if (trackCanvas != null) trackCanvas.repaint();
+        });
 
-        add(topBar, BorderLayout.NORTH);
+        row1.add(btnPlayPause);
+        row1.add(lblTime);
+        row1.add(Box.createHorizontalStrut(6));
+        row1.add(btnAddZone);
+        row1.add(btnDeleteZone);
+        row1.add(btnClearAll);
+        row1.add(Box.createHorizontalStrut(8));
+        row1.add(cboAction);
+
+        // Ligne 2 : Recherche de mots pour pose automatique des balises
+        JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
+        row2.setOpaque(false);
+
+        JLabel lblSearch = new JLabel("Recherche mots :");
+        lblSearch.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        lblSearch.setForeground(new Color(212, 212, 216));
+
+        txtWordSearch = new JTextField(12);
+        txtWordSearch.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        txtWordSearch.setForeground(Color.BLACK);
+        txtWordSearch.setBackground(new Color(245, 245, 250));
+        txtWordSearch.setCaretColor(Color.BLACK);
+        txtWordSearch.setToolTipText("Mots ou expressions à couper/baliser (ex: bonjour, réplique...) - Entrée pour valider");
+
+        cboScope = new JComboBox<>(new String[]{"Mot exact", "Dialogue complet"});
+        cboScope.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        cboScope.setForeground(Color.BLACK);
+        cboScope.setBackground(new Color(240, 240, 245));
+        cboScope.setFocusable(false);
+        cboScope.setToolTipText("Portée : poser les balises uniquement sur chaque mot ou sur la phrase entière");
+
+        cboRoles = new JComboBox<>(new String[]{"Tous les rôles"});
+        cboRoles.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        cboRoles.setForeground(Color.BLACK);
+        cboRoles.setBackground(new Color(240, 240, 245));
+        cboRoles.setFocusable(false);
+        cboRoles.setToolTipText("Filtrer par rôle / comédien pour supprimer la voix d'une seule personne");
+
+        btnSearchAndTag = new JButton("Poser balises");
+        btnSearchAndTag.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        btnSearchAndTag.setForeground(Color.BLACK);
+        btnSearchAndTag.setBackground(new Color(56, 189, 248)); // Sky blue
+        btnSearchAndTag.setFocusPainted(false);
+        btnSearchAndTag.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        btnSearchAndTag.setToolTipText("Détecter les occurrences et positionner automatiquement les balises");
+        btnSearchAndTag.addActionListener(e -> {
+            String q = txtWordSearch.getText();
+            if (q == null || q.trim().isEmpty()) {
+                lblSearchFeedback.setText("Entrez un mot à chercher");
+                lblSearchFeedback.setForeground(new Color(248, 113, 113));
+                return;
+            }
+            String scope = (String) cboScope.getSelectedItem();
+            String role = (String) cboRoles.getSelectedItem();
+            int added = searchAndAddWordZones(q, scope, role);
+            if (added > 0) {
+                lblSearchFeedback.setText(added + (added > 1 ? " balises posées" : " balise posée"));
+                lblSearchFeedback.setForeground(new Color(52, 211, 153));
+            } else {
+                lblSearchFeedback.setText("0 occurrence trouvée");
+                lblSearchFeedback.setForeground(new Color(251, 191, 36));
+            }
+        });
+        txtWordSearch.addActionListener(e -> btnSearchAndTag.doClick());
+
+        lblSearchFeedback = new JLabel("");
+        lblSearchFeedback.setFont(new Font("Segoe UI", Font.BOLD, 11));
+
+        row2.add(lblSearch);
+        row2.add(txtWordSearch);
+        row2.add(cboScope);
+        row2.add(cboRoles);
+        row2.add(btnSearchAndTag);
+        row2.add(lblSearchFeedback);
+
+        topContainer.add(row1);
+        topContainer.add(row2);
+
+        add(topContainer, BorderLayout.NORTH);
 
         // --- Piste Timeline interactive ---
         trackCanvas = new TrackCanvas();
@@ -403,7 +756,7 @@ public class VoiceExclusionTimelinePanel extends JPanel {
                 setToolTipText("Balise fin (glisser pour ajuster le timecode de fin)");
             } else if (hitHandle == DRAG_ZONE_BODY) {
                 setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
-                setToolTipText("Zone de voix conservée (glisser pour déplacer la zone complète)");
+                setToolTipText(voiceCutMode ? "Zone de coupure vocale (glisser pour déplacer la coupure)" : "Zone de voix conservée (glisser pour déplacer la zone complète)");
             } else {
                 setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                 setToolTipText("Cliquer pour déplacer le curseur de lecture");
@@ -577,11 +930,19 @@ public class VoiceExclusionTimelinePanel extends JPanel {
                 boolean isSel = (i == selectedZoneIndex);
 
                 // Remplissage de la zone
-                g2.setColor(isSel ? new Color(245, 158, 11, 140) : new Color(217, 119, 6, 85));
+                if (voiceCutMode) {
+                    g2.setColor(isSel ? new Color(239, 68, 68, 140) : new Color(220, 38, 38, 85));
+                } else {
+                    g2.setColor(isSel ? new Color(245, 158, 11, 140) : new Color(217, 119, 6, 85));
+                }
                 g2.fillRoundRect(x1, zoneY, zw, zoneH, 6, 6);
 
                 // Bordure de la zone
-                g2.setColor(isSel ? new Color(251, 191, 36) : new Color(245, 158, 11, 200));
+                if (voiceCutMode) {
+                    g2.setColor(isSel ? new Color(252, 165, 165) : new Color(239, 68, 68, 200));
+                } else {
+                    g2.setColor(isSel ? new Color(251, 191, 36) : new Color(245, 158, 11, 200));
+                }
                 g2.setStroke(new BasicStroke(isSel ? 2.0f : 1.2f));
                 g2.drawRoundRect(x1, zoneY, zw, zoneH, 6, 6);
 
@@ -595,7 +956,7 @@ public class VoiceExclusionTimelinePanel extends JPanel {
                 if (zw >= 54) {
                     g2.setFont(new Font("Segoe UI", Font.BOLD, 10));
                     FontMetrics fm = g2.getFontMetrics();
-                    String text = String.format(Locale.US, "Voix %.1fs", z.getDuration());
+                    String text = String.format(Locale.US, voiceCutMode ? "Coupe %.1fs" : "Voix %.1fs", z.getDuration());
                     int tw = fm.stringWidth(text);
                     int tx = x1 + (zw - tw) / 2;
                     int ty = zoneY + (zoneH + fm.getAscent() - fm.getDescent()) / 2;
@@ -613,10 +974,14 @@ public class VoiceExclusionTimelinePanel extends JPanel {
             int hw = HANDLE_WIDTH;
             int rx = hx - hw / 2;
 
-            g2.setColor(isSelected ? new Color(251, 191, 36) : new Color(245, 158, 11));
+            if (voiceCutMode) {
+                g2.setColor(isSelected ? new Color(254, 202, 202) : new Color(239, 68, 68));
+            } else {
+                g2.setColor(isSelected ? new Color(251, 191, 36) : new Color(245, 158, 11));
+            }
             g2.fillRoundRect(rx, hy, hw, hh, 4, 4);
 
-            g2.setColor(new Color(30, 20, 5));
+            g2.setColor(voiceCutMode ? new Color(40, 10, 10) : new Color(30, 20, 5));
             g2.setStroke(new BasicStroke(1.0f));
             g2.drawRoundRect(rx, hy, hw, hh, 4, 4);
 

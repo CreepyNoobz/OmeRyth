@@ -863,7 +863,7 @@ public class TextManager {
     }
 
     // ==================== SEGMENT BOUNDS ====================
-    private int[] getSegmentBounds(TextItem t) {
+    public int[] getSegmentBounds(TextItem t) {
         if (t == null) return new int[]{0, 300};
 
         ArrayList<SeparatorMark> sepList = bandSeparators.get(t.band);
@@ -916,6 +916,20 @@ public class TextManager {
         }
 
         return new int[]{segmentStart, segmentEnd};
+    }
+
+    public ArrayList<SeparatorMark> getInnerMarksForSegment(TextItem t, int segmentStart, int segmentEnd) {
+        ArrayList<SeparatorMark> result = new ArrayList<>();
+        if (t == null) return result;
+        ArrayList<SeparatorMark> list = bandSeparators.get(t.band);
+        if (list == null) return result;
+        for (SeparatorMark m : list) {
+            if (m.x >= segmentEnd) break;
+            if (m.type == SeparatorMark.Type.INNER && m.x > segmentStart) {
+                result.add(m);
+            }
+        }
+        return result;
     }
 
     private boolean hasPhraseAtPosition(int band, int worldX) {

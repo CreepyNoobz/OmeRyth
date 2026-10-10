@@ -78,6 +78,7 @@ public class ExportVideoDialog extends JDialog {
         public int blurOpacity = 85;
         public java.util.List<String> layerOrder = new java.util.ArrayList<>(java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"));
         public java.util.List<double[]> voiceKeepZones = new java.util.ArrayList<>();
+        public boolean voiceCutMode = true;
         public boolean approved = false;
     }
 
@@ -594,6 +595,7 @@ public class ExportVideoDialog extends JDialog {
 
         voiceExclusionTimeline = new VoiceExclusionTimelinePanel(videoDuration, this::seekPreview, this::togglePreviewPlayback);
         if (timelinePanel != null) {
+            voiceExclusionTimeline.setTimelinePanel(timelinePanel);
             voiceExclusionTimeline.setCurrentTime(timelinePanel.getCurrentTime());
         }
         voiceExclusionTimeline.setVisible(false);
@@ -1209,8 +1211,10 @@ public class ExportVideoDialog extends JDialog {
             config.removeVocals = checkMontageRemoveVocals.isSelected();
             if (config.removeVocals && voiceExclusionTimeline != null) {
                 config.voiceKeepZones = voiceExclusionTimeline.getNormalizedZones();
+                config.voiceCutMode = voiceExclusionTimeline.isVoiceCutMode();
             } else {
                 config.voiceKeepZones = new java.util.ArrayList<>();
+                config.voiceCutMode = true;
             }
             config.antiCopyright = (checkAntiCopyright != null && checkAntiCopyright.isSelected());
             config.antiCopyrightOpacity = (spinnerAntiCopyrightOpacity != null)

@@ -1883,7 +1883,96 @@ public class SmokeTests {
             assertTrue(voiceTimeline.getBtnClearAll().getText().equals("Tout effacer"), "Texte Tout effacer sans symbole []");
             assertTrue(voiceTimeline.getBtnClearAll().getForeground().equals(Color.BLACK), "Texte Tout effacer en noir");
 
+            // Vérification des nouveaux contrôles de recherche et coupure vocale ciblée
+            assertTrue(voiceTimeline.isVoiceCutMode(), "voiceCutMode doit être actif par défaut (coupure ciblée dans balises)");
+            assertTrue(voiceTimeline.getCboAction() != null, "cboAction doit être initialisé");
+            assertTrue(voiceTimeline.getCboAction().getItemCount() == 2, "cboAction doit proposer 2 modes");
+            assertTrue(voiceTimeline.getCboAction().getForeground().equals(Color.BLACK), "cboAction texte noir");
+
+            voiceTimeline.setVoiceCutMode(false);
+            assertTrue(!voiceTimeline.isVoiceCutMode(), "setVoiceCutMode(false) doit désactiver la coupure ciblée");
+            assertTrue(voiceTimeline.getCboAction().getSelectedIndex() == 1, "cboAction doit être sélectionné sur Conserver");
+            voiceTimeline.setVoiceCutMode(true);
+            assertTrue(voiceTimeline.isVoiceCutMode(), "setVoiceCutMode(true) doit réactiver la coupure ciblée");
+            assertTrue(voiceTimeline.getCboAction().getSelectedIndex() == 0, "cboAction doit être sélectionné sur Couper");
+
+            assertTrue(voiceTimeline.getTxtWordSearch() != null, "txtWordSearch doit être présent");
+            assertTrue(voiceTimeline.getTxtWordSearch().getForeground().equals(Color.BLACK), "txtWordSearch texte noir");
+            assertTrue(voiceTimeline.getCboScope() != null && voiceTimeline.getCboScope().getItemCount() == 2, "cboScope doit proposer Mot exact et Dialogue complet");
+            assertTrue(voiceTimeline.getCboScope().getForeground().equals(Color.BLACK), "cboScope texte noir");
+            assertTrue(voiceTimeline.getCboRoles() != null, "cboRoles doit être présent");
+            assertTrue(voiceTimeline.getCboRoles().getForeground().equals(Color.BLACK), "cboRoles texte noir");
+            assertTrue(voiceTimeline.getBtnSearchAndTag() != null, "btnSearchAndTag doit être présent");
+            assertTrue(voiceTimeline.getBtnSearchAndTag().getForeground().equals(Color.BLACK), "btnSearchAndTag texte noir");
+            assertTrue(voiceTimeline.getBtnSearchAndTag().getText().equals("Poser balises"), "Texte Poser balises");
+
+            // Configuration d'un TimelinePanel de test avec des répliques et des comédiens distincts
+            app.ui.TimelinePanel testTL = new app.ui.TimelinePanel();
+            double pps = testTL.getPixelsPerSecond();
+            app.ui.Role roleBatman = new app.ui.Role("Batman", new Color(0x333333));
+            app.ui.Role roleRobin = new app.ui.Role("Robin", new Color(0x22C55E));
+            java.util.ArrayList<app.ui.Role> projectRoles = new java.util.ArrayList<>();
+            projectRoles.add(roleBatman);
+            projectRoles.add(roleRobin);
+            testTL.setRoles(projectRoles);
+
+            // Item 1: Batman à t=10.0s (1000px si pps=100) "Bonjour tout le monde"
+            app.ui.TextItem item1 = new app.ui.TextItem("Bonjour tout le monde", (int) Math.round(10.0 * pps), 0);
+            item1.role = roleBatman;
+            testTL.getTextManager().getTexts().add(item1);
+
+            // Item 2: Robin à t=20.0s "C'est génial ici !"
+            app.ui.TextItem item2 = new app.ui.TextItem("C'est génial ici !", (int) Math.round(20.0 * pps), 1);
+            item2.role = roleRobin;
+            testTL.getTextManager().getTexts().add(item2);
+
+            // Item 3: Batman à t=35.0s "Au revoir tout le monde"
+            app.ui.TextItem item3 = new app.ui.TextItem("Au revoir tout le monde", (int) Math.round(35.0 * pps), 0);
+            item3.role = roleBatman;
+            testTL.getTextManager().getTexts().add(item3);
+
+            voiceTimeline.setTimelinePanel(testTL);
+            assertTrue(voiceTimeline.getCboRoles().getItemCount() == 3, "cboRoles doit contenir Tous les rôles, Batman, Robin");
+
+            // Test 1 : Recherche "monde", portée Mot exact, Tous les rôles
+            voiceTimeline.clearAllZones();
+            int taggedCount = voiceTimeline.searchAndAddWordZones("monde", "Mot exact", "Tous les rôles");
+            assertTrue(taggedCount == 2, "Doit trouver 2 occurrences du mot 'monde' (1 chez Batman, 1 chez Batman)");
+            assertTrue(voiceTimeline.getZones().size() == 2, "2 balises posées sur la piste");
+            // Vérifier que la première balise est dans la première phrase (~10s-19s) et la seconde dans la 3e phrase (~35s-44s)
+            assertTrue(voiceTimeline.getZones().get(0).startSec >= 10.0 && voiceTimeline.getZones().get(0).endSec <= 20.0, "Balise 1 dans la réplique de 10s");
+            assertTrue(voiceTimeline.getZones().get(1).startSec >= 35.0 && voiceTimeline.getZones().get(1).endSec <= 45.0, "Balise 2 dans la réplique de 35s");
+
+            // Test 2 : Recherche ciblée sur un seul rôle ("Robin") -> ne doit RIEN trouver pour "monde"
+            voiceTimeline.clearAllZones();
+            int robinCount = voiceTimeline.searchAndAddWordZones("monde", "Mot exact", "Robin");
+            assertTrue(robinCount == 0, "Robin ne dit pas 'monde', doit renvoyer 0 balise");
+            assertTrue(voiceTimeline.getZones().isEmpty(), "Aucune balise posée pour Robin sur 'monde'");
+
+            // Test 3 : Recherche avec insensibilité aux accents ("genial" trouve "génial") sur Robin
+            int accentCount = voiceTimeline.searchAndAddWordZones("genial", "Mot exact", "Robin");
+            assertTrue(accentCount == 1, "'genial' sans accent doit détecter 'génial' de Robin");
+            assertTrue(voiceTimeline.getZones().size() == 1, "1 balise posée pour 'génial'");
+            assertTrue(voiceTimeline.getZones().get(0).startSec >= 19.8 && voiceTimeline.getZones().get(0).startSec <= 25.0, "Balise autour de t=20s");
+
+            // Test 4 : Portée Dialogue complet
+            voiceTimeline.clearAllZones();
+            int fullPhraseCount = voiceTimeline.searchAndAddWordZones("bonjour", "Dialogue complet", "Tous les rôles");
+            assertTrue(fullPhraseCount == 1, "Dialogue complet doit poser 1 balise sur la phrase entière");
+            assertTrue(voiceTimeline.getZones().size() == 1, "1 balise posée");
+            assertTrue(voiceTimeline.getZones().get(0).getDuration() >= 0.5, "La balise dialogue complet doit avoir une durée substantielle");
+
+            // Test 5 : Bouton 'Poser balises' et retour visuel du label
+            voiceTimeline.clearAllZones();
+            voiceTimeline.getTxtWordSearch().setText("revoir");
+            voiceTimeline.getCboScope().setSelectedIndex(0); // Mot exact
+            voiceTimeline.getCboRoles().setSelectedIndex(0); // Tous les rôles
+            voiceTimeline.getBtnSearchAndTag().doClick();
+            assertTrue(voiceTimeline.getZones().size() == 1, "1 balise posée via le clic de l'UI");
+            assertTrue(voiceTimeline.getLblSearchFeedback().getText().contains("1 balise posée"), "Feedback UI affiche '1 balise posée'");
+
             System.out.println("Vérification Balises d'Exclusion Vocale (Voice Remover Bypass & Playback) : VALIDÉ !");
+            System.out.println("Vérification Recherche de Mots & Coupure Vocale Ciblée par Personnage : VALIDÉ !");
         }
 
         System.out.println("SmokeTests OK");
