@@ -234,6 +234,8 @@ public class ExportVideoDialog extends JDialog {
     private VoiceExclusionTimelinePanel voiceExclusionTimeline;
     private javax.swing.Timer previewPlayTimer;
     private boolean isPreviewPlaying = false;
+    private long previewPlayStartSysNs = 0L;
+    private double previewPlayStartVidTime = 0.0;
     private final app.services.MediaWorkflowService mediaWorkflowService = new app.services.MediaWorkflowService();
     private volatile long lastSnapshotRequestTime = 0;
 
@@ -1330,28 +1332,27 @@ public class ExportVideoDialog extends JDialog {
         if (previewPlayTimer != null) {
             previewPlayTimer.stop();
         }
-        final long startSysTime = System.currentTimeMillis();
-        final double startVidTime = curT;
+        previewPlayStartSysNs = System.nanoTime();
+        previewPlayStartVidTime = curT;
 
-        previewPlayTimer = new javax.swing.Timer(33, evt -> {
+        previewPlayTimer = new javax.swing.Timer(16, evt -> {
             if (!isPreviewPlaying) return;
-            double nowT;
+            long nowNs = System.nanoTime();
+            double elapsed = (nowNs - previewPlayStartSysNs) / 1_000_000_000.0;
+            double nowT = previewPlayStartVidTime + elapsed;
+
             if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
                 try {
                     long vlcMs = mediaPlayerComponent.mediaPlayer().status().time();
                     if (vlcMs >= 0) {
-                        nowT = vlcMs / 1000.0;
-                    } else {
-                        long elapsed = System.currentTimeMillis() - startSysTime;
-                        nowT = startVidTime + (elapsed / 1000.0);
+                        double vlcT = vlcMs / 1000.0;
+                        if (Math.abs(nowT - vlcT) > 0.15) {
+                            previewPlayStartSysNs = nowNs;
+                            previewPlayStartVidTime = vlcT;
+                            nowT = vlcT;
+                        }
                     }
-                } catch (Throwable t) {
-                    long elapsed = System.currentTimeMillis() - startSysTime;
-                    nowT = startVidTime + (elapsed / 1000.0);
-                }
-            } else {
-                long elapsed = System.currentTimeMillis() - startSysTime;
-                nowT = startVidTime + (elapsed / 1000.0);
+                } catch (Throwable ignored) {}
             }
 
             if (nowT >= videoDuration) {
@@ -1365,7 +1366,11 @@ public class ExportVideoDialog extends JDialog {
             if (montageCanvas != null) {
                 montageCanvas.setPreviewTime(nowT);
             }
+            if (singleBandPreview != null && singleBandPreview.isShowing()) {
+                singleBandPreview.setPreviewTime(nowT);
+            }
         });
+        previewPlayTimer.setCoalesce(true);
         previewPlayTimer.start();
     }
 
@@ -1387,6 +1392,10 @@ public class ExportVideoDialog extends JDialog {
 
     private void seekPreview(double targetSec) {
         targetSec = Math.max(0.0, Math.min(videoDuration, targetSec));
+        if (isPreviewPlaying) {
+            previewPlayStartSysNs = System.nanoTime();
+            previewPlayStartVidTime = targetSec;
+        }
         if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
             try {
                 mediaPlayerComponent.mediaPlayer().controls().setTime((long) Math.round(targetSec * 1000.0));
@@ -1394,6 +1403,9 @@ public class ExportVideoDialog extends JDialog {
         }
         if (montageCanvas != null) {
             montageCanvas.setPreviewTime(targetSec);
+        }
+        if (singleBandPreview != null && singleBandPreview.isShowing()) {
+            singleBandPreview.setPreviewTime(targetSec);
         }
         if (!isPreviewPlaying && videoFile != null) {
             requestPreviewSnapshot(targetSec);
@@ -2012,6 +2024,10 @@ public class ExportVideoDialog extends JDialog {
         private int targetH = 100;
         private double visibleSeconds = 8.0;
         private double previewTime = 0.0;
+        private TimelinePanel.ExportSession cachedSession = null;
+        private int cachedSessionW = -1;
+        private int cachedSessionH = -1;
+        private double cachedSessionSec = -1.0;
         private BufferedImage cachedImage = null;
         private int cachedW = -1;
         private int cachedH = -1;
@@ -2074,22 +2090,30 @@ public class ExportVideoDialog extends JDialog {
 
                     // Rendu ou cache de la bande réelle
                     boolean drawnReal = false;
-                    if (timelinePanel != null && targetW > 20 && targetH > 10) {
-                        if (cachedImage == null || cachedW != targetW || cachedH != targetH ||
-                                Math.abs(cachedSec - visibleSeconds) > 0.05 || Math.abs(cachedTime - previewTime) > 0.02) {
-                            cachedW = targetW;
-                            cachedH = targetH;
-                            cachedSec = visibleSeconds;
-                            cachedTime = previewTime;
+                    if (timelinePanel != null && drawW > 20 && drawH > 10) {
+                        if (cachedSession == null || cachedSessionW != drawW || cachedSessionH != drawH ||
+                                Math.abs(cachedSessionSec - visibleSeconds) > 0.05) {
+                            cachedSessionW = drawW;
+                            cachedSessionH = drawH;
+                            cachedSessionSec = visibleSeconds;
                             try {
-                                cachedImage = timelinePanel.renderFrame(targetW, targetH, previewTime, visibleSeconds);
+                                cachedSession = timelinePanel.createExportSession(drawW, drawH, visibleSeconds);
                             } catch (Exception ex) {
-                                cachedImage = null;
+                                cachedSession = null;
                             }
                         }
-                        if (cachedImage != null) {
-                            g2.drawImage(cachedImage, drawX, drawY, drawW, drawH, null);
-                            drawnReal = true;
+                        if (cachedSession != null) {
+                            Graphics2D g2Sub = (Graphics2D) g2.create(drawX, drawY, drawW, drawH);
+                            try {
+                                g2Sub.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                                g2Sub.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                                cachedSession.renderFrameDirect(g2Sub, previewTime);
+                                drawnReal = true;
+                            } catch (Exception ex) {
+                                drawnReal = false;
+                            } finally {
+                                g2Sub.dispose();
+                            }
                         }
                     }
 
@@ -2173,12 +2197,14 @@ public class ExportVideoDialog extends JDialog {
             this.targetW = Math.max(100, w);
             this.targetH = Math.max(20, h);
             this.visibleSeconds = Math.max(1.0, visibleSec);
+            this.cachedSession = null;
             this.cachedImage = null;
             repaint();
         }
 
         public void setBandCount(int count) {
             this.bandCount = Math.max(1, count);
+            this.cachedSession = null;
             this.cachedImage = null;
             repaint();
         }
@@ -2186,7 +2212,6 @@ public class ExportVideoDialog extends JDialog {
         public void setPreviewTime(double time) {
             this.previewTime = Math.max(0.0, time);
             this.timeLabel.setText(formatTime(previewTime));
-            this.cachedImage = null;
             repaint();
         }
     }

@@ -1525,8 +1525,8 @@ public class TimelinePanel extends JPanel {
             this.width = Math.max(2, width);
             this.height = Math.max(2, height);
 
-            this.cx = Math.max(60, (int) Math.round(this.width * 0.08));
-            double visibleWidth = Math.max(100.0, this.width - this.cx);
+            this.cx = Math.max(20, (int) Math.round(this.width * 0.08));
+            double visibleWidth = Math.max(20.0, this.width - this.cx);
 
             if (visibleSecondsAhead > 0.5) {
                 this.pps = visibleWidth / visibleSecondsAhead;

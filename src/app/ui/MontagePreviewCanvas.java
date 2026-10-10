@@ -41,6 +41,10 @@ public class MontagePreviewCanvas extends JPanel {
     private int bandCount = 1;
     private TimelinePanel timelinePanel;
     private BufferedImage videoSnapshot;
+    private TimelinePanel.ExportSession cachedBandSession;
+    private int cachedSessionW = -1;
+    private int cachedSessionH = -1;
+    private double cachedSessionVisibleSeconds = -1.0;
     private BufferedImage cachedRealBandImage;
     private int cachedBandW = -1;
     private int cachedBandH = -1;
@@ -135,7 +139,6 @@ public class MontagePreviewCanvas extends JPanel {
 
     public void setPreviewTime(double time) {
         this.previewTime = Math.max(0.0, time);
-        invalidateBandCache();
         repaint();
     }
 
@@ -308,6 +311,10 @@ public class MontagePreviewCanvas extends JPanel {
     }
 
     public void invalidateBandCache() {
+        this.cachedBandSession = null;
+        this.cachedSessionW = -1;
+        this.cachedSessionH = -1;
+        this.cachedSessionVisibleSeconds = -1.0;
         this.cachedRealBandImage = null;
         this.cachedBandW = -1;
         this.cachedBandH = -1;
@@ -893,21 +900,30 @@ public class MontagePreviewCanvas extends JPanel {
     private void drawBandElement(Graphics2D g2, Rectangle r, boolean isSelected) {
         boolean drawnRealBand = false;
         if (timelinePanel != null && r.width > 20 && r.height > 10) {
-            int bw = Math.max(60, bandRect.width);
-            int bh = Math.max(20, bandRect.height);
-            if (cachedRealBandImage == null || cachedBandW != bw || cachedBandH != bh || Math.abs(cachedVisibleSeconds - visibleSeconds) > 0.05) {
-                cachedBandW = bw;
-                cachedBandH = bh;
-                cachedVisibleSeconds = visibleSeconds;
+            int bw = r.width;
+            int bh = r.height;
+            if (cachedBandSession == null || cachedSessionW != bw || cachedSessionH != bh || Math.abs(cachedSessionVisibleSeconds - visibleSeconds) > 0.05) {
+                cachedSessionW = bw;
+                cachedSessionH = bh;
+                cachedSessionVisibleSeconds = visibleSeconds;
                 try {
-                    cachedRealBandImage = timelinePanel.renderFrame(bw, bh, previewTime, visibleSeconds);
+                    cachedBandSession = timelinePanel.createExportSession(bw, bh, visibleSeconds);
                 } catch (Exception ex) {
-                    cachedRealBandImage = null;
+                    cachedBandSession = null;
                 }
             }
-            if (cachedRealBandImage != null) {
-                g2.drawImage(cachedRealBandImage, r.x, r.y, r.width, r.height, null);
-                drawnRealBand = true;
+            if (cachedBandSession != null) {
+                Graphics2D bandG2 = (Graphics2D) g2.create(r.x, r.y, r.width, r.height);
+                try {
+                    bandG2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    bandG2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                    cachedBandSession.renderFrameDirect(bandG2, previewTime);
+                    drawnRealBand = true;
+                } catch (Exception ex) {
+                    drawnRealBand = false;
+                } finally {
+                    bandG2.dispose();
+                }
             }
         }
 
