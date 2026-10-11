@@ -948,17 +948,24 @@ public class MainFenetre extends JFrame {
     // ===== Export vidéo bande rythmo =====
     /** Export the current timeline as a video file using the MediaWorkflowService. */
     public void exporterEnVideo() {
-        if (timer != null && timer.isRunning()) {
-            timer.toggle();
+        try {
+            if (timer != null && timer.isRunning()) {
+                timer.toggle();
+            }
+            if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+                try {
+                    if (mediaPlayerComponent.mediaPlayer().status().isPlaying()) {
+                        mediaPlayerComponent.mediaPlayer().controls().pause();
+                    }
+                } catch (Throwable ignored) {}
+            }
+            mediaWorkflowService.exportVideo(this, fichierSelectionne, mediaPlayerComponent, timelinePanel);
+        } catch (Throwable t) {
+            t.printStackTrace();
+            JOptionPane.showMessageDialog(this,
+                    "Impossible de lancer l'exportation vidéo :\n" + (t.getMessage() != null && !t.getMessage().trim().isEmpty() ? t.getMessage() : t.getClass().getSimpleName()),
+                    "Erreur d'exportation", JOptionPane.ERROR_MESSAGE);
         }
-        if (mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
-            try {
-                if (mediaPlayerComponent.mediaPlayer().status().isPlaying()) {
-                    mediaPlayerComponent.mediaPlayer().controls().pause();
-                }
-            } catch (Throwable ignored) {}
-        }
-        mediaWorkflowService.exportVideo(this, fichierSelectionne, mediaPlayerComponent, timelinePanel);
     }
 
     /** Exporter la piste audio sans les voix (Karaoké / Doublage). */

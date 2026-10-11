@@ -1688,6 +1688,12 @@ public class SmokeTests {
                 assertTrue(dlg.getVideoSnapshot() == fakeSnap, "setVideoSnapshot doit mettre à jour l'instantané vidéo");
                 dlg.dispose();
 
+                // Test constructeur complet avec TimelinePanel et vidéo
+                TimelinePanel testExportTimeline = new TimelinePanel();
+                app.ui.ExportVideoDialog dlgFull = new app.ui.ExportVideoDialog(null, testExportTimeline, fakeSnap, new File("test.mp4"), 45.0, null);
+                assertTrue(dlgFull.getExportConfig() != null, "ExportConfig doit être disponible");
+                dlgFull.dispose();
+
                 // Réouverture consécutive pour valider l'absence de fuite ou de gel
                 app.ui.ExportVideoDialog dlg2 = new app.ui.ExportVideoDialog(null, 1920, 100);
                 dlg2.dispose();

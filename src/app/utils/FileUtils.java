@@ -495,15 +495,18 @@ public class FileUtils {
             }
             int exitCode = p.waitFor();
 
-            // Si le dialogue a renvoyé un chemin valide, c'est un succès.
-            if (exitCode == 0 && result != null && !result.isEmpty() && !result.equals("::CANCELLED::")) {
-                return DialogOutcome.success(new File(result));
+            if (exitCode == 0) {
+                // Si le dialogue a renvoyé un chemin valide, c'est un succès.
+                if (result != null && !result.isEmpty() && !result.equals("::CANCELLED::")) {
+                    return DialogOutcome.success(new File(result));
+                }
+                // Si exitCode == 0 et ::CANCELLED:: (ou résultat vide), l'utilisateur a annulé.
+                return DialogOutcome.cancelled();
             }
 
-            // Dans TOUS les autres cas (annulation via Annuler, fermeture de fenêtre, ou tout exit code
-            // non-0), on considère que l'utilisateur a annulé ET qu'on n'a PAS besoin de repli.
-            // Le dialogue natif a été affiché : il n'y a aucune raison d'en ouvrir un second.
-            return DialogOutcome.cancelled();
+            // En cas d'exitCode non-zéro (erreur d'exécution ou crash de l'exécutable),
+            // on signale un échec pour déclencher immédiatement les replis natifs AWT / JFileChooser.
+            return DialogOutcome.failed();
 
         } catch (Exception ignored) {
             // Seulement si le processus n'a pas pu démarrer (exe manquant, permissions...)

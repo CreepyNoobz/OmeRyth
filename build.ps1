@@ -7,6 +7,11 @@ Write-Host "          Compilation et Construction d'OmeRyth        " -Foreground
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host ""
 
+# 0. Arrêter toute instance existante pour libérer les fichiers JAR et bin
+Get-Process -Name 'OmeRyth' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name 'javaw', 'java' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like '*OmeRyth*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 300
+
 # 1. Clean / create bin
 if (Test-Path 'bin') {
     Remove-Item 'bin' -Recurse -Force

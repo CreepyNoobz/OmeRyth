@@ -329,10 +329,11 @@ public class MediaWorkflowService {
                             File fichierSelectionne,
                             EmbeddedMediaPlayerComponent mediaPlayerComponent,
                             TimelinePanel timelinePanel) {
-        if (fichierSelectionne == null) {
-            JOptionPane.showMessageDialog(owner, "Aucune video chargee. Veuillez d'abord ouvrir un projet.");
-            return;
-        }
+        try {
+            if (fichierSelectionne == null) {
+                JOptionPane.showMessageDialog(owner, "Aucune video chargee. Veuillez d'abord ouvrir un projet.");
+                return;
+            }
 
         // Calcul sécurisé et non-bloquant de la durée de la vidéo
         long dureeMs = 0;
@@ -918,15 +919,16 @@ public class MediaWorkflowService {
             }
         });
 
-        progressDialog.addWindowListener(new java.awt.event.WindowAdapter() {
-            @Override
-            public void windowClosing(java.awt.event.WindowEvent e) {
-                btnCancel.doClick();
-            }
-        });
+        progressDialog.addWindowListener(new CancelOnCloseAdapter(btnCancel::doClick));
 
         progressDialog.setVisible(true);
         worker.execute();
+        } catch (Throwable t) {
+            t.printStackTrace();
+            JOptionPane.showMessageDialog(owner,
+                    "Erreur lors de l'exportation vidéo :\n" + (t.getMessage() != null && !t.getMessage().trim().isEmpty() ? t.getMessage() : t.getClass().getSimpleName()),
+                    "Erreur d'exportation", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     /**
@@ -1132,15 +1134,12 @@ public class MediaWorkflowService {
             if (p != null) p.destroyForcibly();
             progressDialog.dispose();
         });
-        progressDialog.addWindowListener(new java.awt.event.WindowAdapter() {
-            @Override
-            public void windowClosing(java.awt.event.WindowEvent e) {
-                worker.cancel(true);
-                Process p = activeProcess.get();
-                if (p != null) p.destroyForcibly();
-                progressDialog.dispose();
-            }
-        });
+        progressDialog.addWindowListener(new CancelOnCloseAdapter(() -> {
+            worker.cancel(true);
+            Process p = activeProcess.get();
+            if (p != null) p.destroyForcibly();
+            progressDialog.dispose();
+        }));
 
         progressDialog.setVisible(true);
         worker.execute();
@@ -1517,5 +1516,16 @@ public class MediaWorkflowService {
         if (common.exists()) return common.getAbsolutePath();
 
         return null;
+    }
+
+    private static class CancelOnCloseAdapter extends java.awt.event.WindowAdapter {
+        private final Runnable onClosing;
+        public CancelOnCloseAdapter(Runnable onClosing) {
+            this.onClosing = onClosing;
+        }
+        @Override
+        public void windowClosing(java.awt.event.WindowEvent e) {
+            if (onClosing != null) onClosing.run();
+        }
     }
 }
