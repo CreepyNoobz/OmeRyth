@@ -1,0 +1,144 @@
+name: Build & Release OmeRyth
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ============================================================================
+  # 1. BUILD LINUX (AppImage universelle)
+  # ============================================================================
+  build-linux:
+    name: Build Linux AppImage
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout du code source
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Configuration de Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Téléchargement des dépendances LFS
+        run: git lfs pull
+
+      - name: Rendre les scripts exécutables
+        run: |
+          chmod +x build.sh package_appimage.sh run.sh
+
+      - name: Compilation et création de l'AppImage
+        run: |
+          ./build.sh
+
+      - name: Sauvegarde de l'artefact AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmeRyth-Linux-AppImage
+          path: dist/OmeRyth-x86_64.AppImage
+          if-no-files-found: error
+
+  # ============================================================================
+  # 2. BUILD WINDOWS (Exécutable .exe via Launch4j)
+  # ============================================================================
+  build-windows:
+    name: Build Windows Exécutable
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout du code source
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Configuration de Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Téléchargement des dépendances LFS
+        run: git lfs pull
+
+      - name: Installation de Launch4j
+        shell: pwsh
+        run: |
+          $l4jUrl = "https://sourceforge.net/projects/launch4j/files/launch4j-3/3.50/launch4j-3.50-workdir-win32.zip/download"
+          Invoke-WebRequest -Uri $l4jUrl -OutFile "launch4j.zip"
+          Expand-Archive -Path "launch4j.zip" -DestinationPath "C:\Program Files (x86)" -Force
+          Remove-Item "launch4j.zip"
+
+      - name: Compilation et création de OmeRyth.exe
+        shell: pwsh
+        run: |
+          .\build.ps1
+
+      - name: Sauvegarde de l'artefact Windows .exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmeRyth-Windows-Exe
+          path: OmeRyth.exe
+          if-no-files-found: error
+
+  # ============================================================================
+  # 3. PUBLICATION DE LA RELEASE GITHUB
+  # ============================================================================
+  release:
+    name: Publication de la Release GitHub
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Récupération de l'AppImage Linux
+        uses: actions/download-artifact@v4
+        with:
+          name: OmeRyth-Linux-AppImage
+          path: release-assets/
+
+      - name: Récupération de l'exécutable Windows .exe
+        uses: actions/download-artifact@v4
+        with:
+          name: OmeRyth-Windows-Exe
+          path: release-assets/
+
+      - name: Détermination du nom de tag de version
+        id: vars
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          else
+            TAG_NAME="v1.2-build-${{ github.run_number }}"
+          fi
+          echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+
+      - name: Création de la Release GitHub avec les binaires attachés
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: "OmeRyth Release ${{ steps.vars.outputs.tag }}"
+          draft: false
+          prerelease: false
+          body: |
+            ## 🎬 OmeRyth — Binaires prêts à l'emploi
+
+            ### 📦 Fichiers inclus :
+            - 🐧 **Linux :** `OmeRyth-x86_64.AppImage` (Exécutable autonome universel pour toutes les distributions)
+            - 🪟 **Windows :** `OmeRyth.exe` (Exécutable natif Windows)
+
+            ### 🚀 Instructions de lancement :
+            - **Linux :** Rendez le fichier exécutable (`chmod +x OmeRyth-x86_64.AppImage`) et double-cliquez dessus.
+            - **Windows :** Double-cliquez directement sur `OmeRyth.exe`.
+          files: |
+            release-assets/OmeRyth-x86_64.AppImage
+            release-assets/OmeRyth.exe

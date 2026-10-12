@@ -32,12 +32,13 @@ mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
 # 3. Embarquer le Java Runtime Environment (JRE 21 minimal via jlink)
 echo "[3/5] Génération du JRE 21 autonome portable (jlink)..."
-JAVA_BIN="$(which java)"
-JAVA_REAL="$(readlink -f "$JAVA_BIN")"
-JAVA_HOME_DETECTED="$(dirname "$(dirname "$JAVA_REAL")")"
-
-if [ ! -d "$JAVA_HOME_DETECTED/jmods" ]; then
-    if [ -d "/home/bryan/.sdkman/candidates/java/21-tem/jmods" ]; then
+if [ -n "${JAVA_HOME:-}" ] && [ -d "$JAVA_HOME/jmods" ]; then
+    JAVA_HOME_DETECTED="$JAVA_HOME"
+else
+    JAVA_BIN="$(which java)"
+    JAVA_REAL="$(readlink -f "$JAVA_BIN")"
+    JAVA_HOME_DETECTED="$(dirname "$(dirname "$JAVA_REAL")")"
+    if [ ! -d "$JAVA_HOME_DETECTED/jmods" ] && [ -d "/home/bryan/.sdkman/candidates/java/21-tem/jmods" ]; then
         JAVA_HOME_DETECTED="/home/bryan/.sdkman/candidates/java/21-tem"
     fi
 fi
