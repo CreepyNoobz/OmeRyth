@@ -18,7 +18,9 @@ import java.nio.file.Files;
 public class FileUtils {
     static {
         // On Windows, this asks AWT to use the modern Common Item Dialog when available.
-        System.setProperty("sun.awt.windows.useCommonItemDialog", "true");
+        if (PlatformUtils.isWindows()) {
+            System.setProperty("sun.awt.windows.useCommonItemDialog", "true");
+        }
     }
 
     // Filtre pour JFileChooser : fichiers audio/vidéo courants
@@ -456,6 +458,9 @@ public class FileUtils {
     }
 
     private static File getNativeDialogExe() {
+        if (!PlatformUtils.isWindows()) {
+            return null;
+        }
         File[] candidates = new File[] {
             new File("NativeDialog.exe"),
             new File("bin/NativeDialog.exe"),

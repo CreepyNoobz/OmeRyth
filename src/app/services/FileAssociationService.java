@@ -25,8 +25,7 @@ public class FileAssociationService {
         if (alreadyAttempted) return;
         alreadyAttempted = true;
 
-        String os = System.getProperty("os.name", "").toLowerCase();
-        if (!os.contains("win")) return;
+        if (!app.utils.PlatformUtils.isWindows()) return;
 
         new Thread(() -> {
             try {
@@ -39,8 +38,7 @@ public class FileAssociationService {
      * Déclenche l'association manuellement (par exemple depuis le menu) et affiche un message.
      */
     public static boolean associateNow(Component parent) {
-        String os = System.getProperty("os.name", "").toLowerCase();
-        if (!os.contains("win")) {
+        if (!app.utils.PlatformUtils.isWindows()) {
             if (parent != null) {
                 JOptionPane.showMessageDialog(parent,
                         "L'association de fichiers intégrée est uniquement disponible sous Windows.",

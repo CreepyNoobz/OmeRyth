@@ -110,22 +110,15 @@ public class DependencyManagerService {
      * Diagnostic de FFmpeg.
      */
     public static ComponentStatus checkFFmpeg() {
-        File local = new File("ffmpeg/ffmpeg.exe");
-        if (local.exists() && local.length() > 0) {
-            return new ComponentStatus(ComponentType.FFMPEG, true, local.getAbsolutePath(), "Binaire local optimisé embarqué");
+        String ffmpegPath = app.utils.PlatformUtils.findFfmpeg();
+        if (ffmpegPath != null) {
+            String label = ffmpegPath.equals("ffmpeg") ? "PATH Système" : ffmpegPath;
+            String desc = app.utils.PlatformUtils.isWindows() ? "Disponible via le système Windows" : "Disponible via le système Linux";
+            if (new File(ffmpegPath).exists()) {
+                desc = "Binaire local optimisé embarqué";
+            }
+            return new ComponentStatus(ComponentType.FFMPEG, true, label, desc);
         }
-        // Vérifier PATH
-        try {
-            ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-version");
-            pb.redirectErrorStream(true);
-            Process p = pb.start();
-            try (InputStream is = p.getInputStream()) {
-                is.transferTo(OutputStream.nullOutputStream());
-            }
-            if (p.waitFor() == 0) {
-                return new ComponentStatus(ComponentType.FFMPEG, true, "PATH Système", "Disponible via le système Windows");
-            }
-        } catch (Exception ignored) {}
 
         return new ComponentStatus(ComponentType.FFMPEG, false, null, "Non détecté (requis pour l'export vidéo)");
     }
@@ -134,46 +127,101 @@ public class DependencyManagerService {
      * Diagnostic de VLC.
      */
     public static ComponentStatus checkVLC() {
-        File localDll = new File("vlc/libvlc.dll");
-        if (localDll.exists()) {
-            return new ComponentStatus(ComponentType.VLC, true, localDll.getAbsolutePath(), "Moteur LibVLC local embarqué");
-        }
-        // Vérification chemin standard 64-bit
-        File progVlc = new File("C:/Program Files/VideoLAN/VLC/libvlc.dll");
-        if (progVlc.exists()) {
-            return new ComponentStatus(ComponentType.VLC, true, progVlc.getAbsolutePath(), "VLC 64-bit détecté sur le système");
+        if (app.utils.PlatformUtils.isWindows()) {
+            File localDll = new File("vlc/libvlc.dll");
+            if (localDll.exists()) {
+                return new ComponentStatus(ComponentType.VLC, true, localDll.getAbsolutePath(), "Moteur LibVLC local embarqué");
+            }
+            // Vérification chemin standard 64-bit
+            File progVlc = new File("C:/Program Files/VideoLAN/VLC/libvlc.dll");
+            if (progVlc.exists()) {
+                return new ComponentStatus(ComponentType.VLC, true, progVlc.getAbsolutePath(), "VLC 64-bit détecté sur le système");
+            }
+        } else {
+            // Linux : vérification via discovery de VLCJ ou bibliothèque système
+            try {
+                if (new uk.co.caprica.vlcj.factory.discovery.NativeDiscovery().discover()) {
+                    return new ComponentStatus(ComponentType.VLC, true, "Système (libvlc)", "LibVLC détecté sur le système Linux");
+                }
+            } catch (Throwable ignored) {}
+            // Chemins communs sous Linux
+            String[] linuxPaths = {"/usr/lib/x86_64-linux-gnu/libvlc.so", "/usr/lib/x86_64-linux-gnu/libvlc.so.5", "/usr/lib/libvlc.so", "/usr/local/lib/libvlc.so"};
+            for (String p : linuxPaths) {
+                if (new File(p).exists()) {
+                    return new ComponentStatus(ComponentType.VLC, true, p, "LibVLC détecté sur le système Linux");
+                }
+            }
         }
         return new ComponentStatus(ComponentType.VLC, false, null, "Non détecté (requis pour la lecture vidéo)");
     }
 
+    private static volatile Boolean cachedWhisperAvailable = null;
+
     /**
-     * Vérifie si le module Whisper (dossier whisper/ avec ses modèles) et l'environnement Python sont prêts.
+     * Vérifie rapidement si faster-whisper est disponible dans l'environnement Python spécifié.
      */
-    public static boolean isWhisperInstalled() {
-        File whisperDir = new File("whisper");
-        if (!whisperDir.exists() || !whisperDir.isDirectory()) {
+    public static boolean isFasterWhisperModuleAvailable(String pyCmd) {
+        if (pyCmd == null || pyCmd.isBlank()) return false;
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    pyCmd, "-c", "import sys, importlib.util; sys.exit(0 if importlib.util.find_spec('faster_whisper') else 1)"
+            );
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            try (InputStream is = p.getInputStream()) {
+                is.transferTo(OutputStream.nullOutputStream());
+            }
+            return p.waitFor() == 0;
+        } catch (Throwable ignored) {
             return false;
         }
-        File cacheDir = new File(whisperDir, "cache");
-        if (cacheDir.exists() && cacheDir.isDirectory()) {
-            File[] files = cacheDir.listFiles();
-            if (files == null || files.length == 0) {
-                return false;
-            }
-        } else {
-            File[] files = whisperDir.listFiles();
-            if (files == null || files.length == 0) {
-                return false;
-            }
+    }
+
+    /**
+     * Vérifie si le module Whisper (worker Python + faster-whisper ou cache local) est prêt.
+     */
+    public static boolean isWhisperInstalled() {
+        if (cachedWhisperAvailable != null) {
+            return cachedWhisperAvailable;
+        }
+
+        File workerScript = new File("whisperx_engine/whisperx_worker.py");
+        if (!workerScript.exists() || !workerScript.isFile()) {
+            cachedWhisperAvailable = false;
+            return false;
         }
 
         SpeechWorkflowService service = new SpeechWorkflowService();
         String pyCmd = service.findPython();
         if (pyCmd == null) {
+            cachedWhisperAvailable = false;
             return false;
         }
 
-        return true;
+        // Cas 1 : Répertoire local whisper/ présent avec des fichiers
+        File whisperDir = new File("whisper");
+        if (whisperDir.exists() && whisperDir.isDirectory()) {
+            File cacheDir = new File(whisperDir, "cache");
+            File[] files = (cacheDir.exists() && cacheDir.isDirectory()) ? cacheDir.listFiles() : whisperDir.listFiles();
+            if (files != null && files.length > 0) {
+                cachedWhisperAvailable = true;
+                return true;
+            }
+        }
+
+        // Cas 2 : faster-whisper installé dans l'environnement Python (.venv, venv, portable ou système)
+        boolean hasFasterWhisper = isFasterWhisperModuleAvailable(pyCmd);
+        if (hasFasterWhisper) {
+            // S'assurer que le dossier whisper/cache existe pour accueillir les téléchargements à la demande
+            try {
+                new File("whisper/cache").mkdirs();
+            } catch (Throwable ignored) {}
+            cachedWhisperAvailable = true;
+            return true;
+        }
+
+        cachedWhisperAvailable = false;
+        return false;
     }
 
     /**
@@ -240,7 +288,11 @@ public class DependencyManagerService {
             }
         } catch (Exception ignored) {}
         try {
-            new ProcessBuilder("cmd", "/c", "start", "", url).start();
+            if (app.utils.PlatformUtils.isWindows()) {
+                new ProcessBuilder("cmd", "/c", "start", "", url).start();
+            } else if (app.utils.PlatformUtils.isLinux()) {
+                new ProcessBuilder("xdg-open", url).start();
+            }
         } catch (Exception e) {
             copierDansPressePapier(url);
         }
@@ -304,21 +356,20 @@ public class DependencyManagerService {
             return new ComponentStatus(ComponentType.PYTHON_WHISPER, false, null, "Python non installé");
         }
 
-        File whisperDir = new File("whisper");
-        if (!whisperDir.exists() || !whisperDir.isDirectory() || (whisperDir.list() != null && whisperDir.list().length == 0)) {
-            return new ComponentStatus(ComponentType.PYTHON_WHISPER, false, pyCmd, "Module Whisper non installé");
-        }
-
         File workerScript = new File("whisperx_engine/whisperx_worker.py");
-        boolean isLocal = pyCmd.toLowerCase().contains("omeryth") || pyCmd.contains("python") || pyCmd.startsWith(".\\python");
-
-        // Si le script worker local existe et que python est détecté, le composant est immédiatement prêt
-        if (workerScript.exists()) {
-            return new ComponentStatus(ComponentType.PYTHON_WHISPER, true, pyCmd,
-                    isLocal ? "Python portable OmeRyth avec IA active" : "Python prêt avec module IA OmeRyth");
+        if (!workerScript.exists() || !workerScript.isFile()) {
+            return new ComponentStatus(ComponentType.PYTHON_WHISPER, false, pyCmd, "Worker WhisperX introuvable");
         }
 
-        return new ComponentStatus(ComponentType.PYTHON_WHISPER, true, pyCmd, "Python avec module Whisper");
+        boolean isReady = isWhisperInstalled();
+        if (!isReady) {
+            return new ComponentStatus(ComponentType.PYTHON_WHISPER, false, pyCmd, "Module Whisper non configuré");
+        }
+
+        boolean isLocal = pyCmd.toLowerCase().contains("omeryth") || pyCmd.contains(".venv") || pyCmd.startsWith(".\\python");
+
+        return new ComponentStatus(ComponentType.PYTHON_WHISPER, true, pyCmd,
+                isLocal ? "Python OmeRyth avec IA active" : "Python prêt avec module IA OmeRyth");
     }
 
     /**

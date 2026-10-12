@@ -213,23 +213,7 @@ public class AudioWaveformService {
     }
 
     private String findFfmpeg() {
-        File localFfmpeg = new File("ffmpeg/ffmpeg.exe");
-        if (localFfmpeg.exists()) return localFfmpeg.getAbsolutePath();
-
-        File commonFfmpeg = new File("C:/ffmpeg/bin/ffmpeg.exe");
-        if (commonFfmpeg.exists()) return commonFfmpeg.getAbsolutePath();
-
-        try {
-            ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-version");
-            pb.redirectErrorStream(true);
-            Process p = pb.start();
-            try (InputStream is = p.getInputStream()) {
-                is.transferTo(java.io.OutputStream.nullOutputStream());
-            }
-            if (p.waitFor() == 0) return "ffmpeg";
-        } catch (Exception ignored) {}
-
-        return null;
+        return app.utils.PlatformUtils.findFfmpeg();
     }
 
     public AudioWaveformData getCachedData() { return cachedData; }

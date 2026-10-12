@@ -83,14 +83,14 @@ public class InfoWindow extends JDialog {
             File videoFile = parent.getCurrentVideoFile();
             if (videoFile == null || !videoFile.exists()) return 0.0;
 
-            File ffprobeFile = new File("ffmpeg/ffprobe.exe");
-            if (!ffprobeFile.exists()) {
-                System.err.println("ffprobe introuvable : " + ffprobeFile.getAbsolutePath());
+            String ffprobeCmd = app.utils.PlatformUtils.findFfprobe();
+            if (ffprobeCmd == null) {
+                System.err.println("ffprobe introuvable.");
                 return 0.0;
             }
 
             String[] command = {
-                ffprobeFile.getAbsolutePath(),
+                ffprobeCmd,
                 "-v", "error",
                 "-select_streams", "v:0",
                 "-show_entries", "stream=r_frame_rate",

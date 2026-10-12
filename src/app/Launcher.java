@@ -20,24 +20,33 @@ public class Launcher {
             return;
         }
 
-        // Force l'utilisation du dialogue natif Windows moderne (IFileDialog)
-        // Doit être exécuté avant tout chargement de classe AWT (donc avant JFrame)
-        System.setProperty("sun.awt.windows.useCommonItemDialog", "true");
+        // Paramètres graphiques et dialogues spécifiques à Windows
+        if (app.utils.PlatformUtils.isWindows()) {
+            // Force l'utilisation du dialogue natif Windows moderne (IFileDialog)
+            // Doit être exécuté avant tout chargement de classe AWT (donc avant JFrame)
+            System.setProperty("sun.awt.windows.useCommonItemDialog", "true");
 
-        // Accélération matérielle Direct3D sous Windows pour un défilement ultra-fluide 60+ FPS sans saccades
-        System.setProperty("sun.java2d.d3d", "true");
-        // Configuration des chemins LibVLC (embarqué pour .exe et distribution)
-        try {
-            java.io.File vlcDir = new java.io.File("vlc").getAbsoluteFile();
-            if (vlcDir.exists()) {
-                String vlcPath = vlcDir.getAbsolutePath();
-                String pluginsPath = new java.io.File(vlcDir, "plugins").getAbsolutePath();
-                System.setProperty("jna.library.path", vlcPath);
-                System.setProperty("VLC_PLUGIN_PATH", pluginsPath);
-                String existingLibPath = System.getProperty("java.library.path", "");
-                System.setProperty("java.library.path", existingLibPath.isEmpty() ? vlcPath : (existingLibPath + ";" + vlcPath));
-            }
-        } catch (Throwable ignored) {}
+            // Accélération matérielle Direct3D sous Windows pour un défilement ultra-fluide 60+ FPS sans saccades
+            System.setProperty("sun.java2d.d3d", "true");
+
+            // Configuration des chemins LibVLC Windows (embarqué pour .exe et distribution)
+            try {
+                java.io.File vlcDir = new java.io.File("vlc").getAbsoluteFile();
+                if (vlcDir.exists()) {
+                    String vlcPath = vlcDir.getAbsolutePath();
+                    String pluginsPath = new java.io.File(vlcDir, "plugins").getAbsolutePath();
+                    System.setProperty("jna.library.path", vlcPath);
+                    System.setProperty("VLC_PLUGIN_PATH", pluginsPath);
+                    String existingLibPath = System.getProperty("java.library.path", "");
+                    System.setProperty("java.library.path", existingLibPath.isEmpty() ? vlcPath : (existingLibPath + ";" + vlcPath));
+                }
+            } catch (Throwable ignored) {}
+        } else {
+            // Sous Linux / autres systèmes, découverte automatique des bibliothèques système LibVLC
+            try {
+                new uk.co.caprica.vlcj.factory.discovery.NativeDiscovery().discover();
+            } catch (Throwable ignored) {}
+        }
 
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
             try {

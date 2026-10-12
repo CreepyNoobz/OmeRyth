@@ -1,7 +1,8 @@
 # ===== Distribution / Packaging (trop lourds ou inutiles pour le code) =====
-dist/
 OmeRyth/
 OmeRyth.exe
+OmeRyth.jar
+omeryth
 OmeRyth.bat
 OmeRyth_Setup.iss
 MonApplication.zip
@@ -19,6 +20,13 @@ ffmpeg/ffmpeg.exe
 OmeRyth_Portable.zip
 
 # ===== Modèles et caches IA lourds / Environnement Python (téléchargés ou gérés séparément) =====
+.venv/
+venv/
+env/
+ENV/
+whisperx_env/
+.env
+*.egg-info/
 python/
 whisper/
 temp/
@@ -27,11 +35,17 @@ temp_transcribe/
 TESTWEB/temp_transcribe/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 .src_files.txt
+.src_files_linux.txt
 
-# ===== Fichiers compilés =====
+# ===== Fichiers compilés & Build =====
 *.class
 bin/
+build/
+dist/
+*.AppImage
 
 # ===== Node.js =====
 node_modules/
@@ -50,15 +64,22 @@ autosave.rythmo.json.declined
 # ===== Logs =====
 *.log
 
-# ===== IDE =====
+# ===== IDE & Éditeurs =====
 .idea/
 *.iml
 *.iws
 *.ipr
+.vscode/
+*.swp
+*~
 test.xml
 
+# ===== Artefacts Système d'Exploitation (Linux / macOS / Windows) =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
 vlc/plugins/visualization/libgoom_plugin.dll
-
 vlc/plugins/visualization/libprojectm_plugin.dll
-
 vlc/plugins/visualization/libvisual_plugin.dll
+

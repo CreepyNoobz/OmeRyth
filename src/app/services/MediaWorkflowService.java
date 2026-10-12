@@ -1372,27 +1372,7 @@ public class MediaWorkflowService {
     }
 
     public String findPython() {
-        String[] candidates = {
-            ".venv/Scripts/python.exe",
-            ".venv/bin/python",
-            "whisperx_env/Scripts/python.exe",
-            "whisperx_env/bin/python",
-            "python",
-            "python3",
-            "py"
-        };
-        for (String cmd : candidates) {
-            try {
-                ProcessBuilder pb = new ProcessBuilder(cmd, "--version");
-                pb.redirectErrorStream(true);
-                Process p = pb.start();
-                try (InputStream is = p.getInputStream()) {
-                    is.transferTo(OutputStream.nullOutputStream());
-                }
-                if (p.waitFor() == 0) return cmd;
-            } catch (Exception ignored) {}
-        }
-        return null;
+        return app.utils.PlatformUtils.findPython();
     }
 
     private static Boolean cachedDemucsAvailable = null;
@@ -1499,23 +1479,7 @@ public class MediaWorkflowService {
     }
 
     public String findFfmpeg() {
-        File local = new File("ffmpeg/ffmpeg.exe");
-        if (local.exists()) return local.getAbsolutePath();
-
-        File parentLocal = new File("OmeRyth/ffmpeg/ffmpeg.exe");
-        if (parentLocal.exists()) return parentLocal.getAbsolutePath();
-
-        try {
-            ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-version");
-            Process p = pb.start();
-            p.destroy();
-            return "ffmpeg";
-        } catch (Exception ignored) {}
-
-        File common = new File("C:/ffmpeg/bin/ffmpeg.exe");
-        if (common.exists()) return common.getAbsolutePath();
-
-        return null;
+        return app.utils.PlatformUtils.findFfmpeg();
     }
 
     private static class CancelOnCloseAdapter extends java.awt.event.WindowAdapter {

@@ -819,7 +819,8 @@ def merge_split_french_words(words: list) -> list:
                 # 2. Contractions françaises avec élision (c', d', l', j', m', t', s', n', qu', etc.)
                 elision_match = re.match(r"^([cCdDjJlLmMntTsqQ]|qu|Qu|jusqu|lorsqu|puisqu|presqu|quelqu)['’]$", w1_txt)
                 if elision_match:
-                    combined_word = f"{w1_txt}{w2_txt.lstrip('\'’')}"
+                    w2_stripped = w2_txt.lstrip("'’")
+                    combined_word = f"{w1_txt}{w2_stripped}"
                     merged.append({
                         "word": combined_word,
                         "start": min(float(w.get("start", 0.0)), float(w_next.get("start", 0.0))),
@@ -831,7 +832,8 @@ def merge_split_french_words(words: list) -> list:
 
                 # 3. Mot débutant par une apostrophe collée au mot précédent (ex: "d" + "'accord" ou "c" + "'est")
                 if (w2_txt.startswith("'") or w2_txt.startswith("’")) and w1_clean in {"c", "d", "l", "j", "m", "t", "s", "n", "qu"}:
-                    combined_word = f"{w1_clean}'{w2_txt.lstrip('\'’')}"
+                    w2_stripped = w2_txt.lstrip("'’")
+                    combined_word = f"{w1_clean}'{w2_stripped}"
                     merged.append({
                         "word": combined_word,
                         "start": min(float(w.get("start", 0.0)), float(w_next.get("start", 0.0))),

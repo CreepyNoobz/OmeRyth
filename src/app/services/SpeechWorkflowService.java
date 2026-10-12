@@ -76,7 +76,7 @@ public class SpeechWorkflowService {
             } catch (Throwable ignored) {}
 
             // 2. Sur Windows, taskkill /F /T /PID garantit l'élimination de tout arbre de processus
-            if (pid > 0 && System.getProperty("os.name", "").toLowerCase().contains("win")) {
+            if (pid > 0 && app.utils.PlatformUtils.isWindows()) {
                 try {
                     new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(pid))
                             .start()
@@ -215,57 +215,12 @@ public class SpeechWorkflowService {
             return cachedPython;
         }
 
-        // 1. Chercher d'abord un Python portable embarqué dans l'application
-        File[] localCandidates = {
-            new File("python/python.exe"),
-            new File("whisperx_engine/python/python.exe"),
-            new File("whisperx_engine/venv/Scripts/python.exe"),
-            new File("venv/Scripts/python.exe"),
-            new File("env/Scripts/python.exe")
-        };
-        for (File f : localCandidates) {
-            if (f.exists() && f.isFile()) {
-                cachedPython = f.getAbsolutePath();
-                return cachedPython;
-            }
+        String py = app.utils.PlatformUtils.findPython();
+        if (py != null) {
+            cachedPython = py;
+            return cachedPython;
         }
 
-        // 2. Chercher dans les chemins d'installation standards Windows (AppData)
-        String localAppData = System.getenv("LOCALAPPDATA");
-        if (localAppData != null) {
-            File pyPrograms = new File(localAppData, "Programs/Python");
-            if (pyPrograms.exists() && pyPrograms.isDirectory()) {
-                File[] pyDirs = pyPrograms.listFiles((dir, name) -> name.startsWith("Python"));
-                if (pyDirs != null) {
-                    // Trier par version la plus récente en premier
-                    Arrays.sort(pyDirs, (a, b) -> b.getName().compareTo(a.getName()));
-                    for (File d : pyDirs) {
-                        File pyExe = new File(d, "python.exe");
-                        if (pyExe.exists()) {
-                            cachedPython = pyExe.getAbsolutePath();
-                            return cachedPython;
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. Chercher dans le PATH système
-        String[] candidates = {"python", "python3", "py"};
-        for (String cmd : candidates) {
-            try {
-                ProcessBuilder pb = new ProcessBuilder(cmd, "--version");
-                pb.redirectErrorStream(true);
-                Process p = pb.start();
-                try (InputStream is = p.getInputStream()) {
-                    is.transferTo(OutputStream.nullOutputStream());
-                }
-                if (p.waitFor() == 0) {
-                    cachedPython = cmd;
-                    return cachedPython;
-                }
-            } catch (Exception ignored) {}
-        }
         return null;
     }
 
@@ -277,30 +232,11 @@ public class SpeechWorkflowService {
             return cachedFfmpeg;
         }
 
-        File localFfmpeg = new File("ffmpeg/ffmpeg.exe");
-        if (localFfmpeg.exists()) {
-            cachedFfmpeg = localFfmpeg.getAbsolutePath();
+        String ff = app.utils.PlatformUtils.findFfmpeg();
+        if (ff != null) {
+            cachedFfmpeg = ff;
             return cachedFfmpeg;
         }
-
-        File commonFfmpeg = new File("C:/ffmpeg/bin/ffmpeg.exe");
-        if (commonFfmpeg.exists()) {
-            cachedFfmpeg = commonFfmpeg.getAbsolutePath();
-            return cachedFfmpeg;
-        }
-
-        try {
-            ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-version");
-            pb.redirectErrorStream(true);
-            Process p = pb.start();
-            try (InputStream is = p.getInputStream()) {
-                is.transferTo(OutputStream.nullOutputStream());
-            }
-            if (p.waitFor() == 0) {
-                cachedFfmpeg = "ffmpeg";
-                return cachedFfmpeg;
-            }
-        } catch (Exception ignored) {}
 
         return null;
     }
