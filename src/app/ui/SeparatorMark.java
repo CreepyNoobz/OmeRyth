@@ -38,7 +38,9 @@ public class SeparatorMark {
         /** Grande ouverture buccale (voyelle A très ouverte ou cri) */
         OPEN_A,
         /** Respiration, reprise de souffle ou inspiration audible (notée traditionnellement 'h/') */
-        RESPIRATION
+        RESPIRATION,
+        /** Changement de plan / Cut vidéo (noté traditionnellement 'PL' ou '||') */
+        PLAN_CUT
     }
 
     /** Coordonnée horizontale temporelle (en pixels monde) */

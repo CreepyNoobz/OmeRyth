@@ -307,8 +307,9 @@ public class EnhancedTutorialDialog extends JDialog {
         this.STEPS = createSteps(isEn);
         this.CONTENTS = createContents(isEn);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-        setSize(650, 500);
-        setMinimumSize(new Dimension(650, 500));
+        setSize(650, 520);
+        setMinimumSize(new Dimension(480, 380));
+        setResizable(true);
         setLocationRelativeTo(owner);
         setLayout(new BorderLayout(10, 10));
         getRootPane().setBorder(new EmptyBorder(10, 10, 10, 10));

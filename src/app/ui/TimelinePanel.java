@@ -94,10 +94,12 @@ public class TimelinePanel extends JPanel {
     private boolean shiftingText = false;           // Drag simple sur un INNER : redistribution élastique des lettres
     private int draggingSeparatorBand = -1;
     private int draggingSeparatorX = Integer.MIN_VALUE;
+    private SeparatorMark draggingSeparatorMark = null;
     private int draggingPlanMarkerX = Integer.MIN_VALUE;
     private boolean textDragSelecting = false;
     private int textSelectionAnchor = -1;
     private boolean suppressNextClick = false;
+    private int pressMouseX = 0;
     private float dragPixelAccum = 0f;
     
     // Nombre de pixels de déplacement de souris nécessaires pour faire sauter 1 caractère d'un sous-segment à l'autre
@@ -231,7 +233,7 @@ public class TimelinePanel extends JPanel {
 
                 int intOffsetX = getIntOffsetX();
                 TextItem hoveredText = textManager.getTextAtScaled(e.getX(), e.getY(), intOffsetX, getHeight(), bandCount);
-                int[] hitSep = textManager.findSeparatorAtScaled(e.getX(), e.getY(), intOffsetX, getHeight(), bandCount, 8);
+                SeparatorMark hitSep = textManager.findSeparatorMarkAtScaled(e.getX(), e.getY(), intOffsetX, getHeight(), bandCount, 8);
                 boolean hitMarker = false;
                 int worldX = e.getX() - intOffsetX;
                 for (Integer markerX : textManager.getPlanMarkers()) {
@@ -255,8 +257,14 @@ public class TimelinePanel extends JPanel {
                 int newWorldX = e.getX() - intOffsetX;
 
                 if (textDragSelecting && textManager.isEditing() && textManager.getEditingItem() != null) {
+                    if (!hasMovedDuringDrag && Math.abs(e.getX() - pressMouseX) < 3) {
+                        return;
+                    }
                     TextItem editing = textManager.getEditingItem();
-                    int curIdx = textManager.getCursorIndexForClick(editing, e.getX(), intOffsetX, getTimelineFontMetrics());
+                    int h = getHeight() > 0 ? getHeight() : Math.max(20, TimelinePanel.this.bandHeight * Math.max(1, bandCount));
+                    int bHeight = Math.max(1, h / Math.max(1, bandCount));
+                    int targetTextHeight = Math.max(8, bHeight - 2);
+                    int curIdx = textManager.getCursorIndexForClick(editing, e.getX(), intOffsetX, getTimelineFontMetrics(), targetTextHeight);
                     textManager.setSelection(textSelectionAnchor, curIdx);
                     textManager.setCursorIndex(curIdx);
                     hasMovedDuringDrag = true;
@@ -265,6 +273,9 @@ public class TimelinePanel extends JPanel {
                 }
 
                 if (shiftingText) {
+                    if (!hasMovedDuringDrag && Math.abs(e.getX() - pressMouseX) < 4) {
+                        return;
+                    }
                     // Clic gauche seul sur INNER : transfère des caractères sans bouger le symbole
                     int pointerX = newWorldX;
                     int delta = -(pointerX - shiftingPointerPrevX);
@@ -285,6 +296,9 @@ public class TimelinePanel extends JPanel {
                 }
 
                 if (draggingPlanMarker) {
+                    if (!hasMovedDuringDrag && Math.abs(e.getX() - pressMouseX) < 4) {
+                        return;
+                    }
                     // Arrondi au dixième de seconde près pour aligner sur les traits de marquage
                     int snappedWorldX = snapWorldXToTenth(newWorldX);
                     if (snappedWorldX != draggingPlanMarkerX) {
@@ -297,17 +311,52 @@ public class TimelinePanel extends JPanel {
                         repaint();
                     }
                 } else if (draggingSeparator) {
+                    if (!hasMovedDuringDrag && Math.abs(e.getX() - pressMouseX) < 4) {
+                        return;
+                    }
                     // Déplace physiquement le symbole, pas de transfert de chars
-                    int snappedWorldX = snapWorldXDownToTenth(newWorldX);
-                    snappedWorldX = clampSeparatorMove(draggingSeparatorBand, draggingSeparatorX, snappedWorldX);
-                    if (snappedWorldX != draggingSeparatorX) {
+                    int snappedWorldX = snapWorldXToTenth(newWorldX);
+                    if (draggingSeparatorMark != null) {
                         if (!hasMovedDuringDrag) {
-                            recordUndoSnapshot();
-                            hasMovedDuringDrag = true;
+                            ArrayList<SeparatorMark> bandSeps = textManager.getBandSeparators().get(draggingSeparatorBand);
+                            if (bandSeps != null) {
+                                int idx = bandSeps.indexOf(draggingSeparatorMark);
+                                if (draggingSeparatorMark.isStartBoundary() && newWorldX < draggingSeparatorMark.x && idx > 0) {
+                                    SeparatorMark prev = bandSeps.get(idx - 1);
+                                    if (prev != null && prev.isEndBoundary() && Math.abs(prev.x - draggingSeparatorMark.x) <= 6) {
+                                        draggingSeparatorMark = prev;
+                                        draggingSeparatorX = prev.x;
+                                    }
+                                } else if (draggingSeparatorMark.isEndBoundary() && newWorldX > draggingSeparatorMark.x && idx >= 0 && idx + 1 < bandSeps.size()) {
+                                    SeparatorMark next = bandSeps.get(idx + 1);
+                                    if (next != null && next.isStartBoundary() && Math.abs(next.x - draggingSeparatorMark.x) <= 6) {
+                                        draggingSeparatorMark = next;
+                                        draggingSeparatorX = next.x;
+                                    }
+                                }
+                            }
                         }
-                        textManager.moveSeparator(draggingSeparatorBand, draggingSeparatorX, snappedWorldX);
-                        draggingSeparatorX = snappedWorldX;
-                        repaint();
+                        snappedWorldX = clampSeparatorMove(draggingSeparatorBand, draggingSeparatorMark, snappedWorldX);
+                        if (snappedWorldX != draggingSeparatorMark.x) {
+                            if (!hasMovedDuringDrag) {
+                                recordUndoSnapshot();
+                                hasMovedDuringDrag = true;
+                            }
+                            textManager.moveSpecificSeparator(draggingSeparatorBand, draggingSeparatorMark, snappedWorldX);
+                            draggingSeparatorX = draggingSeparatorMark.x;
+                            repaint();
+                        }
+                    } else if (draggingSeparatorX != Integer.MIN_VALUE) {
+                        snappedWorldX = clampSeparatorMove(draggingSeparatorBand, draggingSeparatorX, snappedWorldX);
+                        if (snappedWorldX != draggingSeparatorX) {
+                            if (!hasMovedDuringDrag) {
+                                recordUndoSnapshot();
+                                hasMovedDuringDrag = true;
+                            }
+                            textManager.moveSeparator(draggingSeparatorBand, draggingSeparatorX, snappedWorldX);
+                            draggingSeparatorX = snappedWorldX;
+                            repaint();
+                        }
                     }
                 }
             }
@@ -320,12 +369,18 @@ public class TimelinePanel extends JPanel {
                 int bHeight = Math.max(1, h / Math.max(1, bandCount));
                 selectedBand = e.getY() / bHeight;
                 hasMovedDuringDrag = false;
+                suppressNextClick = false;
+                pressMouseX = e.getX();
 
                 if (e.isPopupTrigger()) {
                     if (handleContextMenu(e)) {
                         suppressNextClick = true;
                         return;
                     }
+                }
+
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    requestFocusInWindow();
                 }
 
                 int intOffsetX = getIntOffsetX();
@@ -350,24 +405,36 @@ public class TimelinePanel extends JPanel {
 
                 if ((e.getModifiersEx() & InputEvent.CTRL_DOWN_MASK) != 0
                         && SwingUtilities.isLeftMouseButton(e)) {
-                    int[] hit = textManager.findSeparatorAtScaled(
+                    SeparatorMark hitMark = textManager.findSeparatorMarkAtScaled(
                             e.getX(), e.getY(), intOffsetX, getHeight(), bandCount, 8);
-                    if (hit != null) {
+                    if (hitMark != null) {
                         draggingSeparator = true;
-                        draggingSeparatorBand = hit[0];
-                        draggingSeparatorX = hit[1];
+                        draggingSeparatorMark = hitMark;
+                        draggingSeparatorBand = selectedBand;
+                        draggingSeparatorX = hitMark.x;
                     }
                 } else if (SwingUtilities.isLeftMouseButton(e)) {
-                    // Clic gauche seul : transfert de texte autour d'un séparateur INNER
-                    int[] hit = textManager.findSeparatorAtScaled(
-                            e.getX(), e.getY(), intOffsetX, getHeight(), bandCount, 8);
-                    if (hit != null && textManager.getSeparatorType(hit[0], hit[1]) == SeparatorMark.Type.INNER) {
-                        shiftingText = true;
-                        draggingSeparatorBand = hit[0];
-                        shiftingBaseSeparatorX = hit[1];
-                        shiftingPointerPrevX = e.getX() - intOffsetX;
-                        dragPixelAccum = 0f;
-                    } else if (hit == null) {
+                    SeparatorMark hitMark = textManager.findSeparatorMarkAtScaled(
+                            e.getX(), e.getY(), intOffsetX, getHeight(), bandCount, 6);
+                    if (hitMark != null) {
+                        SeparatorMark.Type sepType = hitMark.type;
+                        SeparatorMark.SignType signType = hitMark.signType;
+                        if (sepType == SeparatorMark.Type.INNER && signType == SeparatorMark.SignType.DEFAULT) {
+                            // Clic gauche seul sur séparateur INNER standard : transfert de texte autour d'un séparateur INNER
+                            shiftingText = true;
+                            draggingSeparatorMark = hitMark;
+                            draggingSeparatorBand = selectedBand;
+                            shiftingBaseSeparatorX = hitMark.x;
+                            shiftingPointerPrevX = e.getX() - intOffsetX;
+                            dragPixelAccum = 0f;
+                        } else {
+                            // Clic gauche seul sur START, END ou n'importe quel SIGNE labial (FVR, MPB, A, N, h/) : glisser-déposer direct
+                            draggingSeparator = true;
+                            draggingSeparatorMark = hitMark;
+                            draggingSeparatorBand = selectedBand;
+                            draggingSeparatorX = hitMark.x;
+                        }
+                    } else {
                         // Clic gauche sur une phrase : sélection de texte à la souris (drag to select)
                         TextItem hitText = textManager.getTextAtScaled(e.getX(), e.getY(), intOffsetX, getHeight(), bandCount);
                         if (hitText == null) {
@@ -375,13 +442,12 @@ public class TimelinePanel extends JPanel {
                         }
                         if (hitText != null) {
                             FontMetrics tfm = getTimelineFontMetrics();
-                            if (!textManager.isEditing() || textManager.getEditingItem() != hitText) {
-                                int clickIdx = textManager.getCursorIndexForClick(hitText, e.getX(), intOffsetX, tfm);
-                                textManager.startEditingExistingText(hitText, clickIdx);
-                                resetCaretBlink();
-                            }
+                            int targetTextHeight = Math.max(8, bHeight - 2);
+                            int clickIdx = textManager.getCursorIndexForClick(hitText, e.getX(), intOffsetX, tfm, targetTextHeight);
+                            textManager.startEditingExistingText(hitText, clickIdx);
+                            resetCaretBlink();
                             textDragSelecting = true;
-                            textSelectionAnchor = textManager.getCursorIndexForClick(hitText, e.getX(), intOffsetX, tfm);
+                            textSelectionAnchor = clickIdx;
                             textManager.setSelection(textSelectionAnchor, textSelectionAnchor);
                             textManager.setCursorIndex(textSelectionAnchor);
                         }
@@ -392,19 +458,15 @@ public class TimelinePanel extends JPanel {
 
             @Override
             public void mouseReleased(MouseEvent e) {
+                boolean wasSepInteraction = draggingSeparator || shiftingText;
                 if (textDragSelecting) {
                     textDragSelecting = false;
-                    if (hasMovedDuringDrag) {
-                        suppressNextClick = true;
-                    }
                     repaint();
                 }
 
                 if (draggingSeparator || shiftingText || draggingPlanMarker) {
-                    if (hasMovedDuringDrag) {
-                        suppressNextClick = true;
-                    }
                     draggingSeparator = false;
+                    draggingSeparatorMark = null;
                     shiftingText = false;
                     draggingPlanMarker = false;
                     draggingSeparatorBand = -1;
@@ -421,11 +483,32 @@ public class TimelinePanel extends JPanel {
                         return;
                     }
                 }
+
+                // Si l'utilisateur a cliqué près d'un séparateur sans le faire glisser, positionner le curseur de texte à l'endroit cliqué
+                if (wasSepInteraction && !hasMovedDuringDrag && SwingUtilities.isLeftMouseButton(e) && !e.isPopupTrigger() && e.getClickCount() == 1) {
+                    int intOffsetX = getIntOffsetX();
+                    int h = getHeight() > 0 ? getHeight() : Math.max(20, TimelinePanel.this.bandHeight * Math.max(1, bandCount));
+                    int bHeight = Math.max(1, h / Math.max(1, bandCount));
+                    int targetTextHeight = Math.max(8, bHeight - 2);
+                    FontMetrics tfm = getTimelineFontMetrics();
+                    TextItem clickedText = textManager.getTextAtScaled(e.getX(), e.getY(), intOffsetX, getHeight(), bandCount);
+                    if (clickedText == null) {
+                        clickedText = textManager.getTextInSegmentAt(e.getX(), e.getY(), intOffsetX, getHeight(), bandCount);
+                    }
+                    if (clickedText != null) {
+                        int cursorIdx = textManager.getCursorIndexForClick(clickedText, e.getX(), intOffsetX, tfm, targetTextHeight);
+                        textManager.startEditingExistingText(clickedText, cursorIdx);
+                        textManager.clearSelection();
+                        resetCaretBlink();
+                        requestFocusInWindow();
+                        repaint();
+                    }
+                }
             }
 
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (suppressNextClick) {
+                if (suppressNextClick || hasMovedDuringDrag) {
                     suppressNextClick = false;
                     return;
                 }
@@ -445,24 +528,20 @@ public class TimelinePanel extends JPanel {
                     return;
                 }
 
-                // Clic gauche sur le début de phrase (séparateur START) -> menu pour changer de bande
-                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
-                    int[] hit = textManager.findSeparatorAtScaled(x, y, intOffsetX, getHeight(), bandCount, 10);
-                    if (hit != null && textManager.getSeparatorType(hit[0], hit[1]) == SeparatorMark.Type.START) {
-                        showSeparatorContextMenu(e.getComponent(), e.getX(), e.getY(), hit[0], hit[1]);
-                        return;
-                    }
-                }
-
                 if (e.getClickCount() == 2) {
-                    // Double-clic : créer phrase si vide, ou éditer et tout sélectionner si du texte existe
+                    // Double-clic : créer phrase si vide, ou éditer le segment cliqué
                     TextItem existing = textManager.getTextAtScaled(x, y, intOffsetX, getHeight(), bandCount);
                     if (existing == null) {
                         existing = textManager.getTextInSegmentAt(x, y, intOffsetX, getHeight(), bandCount);
                     }
                     if (existing != null) {
-                        textManager.startEditingExistingText(existing, 0);
-                        textManager.selectAll();
+                        FontMetrics tfm = getTimelineFontMetrics();
+                        int targetTextHeight = Math.max(8, bHeight - 2);
+                        int clickIdx = textManager.getCursorIndexForClick(existing, x, intOffsetX, tfm, targetTextHeight);
+                        textManager.startEditingExistingText(existing, clickIdx);
+                        if (existing.text != null && !existing.text.isEmpty()) {
+                            textManager.selectActiveSegmentText();
+                        }
                         resetCaretBlink();
                     } else if (phraseCreationListener != null) {
                         // Zone vide : création d'une nouvelle phrase uniquement.
@@ -476,16 +555,17 @@ public class TimelinePanel extends JPanel {
 
                 // Simple clic: éditer texte existant seulement
                 FontMetrics tfm = getTimelineFontMetrics();
+                int targetTextHeight = Math.max(8, bHeight - 2);
                 TextItem clickedText = textManager.getTextAtScaled(x, y, intOffsetX, getHeight(), bandCount);
                 if (clickedText != null) {
-                    int cursorIdx = textManager.getCursorIndexForClick(clickedText, x, intOffsetX, tfm);
+                    int cursorIdx = textManager.getCursorIndexForClick(clickedText, x, intOffsetX, tfm, targetTextHeight);
                     textManager.startEditingExistingText(clickedText, cursorIdx);
                     textManager.clearSelection();
                     resetCaretBlink();
                 } else {
                     TextItem segmentText = textManager.getTextInSegmentAt(x, y, intOffsetX, getHeight(), bandCount);
                     if (segmentText != null) {
-                        int cursorIdx = textManager.getCursorIndexForClick(segmentText, x, intOffsetX, tfm);
+                        int cursorIdx = textManager.getCursorIndexForClick(segmentText, x, intOffsetX, tfm, targetTextHeight);
                         textManager.startEditingExistingText(segmentText, cursorIdx);
                         textManager.clearSelection();
                         resetCaretBlink();
@@ -542,8 +622,8 @@ public class TimelinePanel extends JPanel {
             }
         }
 
-        // 2. Séparateurs et signes labiaux (tolérance 14px)
-        int[] hit = textManager.findSeparatorAtScaled(x, y, intOffsetX, getHeight(), bandCount, 14);
+        // 2. Séparateurs et signes labiaux (tolérance appropriée à la largeur du signe)
+        int[] hit = textManager.findSeparatorAtScaled(x, y, intOffsetX, getHeight(), bandCount, 8);
         if (hit != null) {
             showSeparatorContextMenu(e.getComponent(), x, y, hit[0], hit[1]);
             return true;
@@ -711,7 +791,8 @@ public class TimelinePanel extends JPanel {
         if (sm.signType == SeparatorMark.SignType.OPEN_A) return "Grande ouverture A";
         if (sm.signType == SeparatorMark.SignType.NEUTRAL) return "Consonne neutre N";
         if (sm.signType == SeparatorMark.SignType.RESPIRATION) return "Respiration h/";
-        return "Séparateur interne";
+        if (sm.signType == SeparatorMark.SignType.PLAN_CUT) return "Changement de plan";
+        return "Séparateur bleu (synchronisme)";
     }
 
     private void showPhraseContextMenu(Component parent, int screenX, int screenY, TextItem item) {
@@ -854,34 +935,115 @@ public class TimelinePanel extends JPanel {
     }
 
     /**
-     * Restreint le déplacement d'un séparateur pour empêcher toute collision ou inversion d'ordre :
-     * un séparateur ne peut jamais dépasser son voisin précédent ou suivant, préservant
-     * un écart minimal de sécurité (minGap = 0.1 seconde).
+     * Restreint le déplacement d'un repère spécifique :
+     * - Pour un signe labial (MPB, FVR, A, N, respiration) : peut se déplacer librement à l'intérieur de sa phrase (entre START et END).
+     * - Pour un séparateur structurel (START, END) ou syllabique (DEFAULT) : préserve l'ordre sans collision.
      */
+    private int clampSeparatorMove(int band, SeparatorMark targetMark, int desiredX) {
+        if (targetMark == null) return desiredX;
+        ArrayList<SeparatorMark> separators = textManager.getBandSeparators().get(band);
+        if (separators == null || separators.isEmpty()) {
+            return desiredX;
+        }
+
+        int currentX = targetMark.x;
+        int minGap = 6;
+        int idx = separators.indexOf(targetMark);
+
+        if (desiredX > currentX) {
+            SeparatorMark nextSeparator = null;
+            if (idx >= 0 && idx + 1 < separators.size()) {
+                nextSeparator = separators.get(idx + 1);
+            } else {
+                int nextSeparatorX = Integer.MAX_VALUE;
+                for (SeparatorMark separator : separators) {
+                    if (separator == targetMark) continue;
+                    if (separator.x > currentX && separator.x < nextSeparatorX) {
+                        nextSeparatorX = separator.x;
+                        nextSeparator = separator;
+                    }
+                }
+            }
+            if (nextSeparator == null) {
+                return desiredX;
+            }
+            int effectiveGap = minGap;
+            if (targetMark.isEndBoundary() && nextSeparator.isStartBoundary()) {
+                // Autoriser le collage exact du END de la phrase 1 sur le START de la phrase 2
+                effectiveGap = 0;
+            } else if (nextSeparator.isEndBoundary() || targetMark.isStartBoundary()) {
+                effectiveGap = 8;
+            }
+            return Math.min(desiredX, nextSeparator.x - effectiveGap);
+        } else if (desiredX < currentX) {
+            SeparatorMark prevSeparator = null;
+            if (idx > 0) {
+                prevSeparator = separators.get(idx - 1);
+            } else {
+                int prevSeparatorX = Integer.MIN_VALUE;
+                for (SeparatorMark separator : separators) {
+                    if (separator == targetMark) continue;
+                    if (separator.x < currentX && separator.x > prevSeparatorX) {
+                        prevSeparatorX = separator.x;
+                        prevSeparator = separator;
+                    }
+                }
+            }
+            if (prevSeparator == null) {
+                return desiredX;
+            }
+            int effectiveGap = minGap;
+            if (targetMark.isStartBoundary() && prevSeparator.isEndBoundary()) {
+                // Autoriser le collage exact du START de la phrase 2 sur le END de la phrase 1
+                effectiveGap = 0;
+            } else if (prevSeparator.isStartBoundary() || targetMark.isEndBoundary()) {
+                effectiveGap = 8;
+            }
+            return Math.max(desiredX, prevSeparator.x + effectiveGap);
+        }
+
+        return desiredX;
+    }
+
     private int clampSeparatorMove(int band, int currentX, int desiredX) {
+        if (draggingSeparatorMark != null && draggingSeparatorMark.x == currentX) {
+            return clampSeparatorMove(band, draggingSeparatorMark, desiredX);
+        }
         ArrayList<SeparatorMark> separators = textManager.getBandSeparators().get(band);
         if (separators == null || separators.size() <= 1) {
             return desiredX;
         }
 
-        int minGap = Math.max(1, (int) Math.round(pixelsPerSecond * 0.1));
+        int minGap = 6; // Écart minimal de sécurité strict (6px) pour empêcher tout chevauchement ou fusion
 
         if (desiredX > currentX) {
             int nextSeparatorX = Integer.MAX_VALUE;
+            SeparatorMark nextSeparator = null;
             for (SeparatorMark separator : separators) {
                 if (separator.x > currentX && separator.x < nextSeparatorX) {
                     nextSeparatorX = separator.x;
+                    nextSeparator = separator;
                 }
             }
-            return Math.min(desiredX, nextSeparatorX - minGap);
+            int effectiveGap = minGap;
+            if (nextSeparator != null && nextSeparator.isEndBoundary()) {
+                effectiveGap = 8;
+            }
+            return Math.min(desiredX, nextSeparatorX - effectiveGap);
         } else if (desiredX < currentX) {
             int prevSeparatorX = Integer.MIN_VALUE;
+            SeparatorMark prevSeparator = null;
             for (SeparatorMark separator : separators) {
                 if (separator.x < currentX && separator.x > prevSeparatorX) {
                     prevSeparatorX = separator.x;
+                    prevSeparator = separator;
                 }
             }
-            return Math.max(desiredX, prevSeparatorX + minGap);
+            int effectiveGap = minGap;
+            if (prevSeparator != null && prevSeparator.isStartBoundary()) {
+                effectiveGap = 8;
+            }
+            return Math.max(desiredX, prevSeparatorX + effectiveGap);
         }
 
         return desiredX;
@@ -892,6 +1054,19 @@ public class TimelinePanel extends JPanel {
         recordUndoSnapshot();
         int markerX = snapWorldXToTenth(cursorX - offsetX);
         textManager.addPlanMarker(markerX);
+        markDirty();
+        repaint();
+    }
+
+    /**
+     * Insère un repère de changement de plan vidéo (cut) à la position temporelle courante :
+     * ajoute exclusivement le repère global de plan ("la grande barre" sur toute la hauteur).
+     */
+    public void addChangementPlanAtCursor() {
+        recordUndoSnapshot();
+        int markerX = snapWorldXToTenth(cursorX - offsetX);
+        textManager.addPlanMarker(markerX);
+        markDirty();
         repaint();
     }
 
@@ -902,16 +1077,24 @@ public class TimelinePanel extends JPanel {
 
     /** Ajoute un repère spécifique (FVR, MPB, voyelle A, etc.) magnétisé au dixième de seconde. */
     public boolean addSeparatorAtCursor(int band, SeparatorMark.SignType signType) {
-        if (band < 0) {
+        if (textManager.isEditing() && textManager.getActiveBand() >= 0) {
+            band = textManager.getActiveBand();
+        } else if (band < 0) {
             band = selectedBand >= 0 ? selectedBand : 0;
         }
 
-        recordUndoSnapshot();
         int separatorX = snapWorldXToTenth(cursorX - offsetX);
-        textManager.addSeparator(band, separatorX, signType);
-        markDirty();
-        repaint();
-        return true;
+        if (!textManager.canAddSeparatorAt(band, separatorX)) {
+            return false;
+        }
+
+        recordUndoSnapshot();
+        boolean added = textManager.addSeparator(band, separatorX, signType);
+        if (added) {
+            markDirty();
+            repaint();
+        }
+        return added;
     }
 
     /** Supprime la phrase complète (texte, début, internes, fin) commençant au séparateur START. */
@@ -1039,8 +1222,11 @@ public class TimelinePanel extends JPanel {
                 return;
             }
         }
-        recordUndoSnapshot();
         int worldCursorX = snapWorldXToTenth(cursorX - offsetX);
+        if (!textManager.canAddSeparatorAt(band, worldCursorX)) {
+            return;
+        }
+        recordUndoSnapshot();
         textManager.addSeparator(band, worldCursorX, SeparatorMark.Type.END, -1, SeparatorMark.SignType.DEFAULT);
         markDirty();
         repaint();
@@ -1073,9 +1259,21 @@ public class TimelinePanel extends JPanel {
         this.bandCount = Math.max(1, customization.bandCount);
         this.bandHeight = Math.max(20, customization.bandHeight);
         this.cursorX = Math.max(20, customization.timelineCursorX);
+        this.cachedFontMetrics = null;
+        this.cachedMetricsBandHeight = -1;
+        this.cachedMetricsFontFamily = null;
         renderer.setBandCount(this.bandCount);
         renderer.setCursorX(this.cursorX);
         renderer.setCustomization(this.customization);
+        FontMetrics updatedFm = getTimelineFontMetrics();
+        textManager.setFontMetrics(updatedFm);
+        for (TextItem item : textManager.getTexts()) {
+            if (item != null) item.cachedWidth = 0;
+        }
+        if (updatedFm != null) {
+            int charW = Math.max(10, updatedFm.charWidth('M'));
+            this.pixelsPerChar = Math.max(22, charW + 8);
+        }
         offsetX = cursorX - (currentTime * pixelsPerSecond);
         setPreferredSize(new Dimension(getPreferredSize().width, this.bandCount * this.bandHeight));
         revalidate();
@@ -1096,16 +1294,40 @@ public class TimelinePanel extends JPanel {
         return renderer;
     }
 
+    private int cachedMetricsBandHeight = -1;
+    private String cachedMetricsFontFamily = null;
+    private FontMetrics cachedFontMetrics = null;
+
     public FontMetrics getTimelineFontMetrics() {
         int h = getHeight() > 0 ? getHeight() : Math.max(20, bandHeight * Math.max(1, bandCount));
         int bHeight = Math.max(1, h / Math.max(1, bandCount));
+        String family = (customization.timelineFontFamily != null && !customization.timelineFontFamily.isBlank())
+                ? customization.timelineFontFamily
+                : "Arial";
+        if (bHeight == cachedMetricsBandHeight
+                && family.equals(cachedMetricsFontFamily)
+                && cachedFontMetrics != null) {
+            return cachedFontMetrics;
+        }
         Font font = renderer.buildTimelineFont(bHeight);
+        FontMetrics fm = null;
         try {
-            FontMetrics fm = getFontMetrics(font);
-            if (fm != null) return fm;
+            BufferedImage dummy = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = dummy.createGraphics();
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+            fm = g2.getFontMetrics(font);
+            g2.dispose();
         } catch (Throwable ignored) {}
-        BufferedImage dummy = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
-        return dummy.getGraphics().getFontMetrics(font);
+        if (fm == null) {
+            try {
+                fm = getFontMetrics(font);
+            } catch (Throwable ignored) {}
+        }
+        cachedMetricsBandHeight = bHeight;
+        cachedMetricsFontFamily = family;
+        cachedFontMetrics = fm;
+        return fm;
     }
 
     @Override
@@ -1154,9 +1376,54 @@ public class TimelinePanel extends JPanel {
         lastTypingSessionTime = now;
     }
 
+    private boolean ensureEditingPhraseAtPlayhead() {
+        if (textManager.isEditing()) return true;
+        int intOffsetX = getIntOffsetX();
+        int h = getHeight() > 0 ? getHeight() : Math.max(20, bandHeight * Math.max(1, bandCount));
+        int bHeight = Math.max(1, h / Math.max(1, bandCount));
+        int targetTextHeight = Math.max(8, bHeight - 2);
+        FontMetrics tfm = getTimelineFontMetrics();
+
+        int prefBand = (selectedBand >= 0 && selectedBand < bandCount) ? selectedBand : 0;
+        int bandMidY = prefBand * bHeight + (bHeight / 2);
+
+        TextItem hit = textManager.getTextAtScaled(cursorX, bandMidY, intOffsetX, h, bandCount);
+        if (hit == null) {
+            hit = textManager.getTextInSegmentAt(cursorX, bandMidY, intOffsetX, h, bandCount);
+        }
+        if (hit == null) {
+            hit = textManager.getOpenPhraseInBand(prefBand);
+        }
+        if (hit == null) {
+            for (int b = 0; b < bandCount; b++) {
+                if (b == prefBand) continue;
+                int midY = b * bHeight + (bHeight / 2);
+                hit = textManager.getTextAtScaled(cursorX, midY, intOffsetX, h, bandCount);
+                if (hit == null) {
+                    hit = textManager.getTextInSegmentAt(cursorX, midY, intOffsetX, h, bandCount);
+                }
+                if (hit != null) {
+                    selectedBand = b;
+                    break;
+                }
+            }
+        }
+        if (hit != null) {
+            int idx = textManager.getCursorIndexForClick(hit, cursorX, intOffsetX, tfm, targetTextHeight);
+            textManager.startEditingExistingText(hit, idx);
+            textManager.clearSelection();
+            return true;
+        }
+        return false;
+    }
+
     /** Insère un caractère dans la phrase en cours d'édition (avec support complet des accents et de l'historique d'annulation). */
     public void typeChar(char c) {
-        if (!textManager.isEditing()) return;
+        if (!textManager.isEditing()) {
+            if (Character.isISOControl(c) || !ensureEditingPhraseAtPlayhead()) {
+                return;
+            }
+        }
         recordTypingUndoIfNeeded();
         onTypingActivity();
         textManager.typeChar(c);
@@ -1223,7 +1490,8 @@ public class TimelinePanel extends JPanel {
 
     /** Colle le texte fourni à la position actuelle du curseur de saisie. */
     public void pasteText(String text) {
-        if (!textManager.isEditing() || text == null || text.isEmpty()) return;
+        if (text == null || text.isEmpty()) return;
+        if (!textManager.isEditing() && !ensureEditingPhraseAtPlayhead()) return;
         recordUndoSnapshot();
         onTypingActivity();
         textManager.insertText(text);
@@ -1533,6 +1801,11 @@ public class TimelinePanel extends JPanel {
         private final app.services.AudioWaveformData waveformData;
 
         public ExportSession(int width, int height, double visibleSecondsAhead, TimelinePanel panel) {
+            this(width, height, visibleSecondsAhead, panel,
+                    panel != null && panel.renderer != null ? panel.renderer.getRoleLabelScale() : 1.0);
+        }
+
+        public ExportSession(int width, int height, double visibleSecondsAhead, TimelinePanel panel, double roleLabelScale) {
             this.width = Math.max(2, width);
             this.height = Math.max(2, height);
 
@@ -1561,7 +1834,7 @@ public class TimelinePanel extends JPanel {
             for (Map.Entry<Integer, ArrayList<SeparatorMark>> entry : panel.textManager.getBandSeparators().entrySet()) {
                 ArrayList<SeparatorMark> scaledList = new ArrayList<>();
                 for (SeparatorMark m : entry.getValue()) {
-                    scaledList.add(new SeparatorMark((int) Math.round(m.x * coordScale), m.type, m.splitIndex));
+                    scaledList.add(new SeparatorMark((int) Math.round(m.x * coordScale), m.type, m.splitIndex, m.signType));
                 }
                 this.renderSeparators.put(entry.getKey(), scaledList);
             }
@@ -1573,6 +1846,8 @@ public class TimelinePanel extends JPanel {
 
             this.dedicatedRenderer = new TimelineRenderer(panel.bandCount, this.cx);
             this.dedicatedRenderer.setCustomization(panel.customization);
+            this.dedicatedRenderer.setExportMode(true);
+            this.dedicatedRenderer.setRoleLabelScale(roleLabelScale);
 
             this.backgroundColor = panel.getBackground() != null ? panel.getBackground() : new Color(40, 40, 40);
             this.separatorsVisible = panel.separatorsVisible;
@@ -1583,6 +1858,14 @@ public class TimelinePanel extends JPanel {
         public int getWidth() { return width; }
         public int getHeight() { return height; }
         public double getPixelsPerSecond() { return pps; }
+
+        public void setRoleLabelScale(double scale) {
+            this.dedicatedRenderer.setRoleLabelScale(scale);
+        }
+
+        public double getRoleLabelScale() {
+            return this.dedicatedRenderer.getRoleLabelScale();
+        }
 
         /**
          * Rendu ultra-rapide directement dans le contexte Graphics2D fourni sans allocation d'objets.
@@ -1620,6 +1903,10 @@ public class TimelinePanel extends JPanel {
      */
     public ExportSession createExportSession(int width, int height, double visibleSecondsAhead) {
         return new ExportSession(width, height, visibleSecondsAhead, this);
+    }
+
+    public ExportSession createExportSession(int width, int height, double visibleSecondsAhead, double roleLabelScale) {
+        return new ExportSession(width, height, visibleSecondsAhead, this, roleLabelScale);
     }
 
     /**
@@ -1682,6 +1969,7 @@ public class TimelinePanel extends JPanel {
             this.zoomLevelIndex = 0;
             this.pixelsPerSecond = BASE_PIXELS_PER_SECOND;
         }
+        textManager.sanitizeBandSeparators();
         setTime(currentTime);
         repaint();
         // Le chargement d'un projet initialise un état propre avec un historique d'annulation vierge

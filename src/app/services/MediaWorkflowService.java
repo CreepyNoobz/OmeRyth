@@ -2,6 +2,7 @@ package app.services;
 
 import app.utils.FileUtils;
 import app.ui.TimelinePanel;
+import app.ui.SeparatorMark;
 import app.utils.TimerClass;
 import uk.co.caprica.vlcj.player.component.EmbeddedMediaPlayerComponent;
 
@@ -76,7 +77,7 @@ public class MediaWorkflowService {
                           JPanel mediaContentPanel,
                           TimerClass timer,
                           Runnable onLoaded) {
-        if (videoFile == null) return;
+        if (videoFile == null || !videoFile.exists()) return;
 
         JDialog loadingDialog = new JDialog(owner, "Chargement de la vidéo", false);
         JProgressBar progress = new JProgressBar();
@@ -93,8 +94,7 @@ public class MediaWorkflowService {
                 }
                 mediaPlayerComponent.mediaPlayer().media().startPaused(videoFile.getAbsolutePath(),
                         ":file-caching=150",
-                        ":clock-jitter=0",
-                        ":clock-synchro=0");
+                        ":clock-jitter=0");
                 long dureeMs = -1;
                 for (int i = 0; i < 30; i++) {
                     try {
@@ -209,8 +209,7 @@ public class MediaWorkflowService {
                     if (path != null) {
                         mp.media().startPaused(path, ":start-time=" + (targetMs / 1000.0),
                                 ":file-caching=150",
-                                ":clock-jitter=0",
-                                ":clock-synchro=0");
+                                ":clock-jitter=0");
                         mp.controls().setTime(targetMs);
                         mp.controls().setPause(true);
                     } else {
@@ -431,7 +430,8 @@ public class MediaWorkflowService {
         int frameH = config.isMontageMode ? config.bandRect.height : config.height;
 
         // Session de rendu pré-calculée en mémoire (1 seule allocation des objets de la timeline)
-        TimelinePanel.ExportSession session = timelinePanel.createExportSession(frameW, frameH, config.visibleSeconds);
+        double roleLabelScale = Math.max(0.10, Math.min(2.00, config.roleLabelScalePercent / 100.0));
+        TimelinePanel.ExportSession session = timelinePanel.createExportSession(frameW, frameH, config.visibleSeconds, roleLabelScale);
 
         JDialog progressDialog = new JDialog(owner, "Export vidéo en cours...", false);
         JProgressBar progressBar = new JProgressBar(0, 100);
@@ -448,6 +448,7 @@ public class MediaWorkflowService {
 
         JButton btnCancel = new JButton("Annuler l'export");
         btnCancel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        btnCancel.setForeground(Color.BLACK);
         btnCancel.setFocusPainted(false);
 
         JPanel panel = new JPanel(new BorderLayout(10, 10));
@@ -466,6 +467,8 @@ public class MediaWorkflowService {
 
         progressDialog.add(panel);
         progressDialog.setSize(520, 165);
+        progressDialog.setMinimumSize(new java.awt.Dimension(400, 150));
+        progressDialog.setResizable(true);
         progressDialog.setLocationRelativeTo(owner);
         progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 
@@ -480,6 +483,9 @@ public class MediaWorkflowService {
                 }
 
                 File separatedAudio = null;
+                File watermarkFile = null;
+                boolean hasWatermark = config.textOverlay != null && config.textOverlay.enabled
+                        && config.textOverlay.text != null && !config.textOverlay.text.trim().isEmpty();
                 try {
                     if (config.removeVocals && fichierSelectionne != null && fichierSelectionne.exists()) {
                         if (isDemucsAvailable()) {
@@ -540,27 +546,65 @@ public class MediaWorkflowService {
                         int bX = config.bandRect.x;
                         int bY = config.bandRect.y;
 
+                        int wmInputIdx = -1;
+                        if (hasWatermark) {
+                            try {
+                                BufferedImage wmImg = new BufferedImage(cW, cH, BufferedImage.TYPE_INT_ARGB);
+                                Graphics2D g2wm = wmImg.createGraphics();
+                                app.ui.ExportVideoDialog.drawTextOverlay(g2wm, config.textOverlay, cW, cH);
+                                g2wm.dispose();
+                                watermarkFile = File.createTempFile("omeryth_wm_", ".png");
+                                javax.imageio.ImageIO.write(wmImg, "PNG", watermarkFile);
+                                watermarkFile.deleteOnExit();
+
+                                wmInputIdx = (separatedAudio != null) ? 3 : 2;
+                                command.add("-loop");
+                                command.add("1");
+                                command.add("-i");
+                                command.add(watermarkFile.getAbsolutePath());
+                            } catch (Exception ex) {
+                                System.err.println("Erreur création watermark PNG: " + ex.getMessage());
+                                hasWatermark = false;
+                                if (watermarkFile != null) {
+                                    watermarkFile.delete();
+                                    watermarkFile = null;
+                                }
+                            }
+                        }
+
                         StringBuilder filter = new StringBuilder();
                         filter.append("color=s=").append(cW).append("x").append(cH)
                               .append(":c=black:r=").append(fps)
                               .append(":d=").append(String.format(Locale.US, "%.3f", dureeSec)).append("[bg];");
 
                         if (config.blurBackgroundVideo) {
-                            int blurRadius = Math.max(1, Math.min(60, config.blurRadius));
+                            int blurRadius = Math.max(1, Math.min(30, config.blurRadius / 2));
                             double blurAlpha = Math.max(0.05, Math.min(1.0, config.blurOpacity / 100.0));
+                            int downW = Math.max(16, (cW / 2) & ~1);
+                            int downH = Math.max(16, (cH / 2) & ~1);
                             filter.append("[1:v]split=2[v_scaled_in][v_blur_in];");
                             filter.append("[v_blur_in]fps=fps=").append(fps)
-                                  .append(":round=near,scale=w=").append(cW).append(":h=").append(cH)
-                                  .append(":force_original_aspect_ratio=increase,crop=").append(cW).append(":").append(cH)
-                                  .append(",boxblur=").append(blurRadius).append(":2,format=yuva420p,colorchannelmixer=aa=")
+                                  .append(":round=near,scale=w=").append(downW).append(":h=").append(downH)
+                                  .append(":force_original_aspect_ratio=increase:flags=fast_bilinear,crop=").append(downW).append(":").append(downH);
+                            if (config.mirrorVideo) {
+                                filter.append(",hflip");
+                            }
+                            filter.append(",boxblur=").append(blurRadius).append(":1,scale=w=").append(cW).append(":h=").append(cH)
+                                  .append(":flags=fast_bilinear,format=yuva420p,colorchannelmixer=aa=")
                                   .append(String.format(Locale.US, "%.2f", blurAlpha)).append("[vblurred];");
                             filter.append("[v_scaled_in]fps=fps=").append(fps).append(":round=near,scale=w=").append(vW).append(":h=").append(vH)
-                                  .append(":force_original_aspect_ratio=decrease:flags=bicubic,pad=").append(vW).append(":").append(vH)
+                                  .append(":force_original_aspect_ratio=decrease:flags=fast_bilinear,pad=").append(vW).append(":").append(vH)
                                   .append(":(ow-iw)/2:(oh-ih)/2:color=black");
+                            if (config.mirrorVideo) {
+                                filter.append(",hflip");
+                            }
                         } else {
                             filter.append("[1:v]fps=fps=").append(fps).append(":round=near,scale=w=").append(vW).append(":h=").append(vH)
-                                  .append(":force_original_aspect_ratio=decrease:flags=bicubic,pad=").append(vW).append(":").append(vH)
+                                  .append(":force_original_aspect_ratio=decrease:flags=fast_bilinear,pad=").append(vW).append(":").append(vH)
                                   .append(":(ow-iw)/2:(oh-ih)/2:color=black");
+                            if (config.mirrorVideo) {
+                                filter.append(",hflip");
+                            }
                         }
 
                         if (config.antiCopyright && config.antiCopyrightOpacity > 0) {
@@ -576,6 +620,8 @@ public class MediaWorkflowService {
                                     if (config.blurBackgroundVideo) activeLayers.add(layerId);
                                 } else if ("VIDEO".equals(layerId) || "BAND".equals(layerId)) {
                                     activeLayers.add(layerId);
+                                } else if ("WATERMARK".equals(layerId)) {
+                                    if (hasWatermark && wmInputIdx >= 0) activeLayers.add(layerId);
                                 }
                             }
                         }
@@ -583,6 +629,9 @@ public class MediaWorkflowService {
                         if (!activeLayers.contains("BAND")) activeLayers.add("BAND");
                         if (config.blurBackgroundVideo && !activeLayers.contains("BACKGROUND_BLUR")) {
                             activeLayers.add(0, "BACKGROUND_BLUR");
+                        }
+                        if (hasWatermark && wmInputIdx >= 0 && !activeLayers.contains("WATERMARK")) {
+                            activeLayers.add("WATERMARK");
                         }
 
                         String currentBase = "bg";
@@ -600,10 +649,16 @@ public class MediaWorkflowService {
                                 inputTag = "vscaled";
                                 posX = vX;
                                 posY = vY;
-                            } else {
+                            } else if ("BAND".equals(layer)) {
                                 inputTag = "0:v";
                                 posX = bX;
                                 posY = bY;
+                            } else if ("WATERMARK".equals(layer)) {
+                                inputTag = wmInputIdx + ":v";
+                                posX = 0;
+                                posY = 0;
+                            } else {
+                                continue;
                             }
 
                             filter.append("[").append(currentBase).append("][").append(inputTag).append("]overlay=")
@@ -637,7 +692,7 @@ public class MediaWorkflowService {
                                             keepExpr, keepExpr));
                                 } else {
                                     // Mode Conservation : on garde la voix originale PENDANT la balise,
-                                    // et on applique le Voice Remover en dehors !
+                                    // et on met la version sans voix (instrumentale) en dehors !
                                     filter.append(String.format(Locale.US,
                                             ";[2:a]volume='if(%s,0,1)':eval=frame[ainst];" +
                                             "[1:a]volume='if(%s,1,0)':eval=frame[aorig];" +
@@ -775,7 +830,7 @@ public class MediaWorkflowService {
                     byte[] frameBytes = ((DataBufferByte) frameBuffer.getRaster().getDataBuffer()).getData();
 
                     long startTime = System.currentTimeMillis();
-                    try (OutputStream pipeOut = new BufferedOutputStream(process.getOutputStream(), 2 * 1024 * 1024)) {
+                    try (OutputStream pipeOut = new BufferedOutputStream(process.getOutputStream(), 4 * 1024 * 1024)) {
                         for (int i = 0; i < totalFrames; i++) {
                             if (isCancelled()) {
                                 process.destroyForcibly();
@@ -783,6 +838,9 @@ public class MediaWorkflowService {
                             }
                             double time = (double) i / fps;
                             session.renderFrameDirect(g2, time);
+                            if (!config.isMontageMode && hasWatermark) {
+                                app.ui.ExportVideoDialog.drawTextOverlay(g2, config.textOverlay, frameW, frameH);
+                            }
                             pipeOut.write(frameBytes);
 
                             if (i % 15 == 0 || i == totalFrames - 1) {
@@ -825,6 +883,11 @@ public class MediaWorkflowService {
                     if (separatedAudio != null && separatedAudio.exists()) {
                         try {
                             separatedAudio.delete();
+                        } catch (Exception ignored) {}
+                    }
+                    if (watermarkFile != null && watermarkFile.exists()) {
+                        try {
+                            watermarkFile.delete();
                         } catch (Exception ignored) {}
                     }
                 }
@@ -1145,60 +1208,151 @@ public class MediaWorkflowService {
         worker.execute();
     }
 
+    private static class SceneDetectionProgress {
+        final int percent;
+        final int detectedCount;
+        final double totalDuration;
+        final double currentSeconds;
+
+        SceneDetectionProgress(int percent, int detectedCount, double totalDuration, double currentSeconds) {
+            this.percent = percent;
+            this.detectedCount = detectedCount;
+            this.totalDuration = totalDuration;
+            this.currentSeconds = currentSeconds;
+        }
+    }
+
+    private static double parseTimecodeToSeconds(String timeStr) {
+        if (timeStr == null || timeStr.trim().isEmpty()) return -1.0;
+        try {
+            String[] parts = timeStr.trim().split(":");
+            if (parts.length == 3) {
+                double hours = Double.parseDouble(parts[0]);
+                double minutes = Double.parseDouble(parts[1]);
+                double seconds = Double.parseDouble(parts[2]);
+                return hours * 3600.0 + minutes * 60.0 + seconds;
+            } else if (parts.length == 2) {
+                double minutes = Double.parseDouble(parts[0]);
+                double seconds = Double.parseDouble(parts[1]);
+                return minutes * 60.0 + seconds;
+            } else {
+                return Double.parseDouble(timeStr.trim());
+            }
+        } catch (Exception e) {
+            return -1.0;
+        }
+    }
+
     /** Auto-detect scene changes using FFmpeg and add plan markers to the timeline. */
     public void detectSceneChanges(javax.swing.JFrame owner,
                                    File videoFile,
                                    TimelinePanel timelinePanel) {
-        if (videoFile == null) return;
+        if (videoFile == null || !videoFile.exists()) return;
         String ffmpegPath = findFfmpeg();
         if (ffmpegPath == null) {
             JOptionPane.showMessageDialog(owner, "ffmpeg est introuvable. Installation requise.", "Erreur", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
-        JDialog progressDialog = new JDialog(owner, "Détection des plans...", false);
-        JProgressBar progressBar = new JProgressBar();
+        JDialog progressDialog = new JDialog(owner, "Détection des changements de plan", false);
+        JProgressBar progressBar = new JProgressBar(0, 100);
         progressBar.setIndeterminate(true);
         progressBar.setStringPainted(true);
-        progressBar.setString("Analyse de la vidéo...");
+        progressBar.setString("Initialisation de l'analyse vidéo...");
+
+        JLabel statusLabel = new JLabel("Détection automatique des changements de plan (cuts)...");
+        statusLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+
+        JButton btnCancel = new JButton("Annuler");
+        btnCancel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        btnCancel.setFocusPainted(false);
+
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        panel.add(statusLabel, BorderLayout.NORTH);
         panel.add(progressBar, BorderLayout.CENTER);
-        progressDialog.add(panel);
-        progressDialog.setSize(380, 110);
-        progressDialog.setLocationRelativeTo(owner);
-        progressDialog.setVisible(true);
 
-        SwingWorker<java.util.List<Double>, Void> worker = new SwingWorker<>() {
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        btnPanel.add(btnCancel);
+        panel.add(btnPanel, BorderLayout.SOUTH);
+
+        progressDialog.add(panel);
+        progressDialog.setSize(440, 145);
+        progressDialog.setMinimumSize(new java.awt.Dimension(380, 130));
+        progressDialog.setResizable(true);
+        progressDialog.setLocationRelativeTo(owner);
+        progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+        java.util.concurrent.atomic.AtomicReference<Process> processRef = new java.util.concurrent.atomic.AtomicReference<>();
+
+        SwingWorker<java.util.List<Double>, SceneDetectionProgress> worker = new SwingWorker<>() {
             @Override
             protected java.util.List<Double> doInBackground() throws Exception {
                 java.util.List<Double> times = new java.util.ArrayList<>();
+                // Filtre optimisé : scale=320:-1 accélère l'analyse de 5x à 10x
+                // Seuil 0.30 optimal pour détecter les vrais changements de plan
                 ProcessBuilder pb = new ProcessBuilder(
                         ffmpegPath,
                         "-i", videoFile.getAbsolutePath(),
-                        "-filter:v", "select='gt(scene,0.35)',showinfo",
+                        "-filter:v", "scale=320:-1:flags=bicubic,select='gt(scene,0.30)',showinfo",
                         "-f", "null",
                         "-"
                 );
                 pb.redirectErrorStream(true);
                 Process process = pb.start();
+                processRef.set(process);
 
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                double totalDuration = -1.0;
+                double lastReportedSec = 0.0;
+
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
                         if (isCancelled()) {
-                            process.destroy();
+                            process.destroyForcibly();
                             break;
                         }
-                        // FFmpeg showinfo prints: pts_time:1.234
+
+                        // Récupérer la durée totale de la vidéo
+                        if (totalDuration <= 0 && line.contains("Duration:")) {
+                            int dIdx = line.indexOf("Duration:");
+                            int commaIdx = line.indexOf(",", dIdx);
+                            if (commaIdx != -1) {
+                                String durStr = line.substring(dIdx + 9, commaIdx).trim();
+                                totalDuration = parseTimecodeToSeconds(durStr);
+                            }
+                        }
+
+                        // Progression temporelle
+                        if (line.contains("time=")) {
+                            int tIdx = line.indexOf("time=");
+                            int endT = line.indexOf(" ", tIdx);
+                            if (endT == -1) endT = line.length();
+                            String tStr = line.substring(tIdx + 5, endT).trim();
+                            double curSec = parseTimecodeToSeconds(tStr);
+                            if (curSec > 0) {
+                                lastReportedSec = curSec;
+                            }
+                        }
+
+                        // Détection d'un cut par showinfo
                         int idx = line.indexOf("pts_time:");
                         if (idx != -1) {
                             int endIdx = line.indexOf(" ", idx);
                             if (endIdx == -1) endIdx = line.length();
                             try {
-                                String timeStr = line.substring(idx + 9, endIdx);
-                                times.add(Double.parseDouble(timeStr));
+                                String timeStr = line.substring(idx + 9, endIdx).trim();
+                                double pts = Double.parseDouble(timeStr);
+                                times.add(pts);
+                                if (pts > lastReportedSec) {
+                                    lastReportedSec = pts;
+                                }
                             } catch (Exception ignored) {}
+                        }
+
+                        if (totalDuration > 0) {
+                            int pct = Math.min(99, Math.max(0, (int) Math.round((lastReportedSec / totalDuration) * 100.0)));
+                            publish(new SceneDetectionProgress(pct, times.size(), totalDuration, lastReportedSec));
                         }
                     }
                 }
@@ -1207,44 +1361,75 @@ public class MediaWorkflowService {
             }
 
             @Override
+            protected void process(java.util.List<SceneDetectionProgress> chunks) {
+                if (chunks == null || chunks.isEmpty()) return;
+                SceneDetectionProgress latest = chunks.get(chunks.size() - 1);
+                progressBar.setIndeterminate(false);
+                progressBar.setValue(latest.percent);
+                progressBar.setString(latest.percent + "% (" + latest.detectedCount + " plan" + (latest.detectedCount > 1 ? "s" : "") + " détecté" + (latest.detectedCount > 1 ? "s" : "") + ")");
+            }
+
+            @Override
             protected void done() {
                 progressDialog.dispose();
+                if (isCancelled()) return;
                 try {
                     java.util.List<Double> times = get();
                     if (times != null && !times.isEmpty()) {
                         timelinePanel.recordUndoSnapshot();
                         double pps = timelinePanel.getPixelsPerSecond();
+                        int activeBand = timelinePanel.getSelectedBand() >= 0
+                                ? timelinePanel.getSelectedBand()
+                                : (timelinePanel.getTextManager().getActiveBand() >= 0 ? timelinePanel.getTextManager().getActiveBand() : 0);
                         int addedCount = 0;
                         double lastT = -1.0;
                         for (Double t : times) {
                             if (t == null || t < 0.15) continue;
-                            // Arrondi au dixième de seconde près pour aligner sur les traits de marquage
+                            // Arrondi au dixième de seconde pour caler sur les traits de graduation
                             double roundedT = Math.round(t * 10.0) / 10.0;
-                            if (lastT >= 0 && Math.abs(roundedT - lastT) < 0.25) {
+                            if (lastT >= 0 && Math.abs(roundedT - lastT) < 0.20) {
                                 continue;
                             }
                             int markerX = timelinePanel.snapWorldXToTenth(roundedT * pps);
-                            if (!timelinePanel.getTextManager().getPlanMarkers().contains(markerX)) {
+                            boolean hasMarker = timelinePanel.getTextManager().getPlanMarkers().contains(markerX);
+                            if (!hasMarker) {
                                 timelinePanel.getTextManager().addPlanMarker(markerX);
                                 addedCount++;
                                 lastT = roundedT;
                             }
                         }
+                        timelinePanel.markDirty();
                         timelinePanel.repaint();
                         if (addedCount > 0) {
-                            JOptionPane.showMessageDialog(owner, addedCount + " plans détectés et calés sur les traits de marquage.");
+                            JOptionPane.showMessageDialog(owner, addedCount + " changements de plan détectés et calés sur la timeline.", "Détection terminée", JOptionPane.INFORMATION_MESSAGE);
                         } else {
-                            JOptionPane.showMessageDialog(owner, "Aucun nouveau plan détecté.");
+                            JOptionPane.showMessageDialog(owner, "Aucun nouveau changement de plan détecté.", "Information", JOptionPane.INFORMATION_MESSAGE);
                         }
                     } else {
-                        JOptionPane.showMessageDialog(owner, "Aucun changement de plan détecté.");
+                        JOptionPane.showMessageDialog(owner, "Aucun changement de plan détecté.", "Information", JOptionPane.INFORMATION_MESSAGE);
                     }
+                } catch (java.util.concurrent.CancellationException ignored) {
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(owner, "Erreur lors de la détection : " + ex.getMessage(), "Erreur", JOptionPane.ERROR_MESSAGE);
                 }
             }
         };
+
+        btnCancel.addActionListener(e -> {
+            worker.cancel(true);
+            Process p = processRef.get();
+            if (p != null) p.destroyForcibly();
+            progressDialog.dispose();
+        });
+        progressDialog.addWindowListener(new CancelOnCloseAdapter(() -> {
+            worker.cancel(true);
+            Process p = processRef.get();
+            if (p != null) p.destroyForcibly();
+            progressDialog.dispose();
+        }));
+
         worker.execute();
+        progressDialog.setVisible(true);
     }
 
     public static class EncoderSettings {
@@ -1269,54 +1454,54 @@ public class MediaWorkflowService {
         int safeThreads = threads > 0 ? threads : Runtime.getRuntime().availableProcessors();
         if ("cpu".equalsIgnoreCase(preference)) {
             return new EncoderSettings("libx264",
-                    java.util.List.of("-preset", "veryfast", "-crf", "22", "-threads", String.valueOf(safeThreads)),
-                    "CPU Multi-cœurs (x264 veryfast - " + safeThreads + " threads)");
+                    java.util.List.of("-preset", "ultrafast", "-crf", "22", "-threads", String.valueOf(safeThreads)),
+                    "CPU Multi-cœurs (x264 ultrafast - " + safeThreads + " threads)");
         }
         if ("nvenc".equalsIgnoreCase(preference)) {
-            if (testEncoder(ffmpegPath, "h264_nvenc", java.util.List.of("-preset", "p4", "-cq", "23"))) {
+            if (testEncoder(ffmpegPath, "h264_nvenc", java.util.List.of("-preset", "p1", "-tune", "ll", "-cq", "23"))) {
                 return new EncoderSettings("h264_nvenc",
-                        java.util.List.of("-preset", "p4", "-cq", "23"),
-                        "GPU NVIDIA NVENC");
+                        java.util.List.of("-preset", "p1", "-tune", "ll", "-cq", "23"),
+                        "GPU NVIDIA NVENC (Ultra-rapide)");
             }
         }
         if ("amf".equalsIgnoreCase(preference)) {
             if (testEncoder(ffmpegPath, "h264_amf", java.util.List.of("-quality", "speed"))) {
                 return new EncoderSettings("h264_amf",
                         java.util.List.of("-quality", "speed"),
-                        "GPU AMD AMF");
+                        "GPU AMD AMF (Ultra-rapide)");
             }
         }
         if ("qsv".equalsIgnoreCase(preference)) {
             if (testEncoder(ffmpegPath, "h264_qsv", java.util.List.of("-preset", "veryfast"))) {
                 return new EncoderSettings("h264_qsv",
                         java.util.List.of("-preset", "veryfast"),
-                        "GPU Intel QSV");
+                        "GPU Intel QSV (Ultra-rapide)");
             }
         }
         if (cachedEncoderSettings != null && ("auto".equalsIgnoreCase(preference) || preference == null)) {
             return cachedEncoderSettings;
         }
-        if (testEncoder(ffmpegPath, "h264_nvenc", java.util.List.of("-preset", "p4", "-cq", "23"))) {
+        if (testEncoder(ffmpegPath, "h264_nvenc", java.util.List.of("-preset", "p1", "-tune", "ll", "-cq", "23"))) {
             cachedEncoderSettings = new EncoderSettings("h264_nvenc",
-                    java.util.List.of("-preset", "p4", "-cq", "23"),
-                    "GPU NVIDIA NVENC");
+                    java.util.List.of("-preset", "p1", "-tune", "ll", "-cq", "23"),
+                    "GPU NVIDIA NVENC (Ultra-rapide)");
             return cachedEncoderSettings;
         }
         if (testEncoder(ffmpegPath, "h264_amf", java.util.List.of("-quality", "speed"))) {
             cachedEncoderSettings = new EncoderSettings("h264_amf",
                     java.util.List.of("-quality", "speed"),
-                    "GPU AMD AMF");
+                    "GPU AMD AMF (Ultra-rapide)");
             return cachedEncoderSettings;
         }
         if (testEncoder(ffmpegPath, "h264_qsv", java.util.List.of("-preset", "veryfast"))) {
             cachedEncoderSettings = new EncoderSettings("h264_qsv",
                     java.util.List.of("-preset", "veryfast"),
-                    "GPU Intel QSV");
+                    "GPU Intel QSV (Ultra-rapide)");
             return cachedEncoderSettings;
         }
         cachedEncoderSettings = new EncoderSettings("libx264",
-                java.util.List.of("-preset", "veryfast", "-crf", "22", "-threads", String.valueOf(safeThreads)),
-                "CPU Multi-cœurs (x264 veryfast - " + safeThreads + " threads)");
+                java.util.List.of("-preset", "ultrafast", "-crf", "22", "-threads", String.valueOf(safeThreads)),
+                "CPU Multi-cœurs (x264 ultrafast - " + safeThreads + " threads)");
         return cachedEncoderSettings;
     }
 

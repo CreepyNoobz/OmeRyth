@@ -6,6 +6,7 @@ import java.nio.file.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.regex.*;
+import app.ui.TextManager;
 
 /**
  * Service orchestrant la transcription vocale haute fidélité pour le doublage.
@@ -168,6 +169,22 @@ public class SpeechWorkflowService {
                 return customRoleName;
             }
             return "Locuteur " + (getSpeakerIndex() + 1);
+        }
+
+        public TranscriptionSegment copy() {
+            TranscriptionSegment clone = new TranscriptionSegment(this.id, this.speaker, this.startSeconds, this.endSeconds, this.text);
+            clone.customRoleName = this.customRoleName;
+            if (this.words != null) {
+                for (WordTiming w : this.words) {
+                    if (w != null) clone.words.add(new WordTiming(w.word, w.start, w.end));
+                }
+            }
+            if (this.separators != null) {
+                for (RhythmicSeparator s : this.separators) {
+                    if (s != null) clone.separators.add(new RhythmicSeparator(s.time, s.splitIndex));
+                }
+            }
+            return clone;
         }
     }
 
@@ -407,10 +424,19 @@ public class SpeechWorkflowService {
     }
 
     /**
-     * Lance la transcription vocale haute précision WhisperX avec choix d'accélération matérielle.
+     * Lance la transcription vocale haute précision avec choix d'accélération matérielle.
      */
     public void transcribe(File videoFile, int numSpeakers, String language, String modelName,
                            int threadCount, String hardwareDevice, TranscriptionCallback callback) {
+        transcribe(videoFile, numSpeakers, language, modelName, threadCount, hardwareDevice, "whisper", null, callback);
+    }
+
+    /**
+     * Lance la transcription vocale avec sélection du moteur (Whisper local ou Gladia AI Cloud).
+     */
+    public void transcribe(File videoFile, int numSpeakers, String language, String modelName,
+                           int threadCount, String hardwareDevice, String engine, String gladiaApiKey,
+                           TranscriptionCallback callback) {
         isCancelled = false;
         new Thread(() -> {
             File tempDir = new File("temp");
@@ -451,7 +477,10 @@ public class SpeechWorkflowService {
 
                 if (isCancelled) return;
 
-                // 3. Préparation de la commande WhisperX
+                // 3. Préparation de la commande
+                String selectedEngine = (engine != null && engine.equalsIgnoreCase("gladia")) ? "gladia" : "whisper";
+                String apiKey = (gladiaApiKey != null && !gladiaApiKey.isBlank()) ? gladiaApiKey.trim() : app.utils.FileUtils.loadGladiaApiKey();
+
                 String cleanModel = (modelName == null || modelName.isBlank()) ? "medium" : modelName.toLowerCase().trim();
                 if (cleanModel.contains("base")) cleanModel = "base";
                 else if (cleanModel.contains("tiny")) cleanModel = "tiny";
@@ -465,14 +494,20 @@ public class SpeechWorkflowService {
                 else if (langCode.contains("en")) langCode = "en";
 
                 String hw = (hardwareDevice != null && !hardwareDevice.isBlank()) ? hardwareDevice.toLowerCase().trim() : "auto";
-                String devLabel = hw.equals("cuda") ? "GPU NVIDIA CUDA" : "CPU Multi-cœurs";
-                callback.onProgress(15, "Initialisation WhisperX (" + cleanModel.toUpperCase() + " sur " + devLabel + ")...");
+                String devLabel = selectedEngine.equals("gladia") ? "Cloud Gladia API (Solaria)" : (hw.equals("cuda") ? "GPU NVIDIA CUDA" : "CPU Multi-cœurs");
+
+                String initMsg = selectedEngine.equals("gladia")
+                        ? "Initialisation Gladia AI (API Cloud)..."
+                        : "Initialisation WhisperX (" + cleanModel.toUpperCase() + " sur " + devLabel + ")...";
+                callback.onProgress(15, initMsg);
 
                 List<String> command = new ArrayList<>(Arrays.asList(
                         python, "-u", workerScript.getAbsolutePath(),
                         "--audio", tempWav.getAbsolutePath(),
                         "--num-speakers", String.valueOf(Math.max(0, numSpeakers)),
                         "--lang", langCode,
+                        "--engine", selectedEngine,
+                        "--gladia-key", apiKey,
                         "--model", cleanModel,
                         "--threads", String.valueOf(safeThreads),
                         "--device", hw,
@@ -620,6 +655,97 @@ public class SpeechWorkflowService {
         return s;
     }
 
+    /**
+     * Corrige les confusions acoustiques et hallucinations fréquentes de Whisper sur le français parlé/dialogué.
+     * Exemples ciblés :
+     * - "je te blague" / "j'te blague" -> "s'te plaît"
+     * - "je t'en parie" / "j't'en parie" -> "je t'en prie" / "j't'en prie"
+     */
+    public static String correctSpokenFrenchMishearings(String text) {
+        if (text == null || text.isBlank()) return text;
+        String s = text;
+        // 1. "je te blague" / "j'te blague" / "je te plaque" -> "s'te plaît" (ou "s'il te plaît")
+        s = s.replaceAll("(?i)\\b(?:je\\s+te|j['’]?\\s*te|jte)\\s+blagues?\\b", "s'te plaît");
+        s = s.replaceAll("(?i)\\b(?:je\\s+te|j['’]?\\s*te|jte)\\s+plaques?\\b", "s'te plaît");
+        s = s.replaceAll("(?i)\\b(?:s['’]?\\s*te|ste)\\s+pla[iî]t\\b", "s'te plaît");
+        s = s.replaceAll("(?i)\\b(?:s['’]?\\s*te|ste)\\s+pla[iî]s\\b", "s'te plaît");
+        s = s.replaceAll("(?i)\\b(?:s['’]?\\s*il|sil)\\s+te\\s+pla[iî]s\\b", "s'il te plaît");
+
+        // 2. "je t'en parie" / "j't'en parie" -> "je t'en prie" / "j't'en prie"
+        s = s.replaceAll("(?i)\\b(?:j['’]?\\s*t['’]?|jt['’]?)\\s*en\\s+parie?s?\\b", "j't'en prie");
+        s = s.replaceAll("(?i)\\bje\\s+t['’]?\\s*en\\s+parie?s?\\b", "je t'en prie");
+        s = s.replaceAll("(?i)\\b(?:jt|j['’]t)['’]?\\s*en\\s+pri[eèé]s?\\b", "j't'en prie");
+        s = s.replaceAll("(?i)\\bjten\\s+prie\\b", "j't'en prie");
+        s = s.replaceAll("(?i)\\bje\\s+t['’]?\\s*en\\s+paris?\\b", "je t'en prie");
+        s = s.replaceAll("(?i)\\b(?:j['’]?\\s*t['’]?|jt['’]?)\\s*en\\s+paris?\\b", "j't'en prie");
+        s = s.replaceAll("(?i)\\bje\\s+vous\\s+en\\s+parie?s?\\b", "je vous en prie");
+        s = s.replaceAll("(?i)\\bvous\\s+en\\s+parie?s?\\b", "vous en prie");
+
+        // 3. Expressions orales courantes et homophonies Whisper
+        s = s.replaceAll("(?i)\\bc['’]\\s*est\\s+en\\s+f[eê]te\\b", "c'est en fait");
+        s = s.replaceAll("(?i)(^|[,;:\\s])en\\s+f[eê]te([,;:\\s.!?]|$)", "$1en fait$2");
+        s = s.replaceAll("(?i)(^|[,;:\\s])aux?\\s+f[eê]tes([,;:\\s.!?]|$)", "$1au fait$2");
+        s = s.replaceAll("(?i)\\bt['’]\\s*inqui[eèé]te?s?\\s+pas\\b", "t'inquiète pas");
+        s = s.replaceAll("(?i)\\bt['’]\\s*inqui[eèé]te?s?\\b(?=[\\s,.;!?]|$)", "t'inquiète");
+        s = s.replaceAll("(?i)\\b(?:ch[eéè]s?|j['’]?sais)\\s+pas\\b", "j'sais pas");
+        s = s.replaceAll("(?i)\\bqu['’]\\s*est[- ]ce\\s+t['’]\\s*as\\b", "qu'est-ce que t'as");
+        s = s.replaceAll("(?i)\\bqu['’]\\s*est[- ]ce\\s+tu\\s+fais\\b", "qu'est-ce que tu fais");
+        s = s.replaceAll("(?i)\\b(?:y['’]?\\s*a|il\\s+y\\s+a)\\s+pas\\s+d['’]\\s*quoi\\b", "y a pas de quoi");
+        s = s.replaceAll("(?i)\\bvas?\\s*[- ]\\s*y\\b", "vas-y");
+        s = s.replaceAll("(?i)\\btout\\s+a\\s+l['’]\\s*heure\\b", "tout à l'heure");
+        s = s.replaceAll("(?i)\\btout\\s+a\\s+fait\\b", "tout à fait");
+        s = s.replaceAll("(?i)\\ba\\s+peu\\s+pr[eèé]s?\\b", "à peu près");
+        s = s.replaceAll("(?i)\\ba\\s+tous\\s+les\\s+coups\\b", "à tous les coups");
+        s = s.replaceAll("(?i)\\bd['’]\\s*t['’]\\s*façon\\b", "de toute façon");
+        s = s.replaceAll("(?i)\\bd['’]\\s*façon\\b", "de toute façon");
+        s = s.replaceAll("(?i)\\baide[- ]toi\\s+(?:arr[eê]te\\s+)?de\\s+te\\s+foutre\\b", "arrête de te foutre");
+        s = s.replaceAll("(?i)\\bfoutre\\s+de\\s+gueule\\b", "foutre de ma gueule");
+        s = s.replaceAll("(?i)\\bd[îi]le[- ]moi\\b", "dis-le-moi");
+
+        // 4. Normalisation des indications d'émotions / bruits de bouche (BO = bouche ouverte, BF = bouche fermée)
+        s = s.replaceAll("(?i)[\\[\\(]\\s*(?:rires?|soupirs?|hal[eè]tements?|essoufflements?|respirations?|souffles?|cris?|hurlements?|pleurs?|sanglots?|toux|raclements?|b[aâ]illements?|g[eé]missements?|laughs?|laughter|sighs?|gasps?|panting|breathing|breath|coughs?|crying|sobs?|screams?|groans?|yawns?|bruit\\s+bouche\\s+ouverte|bo)\\s*[\\]\\)]", "(BO)");
+        s = s.replaceAll("(?i)[\\[\\(]\\s*(?:hum+|hmm+|mm+h*|grognements?|reniflements?|fredonnements?|sniffs?|grunts?|humming|mumbles?|bruit\\s+bouche\\s+ferm[eé]e|bf)\\s*[\\]\\)]", "(BF)");
+        s = s.replaceAll("(?i)\\(bo\\)", "(BO)");
+        s = s.replaceAll("(?i)\\(bf\\)", "(BF)");
+
+        // 5. Élimination des boucles d'hallucination de répétitions (ex: "aller aller aller...")
+        s = cleanRepetitiveWordLoops(s);
+
+        return s;
+    }
+
+    /**
+     * Supprime les boucles d'hallucinations d'un mot répété de façon anormale (ex: "aller aller aller..." ou "aller, aller, aller...")
+     * tout en préservant scrupuleusement les répétitions naturelles en doublage ("oui oui", "non non", "attends attends").
+     */
+    public static String cleanRepetitiveWordLoops(String text) {
+        if (text == null || text.isBlank()) return text;
+        String s = text;
+        // 1. Mots uniques répétés >= 3 fois avec ponctuation ou espaces
+        Pattern wordLoopPat = Pattern.compile("(?i)\\b(\\p{L}{2,})\\b(?:[\\s,.!?;:…—–-]+(?i)\\1\\b){2,}");
+        Matcher m = wordLoopPat.matcher(s);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            String word = m.group(1);
+            String matched = m.group(0);
+            Matcher countM = Pattern.compile("(?i)\\b" + Pattern.quote(word) + "\\b").matcher(matched);
+            int count = 0;
+            while (countM.find()) count++;
+            if (count >= 4) {
+                m.appendReplacement(sb, Matcher.quoteReplacement(word));
+            } else {
+                m.appendReplacement(sb, Matcher.quoteReplacement(word + " " + word));
+            }
+        }
+        m.appendTail(sb);
+        s = sb.toString();
+
+        // 2. Syntagmes/phrases courtes répétées >= 2 fois en boucle (ex: "c'est bon, c'est bon, c'est bon")
+        Pattern phraseLoopPat = Pattern.compile("(?i)\\b(\\p{L}{2,}(?:[\\s,.!?;:…—–-]+\\p{L}+){1,4})\\b(?:[\\s,.!?;:…—–-]+(?i)\\1\\b){2,}");
+        s = phraseLoopPat.matcher(s).replaceAll("$1");
+        return s.trim();
+    }
+
     public static TranscriptionSegment parseSingleSegment(String jsonStr) {
         try {
             Matcher idM = Pattern.compile("\"id\"\\s*:\\s*(\\d+)").matcher(jsonStr);
@@ -634,6 +760,7 @@ public class SpeechWorkflowService {
             double end = endM.find() ? Double.parseDouble(endM.group(1)) : 0.0;
             String text = textM.find() ? unescape(textM.group(1)).trim() : "";
             text = cleanPromptLeakPrefix(text);
+            text = correctSpokenFrenchMishearings(text);
             text = text.replaceAll("(^|\\s)['’](\\w+)", "$1$2").trim();
 
             if (!hasAlphanumeric(text) || isPromptLeakOrHallucination(text)) {
@@ -695,8 +822,12 @@ public class SpeechWorkflowService {
             }
 
             if (!seg.words.isEmpty()) {
-                seg.startSeconds = seg.words.get(0).start;
-                seg.endSeconds = Math.max(seg.startSeconds + 0.15, seg.words.get(seg.words.size() - 1).end);
+                double firstWordStart = seg.words.get(0).start;
+                seg.startSeconds = (start > 0.0) ? start : firstWordStart;
+                seg.words.get(0).start = seg.startSeconds;
+                double lastWordEnd = seg.words.get(seg.words.size() - 1).end;
+                seg.endSeconds = (end > seg.startSeconds) ? end : Math.max(seg.startSeconds + 0.15, lastWordEnd);
+                seg.words.get(seg.words.size() - 1).end = Math.min(lastWordEnd, seg.endSeconds);
             }
 
             // Extraction des séparateurs rythmiques internes (INNER)
@@ -784,6 +915,7 @@ public class SpeechWorkflowService {
         List<TranscriptionSegment> merged = new ArrayList<>();
         for (TranscriptionSegment seg : segments) {
             if (seg == null || seg.text == null || !hasAlphanumeric(seg.text)) continue;
+            seg.text = correctSpokenFrenchMishearings(seg.text);
             seg.text = seg.text.replaceAll("(^|\\s)['’](\\w+)", "$1$2").trim();
 
             if (!merged.isEmpty()) {
@@ -795,13 +927,16 @@ public class SpeechWorkflowService {
 
                 boolean isAujourdHui = prevNorm.endsWith("aujourd") && (currNorm.startsWith("hui") || currNorm.equals("hui"));
                 boolean isElision = prevRaw.matches(".*\\b([cCdDjJlLmMntTsqQ]|qu|Qu)['’]$");
+                boolean isClitic = TextManager.isFrenchClitic(prevRaw);
 
-                if (isAujourdHui || isElision) {
+                if (isAujourdHui || isElision || isClitic) {
                     if (isAujourdHui) {
                         String punct = currRaw.replaceAll("^['’a-zA-Z0-9à-ÿÀ-Ý]+", "");
                         prev.text = prevRaw.replaceAll("(?i)['’]?\\baujourd\\b", "aujourd'hui") + punct;
-                    } else {
+                    } else if (isElision) {
                         prev.text = prevRaw + currRaw.replaceAll("^['’]+", "");
+                    } else {
+                        prev.text = prevRaw + " " + currRaw;
                     }
                     prev.endSeconds = Math.max(prev.endSeconds, seg.endSeconds);
                     if (seg.words != null && !seg.words.isEmpty()) {

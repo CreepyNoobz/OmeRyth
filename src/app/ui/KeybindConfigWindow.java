@@ -25,7 +25,9 @@ public class KeybindConfigWindow extends JDialog {
         this.keybinds = loadKeybinds();
         
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        setSize(500, 400);
+        setSize(520, 420);
+        setMinimumSize(new Dimension(400, 300));
+        setResizable(true);
         setLocationRelativeTo(mainFenetre);
         
         initUI();
@@ -97,6 +99,10 @@ public class KeybindConfigWindow extends JDialog {
         gridPanel.add(new JLabel("Signe Respiration / Souffle (h/)"));
         gridPanel.add(createKeybindField("signeRespirationCode", KeyEvent.VK_NUMPAD8));
 
+        // Changement de plan (Cut vidéo)
+        gridPanel.add(new JLabel("Changement de plan (Cut vidéo)"));
+        gridPanel.add(createKeybindField("signePlanCode", KeyEvent.VK_NUMPAD0));
+
         JScrollPane scrollPane = new JScrollPane(gridPanel);
         panel.add(scrollPane, BorderLayout.CENTER);
         
@@ -163,6 +169,7 @@ public class KeybindConfigWindow extends JDialog {
                         case "signeNeutralCode": mainFenetre.setSigneNeutralKeyCode(e.getKeyCode()); break;
                         case "signeVoyelleCode": mainFenetre.setSigneVoyelleKeyCode(e.getKeyCode()); break;
                         case "signeRespirationCode": mainFenetre.setSigneRespirationKeyCode(e.getKeyCode()); break;
+                        case "signePlanCode": mainFenetre.setSignePlanKeyCode(e.getKeyCode()); break;
                         default: break;
                     }
                     e.consume();

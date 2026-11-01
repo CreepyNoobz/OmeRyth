@@ -20,8 +20,9 @@ public class CreationProjetFrame extends JDialog {
     public CreationProjetFrame(Frame parent) {
         super(parent, "Créer un nouveau projet", true);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-        setSize(600, 450);
-        setMinimumSize(new Dimension(600, 450));
+        setSize(600, 480);
+        setMinimumSize(new Dimension(460, 340));
+        setResizable(true);
         setLocationRelativeTo(parent);
         setLayout(new BorderLayout(10, 10));
         getRootPane().setBorder(new EmptyBorder(15, 15, 15, 15));
@@ -84,7 +85,10 @@ public class CreationProjetFrame extends JDialog {
         contentPanel.add(Box.createVerticalStrut(20));
 
 
-        add(contentPanel, BorderLayout.CENTER);
+        JScrollPane scrollPane = new JScrollPane(contentPanel);
+        scrollPane.setBorder(null);
+        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        add(scrollPane, BorderLayout.CENTER);
 
         // Boutons
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));

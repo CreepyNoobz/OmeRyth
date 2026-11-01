@@ -20,8 +20,9 @@ public class InfoWindow extends JDialog {
         this.parent = parent;
         this.timer = timer;
 
-        setSize(350, 200);
-        setMinimumSize(new Dimension(350, 200));
+        setSize(380, 240);
+        setMinimumSize(new Dimension(300, 180));
+        setResizable(true);
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         setLocationRelativeTo(parent);
         setLayout(new BorderLayout());

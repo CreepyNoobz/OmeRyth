@@ -42,12 +42,16 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
     private int zoomInKeyCode;
     private int zoomOutKeyCode;
     private int finPhraseKeyCode = KeyEvent.VK_NUMPAD3;
-    private int signeMpbKeyCode = KeyEvent.VK_NUMPAD4;
+    private int signeMpbKeyCode = KeyEvent.VK_M;
     private int signeFvrKeyCode = KeyEvent.VK_NUMPAD5;
     private int signeNeutralKeyCode = KeyEvent.VK_NUMPAD6;
     private int signeVoyelleKeyCode = KeyEvent.VK_NUMPAD7;
     private int signeRespirationKeyCode = KeyEvent.VK_NUMPAD8;
+    private int signePlanKeyCode = KeyEvent.VK_NUMPAD0;
     private boolean skipNextTyped = false;
+    private boolean mpbKeyDown = false;
+    private long lastMpbTimestamp = 0;
+    private long lastSepTimestamp = 0;
     private TimelinePanel timelinePanel;
     
     public KeyBoardListener(TimelinePanel panel) {
@@ -70,9 +74,9 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
     ) {
         this(panel, timer, mediaPlayerComponent, marcheArretKeyCode, avanceMSKeyCode, reculerMSKeyCode,
              retourDebutKeyCode, separateurKeyCode, zoomInKeyCode, zoomOutKeyCode,
-             KeyEvent.VK_NUMPAD3, KeyEvent.VK_NUMPAD4, KeyEvent.VK_NUMPAD5,
+             KeyEvent.VK_NUMPAD3, KeyEvent.VK_M, KeyEvent.VK_NUMPAD5,
              KeyEvent.VK_NUMPAD6, KeyEvent.VK_NUMPAD7, KeyEvent.VK_NUMPAD8,
-             roles, parentComponent);
+             KeyEvent.VK_NUMPAD0, roles, parentComponent);
     }
 
     public KeyBoardListener(
@@ -95,6 +99,34 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         ArrayList<Role> roles,
         java.awt.Component parentComponent
     ) {
+        this(panel, timer, mediaPlayerComponent, marcheArretKeyCode, avanceMSKeyCode, reculerMSKeyCode,
+             retourDebutKeyCode, separateurKeyCode, zoomInKeyCode, zoomOutKeyCode,
+             finPhraseKeyCode, signeMpbKeyCode, signeFvrKeyCode,
+             signeNeutralKeyCode, signeVoyelleKeyCode, signeRespirationKeyCode,
+             KeyEvent.VK_NUMPAD0, roles, parentComponent);
+    }
+
+    public KeyBoardListener(
+        TimelinePanel panel,
+        TimerClass timer,
+        EmbeddedMediaPlayerComponent mediaPlayerComponent,
+        int marcheArretKeyCode,
+        int avanceMSKeyCode,
+        int reculerMSKeyCode,
+        int retourDebutKeyCode,
+        int separateurKeyCode,
+        int zoomInKeyCode,
+        int zoomOutKeyCode,
+        int finPhraseKeyCode,
+        int signeMpbKeyCode,
+        int signeFvrKeyCode,
+        int signeNeutralKeyCode,
+        int signeVoyelleKeyCode,
+        int signeRespirationKeyCode,
+        int signePlanKeyCode,
+        ArrayList<Role> roles,
+        java.awt.Component parentComponent
+    ) {
         this.timelinePanel = panel;
         this.timer = timer;
         this.mediaPlayerComponent = mediaPlayerComponent;
@@ -111,6 +143,7 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         this.signeNeutralKeyCode = signeNeutralKeyCode;
         this.signeVoyelleKeyCode = signeVoyelleKeyCode;
         this.signeRespirationKeyCode = signeRespirationKeyCode;
+        this.signePlanKeyCode = signePlanKeyCode;
         this.roles = roles;
         this.parentComponent = parentComponent;
         panel.setPhraseCreationListener(this);
@@ -122,6 +155,8 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
     public void setSigneNeutralKeyCode(int keyCode) { this.signeNeutralKeyCode = keyCode; }
     public void setSigneVoyelleKeyCode(int keyCode) { this.signeVoyelleKeyCode = keyCode; }
     public void setSigneRespirationKeyCode(int keyCode) { this.signeRespirationKeyCode = keyCode; }
+    public void setSignePlanKeyCode(int keyCode) { this.signePlanKeyCode = keyCode; }
+    public int getSignePlanKeyCode() { return this.signePlanKeyCode; }
 
     public void setZoomInKeyCode(int keyCode) {
         this.zoomInKeyCode = keyCode;
@@ -152,22 +187,57 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
     }
 
     public boolean dispatchKeyEvent(KeyEvent e) {
-        // ★ Séparateur standard de transcription (Pavé numérique 4 par défaut ou touche configurée)
+        boolean isNumpadLocation = (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD)
+                || (e.getKeyCode() >= KeyEvent.VK_NUMPAD0 && e.getKeyCode() <= KeyEvent.VK_NUMPAD9);
+
+        // ★ Changement de plan / Cut vidéo (Pavé numérique 0 par défaut ou touche configurée)
+        boolean isNumpad0 = ((e.getKeyCode() == signePlanKeyCode) && (!timelinePanel.isEditing() || isNumpadLocation))
+                || (e.getKeyCode() == KeyEvent.VK_NUMPAD0 && signePlanKeyCode == KeyEvent.VK_NUMPAD0)
+                || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && e.getKeyCode() == KeyEvent.VK_INSERT);
+        if (isNumpad0) {
+            skipNextTyped = true;
+            timelinePanel.addChangementPlanAtCursor();
+            e.consume();
+            return true;
+        }
+
+        // ★ Séparateur bleu de synchronisme (Pavé numérique 4 par défaut ou touche 4 / configurée)
         boolean isNumpad4 = (e.getKeyCode() == KeyEvent.VK_NUMPAD4)
                 || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && e.getKeyCode() == KeyEvent.VK_LEFT);
-        if (isNumpad4 || (e.getKeyCode() == separateurKeyCode && !timelinePanel.isEditing())) {
+        boolean isConfiguredSep = (e.getKeyCode() == separateurKeyCode && (!timelinePanel.isEditing() || isNumpad4 || isNumpadLocation));
+        boolean isTopRow4 = !timelinePanel.isEditing() && (e.getKeyCode() == KeyEvent.VK_4 || e.getKeyChar() == '4'
+                || e.getKeyCode() == KeyEvent.VK_QUOTE || e.getKeyChar() == '\'');
+
+        if (isNumpad4 || isConfiguredSep || isTopRow4) {
             skipNextTyped = true;
-            int band = timelinePanel.getSelectedBand();
-            if (band < 0) {
-                band = 0;
+            long now = System.currentTimeMillis();
+            if (now - lastSepTimestamp > 180) { // ignore l'auto-répétition matérielle rapide
+                lastSepTimestamp = now;
+                int band = timelinePanel.getSelectedBand();
+                if (band < 0) band = 0;
+                timelinePanel.addSeparatorAtCursor(band, SeparatorMark.SignType.DEFAULT);
             }
-            timelinePanel.addSeparatorAtCursor(band, SeparatorMark.SignType.DEFAULT);
+            e.consume();
+            return true;
+        }
+
+        // ★ Labiale MPB (Touche M par défaut ou touche configurée distincte de 4, hors édition)
+        boolean isMpb = (e.getKeyCode() == signeMpbKeyCode && e.getKeyCode() != separateurKeyCode && e.getKeyCode() != KeyEvent.VK_NUMPAD4 && (!timelinePanel.isEditing() || isNumpadLocation));
+        if (isMpb) {
+            skipNextTyped = true;
+            long now = System.currentTimeMillis();
+            if (now - lastMpbTimestamp > 180) { // ignore l'auto-répétition matérielle rapide sans jamais bloquer la touche
+                lastMpbTimestamp = now;
+                int band = timelinePanel.getSelectedBand();
+                if (band < 0) band = 0;
+                timelinePanel.addSeparatorAtCursor(band, SeparatorMark.SignType.MPB);
+            }
             e.consume();
             return true;
         }
 
         // ★ Fin de phrase (Pavé numérique 3 par défaut ou touche configurée)
-        boolean isNumpad3 = (e.getKeyCode() == finPhraseKeyCode)
+        boolean isNumpad3 = ((e.getKeyCode() == finPhraseKeyCode) && (!timelinePanel.isEditing() || isNumpadLocation))
                 || (e.getKeyCode() == KeyEvent.VK_NUMPAD3 && finPhraseKeyCode == KeyEvent.VK_NUMPAD3)
                 || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && e.getKeyCode() == KeyEvent.VK_PAGE_DOWN);
         if (isNumpad3) {
@@ -179,18 +249,8 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
             return true;
         }
 
-        // ★ Labiale MPB (si configurée sur une autre touche que Numpad 4)
-        if (signeMpbKeyCode != KeyEvent.VK_NUMPAD4 && e.getKeyCode() == signeMpbKeyCode) {
-            skipNextTyped = true;
-            int band = timelinePanel.getSelectedBand();
-            if (band < 0) band = 0;
-            timelinePanel.addSeparatorAtCursor(band, SeparatorMark.SignType.MPB);
-            e.consume();
-            return true;
-        }
-
         // ★ Demi-labiale / Dentale FVR (Pavé numérique 5 par défaut ou touche configurée)
-        boolean isNumpad5 = (e.getKeyCode() == signeFvrKeyCode)
+        boolean isNumpad5 = ((e.getKeyCode() == signeFvrKeyCode) && (!timelinePanel.isEditing() || isNumpadLocation))
                 || (e.getKeyCode() == KeyEvent.VK_NUMPAD5 && signeFvrKeyCode == KeyEvent.VK_NUMPAD5)
                 || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && e.getKeyCode() == KeyEvent.VK_CLEAR);
         if (isNumpad5) {
@@ -203,7 +263,7 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         }
 
         // ★ Consonne neutre (Pavé numérique 6 par défaut ou touche configurée)
-        boolean isNumpad6 = (e.getKeyCode() == signeNeutralKeyCode)
+        boolean isNumpad6 = ((e.getKeyCode() == signeNeutralKeyCode) && (!timelinePanel.isEditing() || isNumpadLocation))
                 || (e.getKeyCode() == KeyEvent.VK_NUMPAD6 && signeNeutralKeyCode == KeyEvent.VK_NUMPAD6)
                 || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && e.getKeyCode() == KeyEvent.VK_RIGHT && !timelinePanel.isEditing());
         if (isNumpad6) {
@@ -216,7 +276,7 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         }
 
         // ★ Grande ouverture A / voyelles (Pavé numérique 7 par défaut ou touche configurée)
-        boolean isNumpad7 = (e.getKeyCode() == signeVoyelleKeyCode)
+        boolean isNumpad7 = ((e.getKeyCode() == signeVoyelleKeyCode) && (!timelinePanel.isEditing() || isNumpadLocation))
                 || (e.getKeyCode() == KeyEvent.VK_NUMPAD7 && signeVoyelleKeyCode == KeyEvent.VK_NUMPAD7)
                 || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && e.getKeyCode() == KeyEvent.VK_HOME);
         if (isNumpad7) {
@@ -229,7 +289,7 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         }
 
         // ★ Signe Respiration / Souffle h/ (Pavé numérique 8 par défaut ou touche configurée)
-        boolean isNumpad8 = (e.getKeyCode() == signeRespirationKeyCode)
+        boolean isNumpad8 = ((e.getKeyCode() == signeRespirationKeyCode) && (!timelinePanel.isEditing() || isNumpadLocation))
                 || (e.getKeyCode() == KeyEvent.VK_NUMPAD8 && signeRespirationKeyCode == KeyEvent.VK_NUMPAD8)
                 || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && e.getKeyCode() == KeyEvent.VK_UP);
         if (isNumpad8) {
@@ -311,16 +371,14 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
             boolean minusShortcut = (e.getKeyCode() == zoomOutKeyCode);
 
             if (plusShortcut) {
-                if (timelinePanel.zoomIn()) {
-                    skipNextTyped = true;
-                }
+                skipNextTyped = true;
+                timelinePanel.zoomIn();
                 e.consume();
                 return true;
             }
             if (minusShortcut) {
-                if (timelinePanel.zoomOut()) {
-                    skipNextTyped = true;
-                }
+                skipNextTyped = true;
+                timelinePanel.zoomOut();
                 e.consume();
                 return true;
             }
@@ -452,6 +510,7 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
 
         // NUMPAD1 : ajout de repère de plan
         if (e.getKeyCode() == KeyEvent.VK_NUMPAD1 || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && e.getKeyCode() == KeyEvent.VK_END)) {
+            skipNextTyped = true;
             timelinePanel.addPlanMarkerAtCursor();
             e.consume();
             return true;
@@ -459,6 +518,7 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
 
         // NUMPAD2 : début de phrase
         if (e.getKeyCode() == KeyEvent.VK_NUMPAD2) {
+            skipNextTyped = true;
             triggerPhraseCreation();
             e.consume();
             return true;
@@ -516,7 +576,17 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
     }
 
     @Override
-    public void keyReleased(KeyEvent e) {}
+    public void keyReleased(KeyEvent e) {
+        int k = e.getKeyCode();
+        if (k == separateurKeyCode || k == KeyEvent.VK_NUMPAD4 || k == KeyEvent.VK_4
+                || (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD && k == KeyEvent.VK_LEFT)) {
+            lastSepTimestamp = 0;
+        }
+        if (k == signeMpbKeyCode || k == KeyEvent.VK_M) {
+            mpbKeyDown = false;
+            lastMpbTimestamp = 0;
+        }
+    }
 
     @Override
     public void keyTyped(KeyEvent e) {
@@ -525,8 +595,7 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
             e.consume();
             return;
         }
-        if (!timelinePanel.isEditing()) {
-            e.consume();
+        if ((e.getModifiersEx() & (KeyEvent.CTRL_DOWN_MASK | KeyEvent.ALT_DOWN_MASK | KeyEvent.META_DOWN_MASK)) != 0) {
             return;
         }
         char c = e.getKeyChar();
@@ -558,6 +627,8 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         timelinePanel.requestFocusInWindow();
     }
 
+    private long lastPausedTargetMs = -1L;
+
     public void togglePlayback() {
         togglePlayback(1);
     }
@@ -577,6 +648,7 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
                 if (timer.isRunning()) {
                     // On met en pause : stopper le timer et figer VLC immédiatement sans seek asynchrone parasite
                     timer.toggle(timer.getDirection());
+                    lastPausedTargetMs = (long) Math.round(timer.getTime() * 1000.0);
                     mp.controls().setPause(true);
                 } else {
                     // L'utilisateur relance la lecture
@@ -585,10 +657,12 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
                         return;
                     }
 
-                    if (state == uk.co.caprica.vlcj.player.base.State.ENDED || state == uk.co.caprica.vlcj.player.base.State.STOPPED) {
+                    if (state == uk.co.caprica.vlcj.player.base.State.ENDED
+                            || state == uk.co.caprica.vlcj.player.base.State.STOPPED
+                            || state == uk.co.caprica.vlcj.player.base.State.NOTHING_SPECIAL) {
                         String path = getMediaFilePath();
                         if (path != null) {
-                            mp.media().play(path, ":start-time=" + (targetMs / 1000.0), ":file-caching=150", ":clock-jitter=0", ":clock-synchro=0");
+                            mp.media().play(path, ":start-time=" + (targetMs / 1000.0), ":file-caching=150", ":clock-jitter=0");
                         } else {
                             mp.controls().play();
                             mp.controls().setTime(targetMs);
@@ -599,25 +673,42 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
                     } else {
                         long vlcTime = mp.status().time();
                         long diffMs = (vlcTime >= 0) ? Math.abs(vlcTime - targetMs) : Long.MAX_VALUE;
+                        boolean resumedAtSameSpot = (lastPausedTargetMs >= 0 && Math.abs(targetMs - lastPausedTargetMs) <= 120);
 
                         if (mp.status().rate() != rate) {
                             mp.controls().setRate(rate);
                         }
 
-                        // Ne JAMAIS appeler setTime(targetMs) si VLC est déjà calé au bon endroit (diff <= 250ms) !
-                        // L'appel à setTime() sur un flux en pause force VLC à purger son pipeline de décodage
-                        // et son tampon audio DirectSound/WASAPI, ce qui coupe le son pendant ~1 seconde.
-                        // Et ne JAMAIS reculer le timer vers vlcTime pour éviter tout rollback visuel de la bande.
-                        if (diffMs > 250 || vlcTime < 0) {
+                        // Ne JAMAIS appeler setTime(targetMs) lors d'une reprise immédiate au même endroit
+                        // ou si VLC est proche de la cible : setTime() sur un flux en pause purge le tampon
+                        // audio DirectSound/WASAPI et retarde le redémarrage de l'audio.
+                        if (!resumedAtSameSpot && (diffMs > 650 || vlcTime < 0)) {
                             mp.controls().setTime(targetMs);
                         }
 
-                        if (state == uk.co.caprica.vlcj.player.base.State.PAUSED) {
-                            mp.controls().setPause(false);
-                        } else {
+                        mp.controls().setPause(false);
+                        if (state != uk.co.caprica.vlcj.player.base.State.PAUSED
+                                && state != uk.co.caprica.vlcj.player.base.State.PLAYING) {
                             mp.controls().play();
                         }
+
+                        // Filet de sécurité anti-race condition lors d'un Pause -> Play ultra-rapide :
+                        // si la commande asynchrone setPause(true) précédente aboutit juste après cet appel,
+                        // on force immédiatement la reprise de lecture 45ms plus tard.
+                        javax.swing.Timer ensurePlayTimer = new javax.swing.Timer(45, evt -> {
+                            try {
+                                if (timer.isRunning() && mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+                                    var curMp = mediaPlayerComponent.mediaPlayer();
+                                    if (curMp.status().state() == uk.co.caprica.vlcj.player.base.State.PAUSED) {
+                                        curMp.controls().setPause(false);
+                                    }
+                                }
+                            } catch (Throwable ignored) {}
+                        });
+                        ensurePlayTimer.setRepeats(false);
+                        ensurePlayTimer.start();
                     }
+                    lastPausedTargetMs = -1L;
                     timer.toggle(direction);
                 }
             } catch (Throwable t) {
@@ -651,7 +742,9 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         double targetSec = Math.max(0.0, (currentTenths + deltaTenths) / 10.0);
         timer.setTime(targetSec);
 
-        safeSeekAndPause((long) (targetSec * 1000));
+        long targetMs = (long) Math.round(targetSec * 1000.0);
+        lastPausedTargetMs = targetMs;
+        safeSeekAndPause(targetMs);
     }
 
     public void seekToTime(double targetSeconds) {
@@ -670,7 +763,9 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
         double targetSec = Math.max(0.0, Math.round(targetSeconds * 10.0) / 10.0);
         timer.setTime(targetSec);
 
-        safeSeekAndPause((long) (targetSec * 1000));
+        long targetMs = (long) Math.round(targetSec * 1000.0);
+        lastPausedTargetMs = targetMs;
+        safeSeekAndPause(targetMs);
     }
 
     private void safeSeekAndPause(long targetMs) {
@@ -685,7 +780,7 @@ public class KeyBoardListener implements KeyListener, TimelinePanel.PhraseCreati
             if (state == uk.co.caprica.vlcj.player.base.State.ENDED || state == uk.co.caprica.vlcj.player.base.State.STOPPED) {
                 String path = getMediaFilePath();
                 if (path != null) {
-                    mp.media().startPaused(path, ":start-time=" + (targetMs / 1000.0), ":file-caching=150", ":clock-jitter=0", ":clock-synchro=0");
+                    mp.media().startPaused(path, ":start-time=" + (targetMs / 1000.0), ":file-caching=150", ":clock-jitter=0");
                     mp.controls().setTime(targetMs);
                     mp.controls().setPause(true);
                 } else {

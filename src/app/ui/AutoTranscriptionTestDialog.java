@@ -27,10 +27,19 @@ import java.util.regex.Pattern;
  */
 public class AutoTranscriptionTestDialog extends JDialog {
 
+    private final Frame parentFrame;
     private final File videoFile;
     /** Callback: (segments, targetBand) → inject into timeline. */
     private final BiConsumer<List<SpeechWorkflowService.TranscriptionSegment>, Integer> onInjectCallback;
     private final SpeechWorkflowService service = new SpeechWorkflowService();
+
+    private JComboBox<String> comboEngine;
+    private JTextField txtGladiaKey;
+    private JLabel labelGladiaKeyPrompt;
+    private JPanel gladiaKeyRow;
+    private JLabel labelCpuPrompt;
+    private JPanel cpuSliderPanel;
+    private JLabel labelEngineHelp;
 
     private JComboBox<String> comboSpeakers;
     private JComboBox<String> comboLanguage;
@@ -89,6 +98,7 @@ public class AutoTranscriptionTestDialog extends JDialog {
                                        BiConsumer<List<SpeechWorkflowService.TranscriptionSegment>, Integer> onInject,
                                        int activeBand, int bandCount) {
         super(parent, "Transcription Vocale - Haute Precision & Multi-Locuteurs", true);
+        this.parentFrame = parent;
         this.videoFile = videoFile;
         this.onInjectCallback = onInject;
 
@@ -96,7 +106,7 @@ public class AutoTranscriptionTestDialog extends JDialog {
         layoutComponents();
         setupListeners();
 
-        setSize(780, 670);
+        setSize(800, 710);
         setLocationRelativeTo(parent);
         setResizable(true);
 
@@ -110,6 +120,53 @@ public class AutoTranscriptionTestDialog extends JDialog {
     }
 
     private void initComponents(int activeBand, int bandCount) {
+        // Moteur de transcription (Whisper ou Gladia)
+        String savedEngine = app.utils.FileUtils.loadTranscriptionEngine();
+        comboEngine = new JComboBox<>(new String[]{
+                "Gladia AI (API Cloud - Haute Précision)",
+                "Whisper (Local / Hors-ligne - faster-whisper)"
+        });
+        comboEngine.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        comboEngine.setSelectedIndex("whisper".equalsIgnoreCase(savedEngine) ? 1 : 0);
+
+        txtGladiaKey = new JTextField(app.utils.FileUtils.loadGladiaApiKey());
+        txtGladiaKey.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        txtGladiaKey.setToolTipText("Clé API Gladia v2 (Solaria-1 / Diarisation)");
+
+        gladiaKeyRow = new JPanel(new BorderLayout(6, 0));
+        gladiaKeyRow.setOpaque(false);
+        gladiaKeyRow.add(txtGladiaKey, BorderLayout.CENTER);
+        JLabel keyBadge = new JLabel("✓ Active");
+        keyBadge.setFont(new Font("Segoe UI", Font.BOLD, 10));
+        keyBadge.setForeground(new Color(0, 140, 0));
+        gladiaKeyRow.add(keyBadge, BorderLayout.EAST);
+
+        labelGladiaKeyPrompt = new JLabel("Clé API Gladia :");
+        labelCpuPrompt = new JLabel("Cœurs processeur (CPU) :");
+
+        labelEngineHelp = new JLabel();
+        labelEngineHelp.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+        labelEngineHelp.setForeground(new Color(90, 90, 90));
+
+        comboEngine.addActionListener(e -> {
+            boolean isGladia = comboEngine.getSelectedIndex() == 0;
+            labelGladiaKeyPrompt.setVisible(isGladia);
+            gladiaKeyRow.setVisible(isGladia);
+            labelCpuPrompt.setVisible(!isGladia);
+            if (cpuSliderPanel != null) {
+                cpuSliderPanel.setVisible(!isGladia);
+            }
+            if (isGladia) {
+                labelEngineHelp.setText("Gladia AI : Transcription Solaria haute fidélité dans le cloud avec diarisation multi-locuteurs.");
+                app.utils.FileUtils.saveTranscriptionEngine("gladia");
+            } else {
+                labelEngineHelp.setText("Whisper : Exécution 100% locale hors-ligne sur votre processeur/carte graphique.");
+                app.utils.FileUtils.saveTranscriptionEngine("whisper");
+            }
+            revalidate();
+            repaint();
+        });
+
         // Paramètres
         comboSpeakers = new JComboBox<>(new String[]{
                 "Auto-detection (Trouver tous les personnages differents)",
@@ -234,7 +291,9 @@ public class AutoTranscriptionTestDialog extends JDialog {
         tableModel.addTableModelListener(e -> {
             if (e.getType() == TableModelEvent.UPDATE && e.getColumn() == 1) {
                 int row = e.getFirstRow();
-                if (row >= 0 && currentSegments != null && row < currentSegments.size()) {
+                List<SpeechWorkflowService.TranscriptionSegment> segs =
+                        (currentSegments != null && !currentSegments.isEmpty()) ? currentSegments : liveSegments;
+                if (row >= 0 && segs != null && row < segs.size()) {
                     Object val = tableModel.getValueAt(row, 1);
                     if (val != null) {
                         handleSpeakerCellEdited(row, val.toString());
@@ -292,28 +351,58 @@ public class AutoTranscriptionTestDialog extends JDialog {
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        gbc.gridx = 0; gbc.gridy = 0; paramsPanel.add(new JLabel("Nombre d'interlocuteurs :"), gbc);
-        gbc.gridx = 1; gbc.gridy = 0; paramsPanel.add(comboSpeakers, gbc);
+        int row = 0;
+        gbc.gridx = 0; gbc.gridy = row; paramsPanel.add(new JLabel("Moteur de transcription :"), gbc);
+        gbc.gridx = 1; gbc.gridy = row; paramsPanel.add(comboEngine, gbc);
+        row++;
 
-        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 2;
+        gbc.gridx = 0; gbc.gridy = row; paramsPanel.add(labelGladiaKeyPrompt, gbc);
+        gbc.gridx = 1; gbc.gridy = row; paramsPanel.add(gladiaKeyRow, gbc);
+        row++;
+
+        gbc.gridx = 0; gbc.gridy = row; paramsPanel.add(new JLabel("Nombre d'interlocuteurs :"), gbc);
+        gbc.gridx = 1; gbc.gridy = row; paramsPanel.add(comboSpeakers, gbc);
+        row++;
+
+        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
         paramsPanel.add(checkMultiBandPerSpeaker, gbc);
         gbc.gridwidth = 1;
+        row++;
 
-        gbc.gridx = 0; gbc.gridy = 2; paramsPanel.add(new JLabel("Bande de départ :"), gbc);
-        gbc.gridx = 1; gbc.gridy = 2; paramsPanel.add(comboBandTarget, gbc);
+        gbc.gridx = 0; gbc.gridy = row; paramsPanel.add(new JLabel("Bande de départ :"), gbc);
+        gbc.gridx = 1; gbc.gridy = row; paramsPanel.add(comboBandTarget, gbc);
+        row++;
 
-        gbc.gridx = 0; gbc.gridy = 3; paramsPanel.add(new JLabel("Langue :"), gbc);
-        gbc.gridx = 1; gbc.gridy = 3; paramsPanel.add(comboLanguage, gbc);
+        gbc.gridx = 0; gbc.gridy = row; paramsPanel.add(new JLabel("Langue :"), gbc);
+        gbc.gridx = 1; gbc.gridy = row; paramsPanel.add(comboLanguage, gbc);
+        row++;
 
-        gbc.gridx = 0; gbc.gridy = 4; paramsPanel.add(new JLabel("Cœurs processeur (CPU) :"), gbc);
-        JPanel cpuSliderPanel = new JPanel(new BorderLayout(8, 0));
+        cpuSliderPanel = new JPanel(new BorderLayout(8, 0));
         cpuSliderPanel.setOpaque(false);
         cpuSliderPanel.add(sliderCpuCores, BorderLayout.CENTER);
         cpuSliderPanel.add(labelCpuValue, BorderLayout.EAST);
-        gbc.gridx = 1; gbc.gridy = 4; paramsPanel.add(cpuSliderPanel, gbc);
+        gbc.gridx = 0; gbc.gridy = row; paramsPanel.add(labelCpuPrompt, gbc);
+        gbc.gridx = 1; gbc.gridy = row; paramsPanel.add(cpuSliderPanel, gbc);
+        row++;
 
-        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2;
+        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
+        paramsPanel.add(labelEngineHelp, gbc);
+        row++;
+
+        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
         paramsPanel.add(checkAutoInject, gbc);
+
+        // Définir l'état initial des éléments selon le moteur actif
+        boolean isGladia = comboEngine.getSelectedIndex() == 0;
+        labelGladiaKeyPrompt.setVisible(isGladia);
+        gladiaKeyRow.setVisible(isGladia);
+        labelCpuPrompt.setVisible(!isGladia);
+        cpuSliderPanel.setVisible(!isGladia);
+        if (isGladia) {
+            labelEngineHelp.setText("Gladia AI : Transcription Solaria haute fidélité dans le cloud avec diarisation multi-locuteurs.");
+        } else {
+            labelEngineHelp.setText("Whisper : Exécution 100% locale hors-ligne sur votre processeur/carte graphique.");
+        }
 
         centerPanel.add(paramsPanel);
         centerPanel.add(Box.createVerticalStrut(10));
@@ -369,12 +458,49 @@ public class AutoTranscriptionTestDialog extends JDialog {
         btnAddSpeaker.addActionListener(e -> addSpeakerDialog());
 
         btnInject.addActionListener(e -> {
+            try {
+                if (tableResults != null && tableResults.isEditing()) {
+                    tableResults.getCellEditor().stopCellEditing();
+                }
+            } catch (Throwable ignored) {}
+
+            if (isRunning) {
+                cancelAnalysis();
+            }
+
             List<SpeechWorkflowService.TranscriptionSegment> toInject =
                     (currentSegments != null && !currentSegments.isEmpty()) ? currentSegments : liveSegments;
+
+            if ((toInject == null || toInject.isEmpty()) && tableModel.getRowCount() > 0) {
+                toInject = extractSegmentsFromTable();
+            }
+
             if (toInject != null && !toInject.isEmpty()) {
-                int targetBand = comboBandTarget.getSelectedIndex();
-                onInjectCallback.accept(new ArrayList<>(toInject), targetBand);
+                int targetBand = Math.max(0, comboBandTarget.getSelectedIndex());
+                boolean multiBand = checkMultiBandPerSpeaker.isSelected();
+
+                List<SpeechWorkflowService.TranscriptionSegment> finalSegments = new ArrayList<>();
+                for (SpeechWorkflowService.TranscriptionSegment s : toInject) {
+                    SpeechWorkflowService.TranscriptionSegment copy = s.copy();
+                    if (!multiBand) {
+                        copy.speaker = "SPEAKER_00";
+                    }
+                    finalSegments.add(copy);
+                }
+
+                // Libérer immédiatement le modal Swing pour débloquer la fenêtre principale
                 dispose();
+
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        onInjectCallback.accept(finalSegments, targetBand);
+                    } catch (Throwable ex) {
+                        ex.printStackTrace();
+                        JOptionPane.showMessageDialog(parentFrame,
+                                "Erreur lors de l'injection dans la bande rythmo :\n" + ex.getMessage(),
+                                "Erreur d'injection", JOptionPane.ERROR_MESSAGE);
+                    }
+                });
             } else {
                 JOptionPane.showMessageDialog(this, "Aucune réplique disponible à injecter.", "Information", JOptionPane.WARNING_MESSAGE);
             }
@@ -382,10 +508,13 @@ public class AutoTranscriptionTestDialog extends JDialog {
     }
 
     private void startAnalysis() {
-        if (!app.services.DependencyManagerService.isWhisperInstalled()) {
-            boolean procede = app.services.DependencyManagerService.demanderInstallationWhisper(this);
-            if (!procede && !app.services.DependencyManagerService.isWhisperInstalled()) {
-                return;
+        boolean isGladia = comboEngine != null && comboEngine.getSelectedIndex() == 0;
+        if (!isGladia) {
+            if (!app.services.DependencyManagerService.isWhisperInstalled()) {
+                boolean procede = app.services.DependencyManagerService.demanderInstallationWhisper(this);
+                if (!procede && !app.services.DependencyManagerService.isWhisperInstalled()) {
+                    return;
+                }
             }
         }
 
@@ -393,6 +522,14 @@ public class AutoTranscriptionTestDialog extends JDialog {
             JOptionPane.showMessageDialog(this, "Aucune vidéo chargée.", "Erreur", JOptionPane.ERROR_MESSAGE);
             return;
         }
+
+        // Sauvegarder la clé Gladia et le moteur
+        String gladiaKey = (txtGladiaKey != null) ? txtGladiaKey.getText().trim() : "";
+        if (gladiaKey.isBlank()) {
+            gladiaKey = app.utils.FileUtils.DEFAULT_GLADIA_KEY;
+        }
+        app.utils.FileUtils.saveGladiaApiKey(gladiaKey);
+        app.utils.FileUtils.saveTranscriptionEngine(isGladia ? "gladia" : "whisper");
 
         isRunning = true;
         btnStart.setEnabled(false);
@@ -432,7 +569,8 @@ public class AutoTranscriptionTestDialog extends JDialog {
         int threads = (sliderCpuCores != null) ? sliderCpuCores.getValue() : Runtime.getRuntime().availableProcessors();
         String device = "auto";
 
-        service.transcribe(videoFile, numSpeakers, language, model, threads, device, new SpeechWorkflowService.TranscriptionCallback() {
+        String engineParam = isGladia ? "gladia" : "whisper";
+        service.transcribe(videoFile, numSpeakers, language, model, threads, device, engineParam, gladiaKey, new SpeechWorkflowService.TranscriptionCallback() {
             @Override
             public void onProgress(int percentage, String message) {
                 SwingUtilities.invokeLater(() -> {
@@ -452,6 +590,7 @@ public class AutoTranscriptionTestDialog extends JDialog {
                 }
                 liveSegments.add(segment);
                 SwingUtilities.invokeLater(() -> {
+                    btnInject.setEnabled(true);
                     String durationStr = String.format("%.2f", segment.getDuration());
                     int baseBand = comboBandTarget.getSelectedIndex();
                     boolean multiBand = checkMultiBandPerSpeaker.isSelected();
@@ -490,18 +629,37 @@ public class AutoTranscriptionTestDialog extends JDialog {
                         currentSegments = new ArrayList<>(liveSegments);
                     }
                     refreshSpeakerNamesAndTable();
-                    btnInject.setEnabled(currentSegments != null && !currentSegments.isEmpty());
+                    int count = currentSegments != null ? currentSegments.size() : tableModel.getRowCount();
+                    btnInject.setEnabled(count > 0);
                     btnStart.setEnabled(true);
                     btnCancel.setEnabled(false);
                     progressBar.setValue(100);
                     labelStatus.setText("Terminé ! Scan complet prêt pour révision.");
 
-                    int count = currentSegments != null ? currentSegments.size() : 0;
-
                     if (checkAutoInject.isSelected() && count > 0) {
-                        int targetBand = comboBandTarget.getSelectedIndex();
-                        onInjectCallback.accept(new ArrayList<>(currentSegments), targetBand);
+                        int targetBand = Math.max(0, comboBandTarget.getSelectedIndex());
+                        boolean multiBand = checkMultiBandPerSpeaker.isSelected();
+                        List<SpeechWorkflowService.TranscriptionSegment> finalSegments = new ArrayList<>();
+                        List<SpeechWorkflowService.TranscriptionSegment> source =
+                                (currentSegments != null && !currentSegments.isEmpty()) ? currentSegments : liveSegments;
+                        if (source == null || source.isEmpty()) {
+                            source = extractSegmentsFromTable();
+                        }
+                        for (SpeechWorkflowService.TranscriptionSegment s : source) {
+                            SpeechWorkflowService.TranscriptionSegment copy = s.copy();
+                            if (!multiBand) {
+                                copy.speaker = "SPEAKER_00";
+                            }
+                            finalSegments.add(copy);
+                        }
                         dispose();
+                        SwingUtilities.invokeLater(() -> {
+                            try {
+                                onInjectCallback.accept(finalSegments, targetBand);
+                            } catch (Throwable ex) {
+                                ex.printStackTrace();
+                            }
+                        });
                     } else {
                         JOptionPane.showMessageDialog(AutoTranscriptionTestDialog.this,
                                 count + " répliques analysées !\n\n" +
@@ -521,6 +679,9 @@ public class AutoTranscriptionTestDialog extends JDialog {
                     btnStart.setEnabled(true);
                     btnCancel.setEnabled(false);
                     labelStatus.setText("Erreur");
+                    List<SpeechWorkflowService.TranscriptionSegment> segs =
+                            (currentSegments != null && !currentSegments.isEmpty()) ? currentSegments : liveSegments;
+                    btnInject.setEnabled((segs != null && !segs.isEmpty()) || tableModel.getRowCount() > 0);
                     JOptionPane.showMessageDialog(AutoTranscriptionTestDialog.this,
                             message, "Erreur d'analyse", JOptionPane.ERROR_MESSAGE);
                 });
@@ -540,6 +701,9 @@ public class AutoTranscriptionTestDialog extends JDialog {
             labelStatus.setText("Analyse annulée.");
             progressBar.setValue(0);
         }
+        List<SpeechWorkflowService.TranscriptionSegment> segs =
+                (currentSegments != null && !currentSegments.isEmpty()) ? currentSegments : liveSegments;
+        btnInject.setEnabled((segs != null && !segs.isEmpty()) || tableModel.getRowCount() > 0);
     }
 
     private void updateScanSummary() {
@@ -789,6 +953,65 @@ public class AutoTranscriptionTestDialog extends JDialog {
             }
         } finally {
             isUpdatingTable = false;
+        }
+        btnInject.setEnabled(tableModel.getRowCount() > 0);
+    }
+
+    private List<SpeechWorkflowService.TranscriptionSegment> extractSegmentsFromTable() {
+        List<SpeechWorkflowService.TranscriptionSegment> list = new ArrayList<>();
+        for (int r = 0; r < tableModel.getRowCount(); r++) {
+            try {
+                int id = r + 1;
+                Object idVal = tableModel.getValueAt(r, 0);
+                if (idVal instanceof Number) id = ((Number) idVal).intValue();
+
+                String spkCol = String.valueOf(tableModel.getValueAt(r, 1));
+                String startStr = String.valueOf(tableModel.getValueAt(r, 3));
+                String endStr = String.valueOf(tableModel.getValueAt(r, 4));
+                String txt = String.valueOf(tableModel.getValueAt(r, 6));
+
+                double sStart = parseTimecode(startStr);
+                double sEnd = parseTimecode(endStr);
+                if (sEnd <= sStart) sEnd = sStart + 1.0;
+
+                SpeechWorkflowService.TranscriptionSegment seg =
+                        new SpeechWorkflowService.TranscriptionSegment(id, "SPEAKER_00", sStart, sEnd, txt);
+
+                Matcher m = Pattern.compile("Locuteur\\s*(\\d+)").matcher(spkCol);
+                if (m.find()) {
+                    int spkIdx = Math.max(0, Integer.parseInt(m.group(1)) - 1);
+                    seg.speaker = String.format("SPEAKER_%02d", spkIdx);
+                    if (customSpeakerNames.containsKey(spkIdx)) {
+                        seg.customRoleName = customSpeakerNames.get(spkIdx);
+                    }
+                } else if (!spkCol.isBlank()) {
+                    seg.customRoleName = spkCol.trim();
+                }
+
+                list.add(seg);
+            } catch (Throwable ignored) {}
+        }
+        return list;
+    }
+
+    private static double parseTimecode(String tc) {
+        if (tc == null || tc.isBlank()) return 0.0;
+        try {
+            String[] parts = tc.trim().split(":");
+            if (parts.length == 3) {
+                double h = Double.parseDouble(parts[0]);
+                double m = Double.parseDouble(parts[1]);
+                double s = Double.parseDouble(parts[2].replace(',', '.'));
+                return h * 3600.0 + m * 60.0 + s;
+            } else if (parts.length == 2) {
+                double m = Double.parseDouble(parts[0]);
+                double s = Double.parseDouble(parts[1].replace(',', '.'));
+                return m * 60.0 + s;
+            } else {
+                return Double.parseDouble(tc.replace(',', '.'));
+            }
+        } catch (Exception e) {
+            return 0.0;
         }
     }
 

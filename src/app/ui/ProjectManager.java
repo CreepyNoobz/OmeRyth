@@ -76,21 +76,27 @@ public class ProjectManager {
     public static LoadedProject load(File file, TextManager textManager, ArrayList<Role> roles) {
         try {
             String nameLower = file.getName().toLowerCase();
+            LoadedProject proj;
             if (nameLower.endsWith(".detx") || nameLower.endsWith(".cappella")) {
-                return DetxManager.loadDetx(file, textManager, roles, 80.0);
+                proj = DetxManager.loadDetx(file, textManager, roles, 80.0);
+            } else {
+                String raw = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+                String trimmed = raw.trim();
+                if (trimmed.startsWith("\uFEFF")) {
+                    trimmed = trimmed.substring(1).trim();
+                }
+                if (trimmed.startsWith("<?xml") || trimmed.startsWith("<detx")) {
+                    proj = DetxManager.loadDetx(file, textManager, roles, 80.0);
+                } else if (trimmed.startsWith("{")) {
+                    proj = loadFromJson(trimmed, textManager, roles, file);
+                } else {
+                    proj = loadLegacy(raw, textManager, roles);
+                }
             }
-            String raw = Files.readString(file.toPath(), StandardCharsets.UTF_8);
-            String trimmed = raw.trim();
-            if (trimmed.startsWith("\uFEFF")) {
-                trimmed = trimmed.substring(1).trim();
+            if (textManager != null) {
+                textManager.sanitizeBandSeparators();
             }
-            if (trimmed.startsWith("<?xml") || trimmed.startsWith("<detx")) {
-                return DetxManager.loadDetx(file, textManager, roles, 80.0);
-            }
-            if (trimmed.startsWith("{")) {
-                return loadFromJson(trimmed, textManager, roles, file);
-            }
-            return loadLegacy(raw, textManager, roles);
+            return proj;
         } catch (Exception e) {
             e.printStackTrace();
             return new LoadedProject(null, 4);

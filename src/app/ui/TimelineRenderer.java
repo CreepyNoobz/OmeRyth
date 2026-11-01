@@ -89,11 +89,79 @@ public class TimelineRenderer {
     private Font cachedLabelFont = null;
     private FontMetrics cachedLabelFontMetrics = null;
     private int cachedLabelBandHeight = -1;
+    private float cachedLabelFontSize = -1.0f;
     private final ArrayList<SeparatorMark> scratchInnerMarks = new ArrayList<>();
+    private int[] cachedPhraseStarts = new int[64];
+    private int[] cachedPhraseEnds = new int[64];
+
+    /** Opacité appliquée lorsqu'une étiquette de rôle empiète sur une phrase (45%). */
+    public static final float OVERLAPPING_ROLE_BADGE_ALPHA = 0.45f;
+
+    private double roleLabelScale = 1.0;
+
+    /**
+     * Définit le facteur d'échelle des étiquettes de rôles (de 0.10 soit 10% à 2.00 soit 200%).
+     */
+    public void setRoleLabelScale(double roleLabelScale) {
+        double clamped = Math.max(0.10, Math.min(2.00, roleLabelScale));
+        if (Math.abs(this.roleLabelScale - clamped) > 0.0001) {
+            this.roleLabelScale = clamped;
+            this.cachedLabelFont = null;
+            this.cachedLabelFontMetrics = null;
+            this.cachedLabelFontSize = -1.0f;
+        }
+    }
+
+    public double getRoleLabelScale() {
+        return roleLabelScale;
+    }
+
+    /**
+     * Vérifie si l'étiquette de rôle (définie par ses bornes horizontales monde [badgeWorldLeft, badgeWorldRight]
+     * sur la piste {@code band}) empiète / surpasse sur une phrase de la même piste.
+     */
+    public static boolean doesRoleBadgeOverlapAnyPhrase(double badgeWorldLeft,
+                                                        double badgeWorldRight,
+                                                        int band,
+                                                        int selfIndex,
+                                                        ArrayList<TextItem> texts,
+                                                        int[] phraseStarts,
+                                                        int[] phraseEnds) {
+        if (texts == null || phraseStarts == null || phraseEnds == null) return false;
+        int n = Math.min(texts.size(), Math.min(phraseStarts.length, phraseEnds.length));
+        for (int i = 0; i < n; i++) {
+            if (i == selfIndex) continue;
+            TextItem other = texts.get(i);
+            if (other == null || other.band != band) continue;
+            int pStart = Math.min(other.x, phraseStarts[i]);
+            int pEnd = phraseEnds[i];
+            if (pEnd > pStart && badgeWorldLeft < pEnd && badgeWorldRight > pStart) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean exportMode = false;
+
+    /** Active le mode d'exportation vidéo haute performance (supprime la vérification orthographique et optimise la vitesse de rendu). */
+    public void setExportMode(boolean exportMode) {
+        this.exportMode = exportMode;
+    }
+
+    public boolean isExportMode() {
+        return exportMode;
+    }
 
     /** Applique les paramètres de personnalisation visuelle (thème sombre, couleurs, polices). */
     public void setCustomization(AppCustomization customization) {
         this.customization = customization != null ? customization : new AppCustomization();
+        this.cachedTimelineFont = null;
+        this.cachedFontMetrics = null;
+        this.cachedLabelFont = null;
+        this.cachedLabelFontMetrics = null;
+        this.cachedBadgeFont = null;
+        this.cachedBadgeMetrics = null;
     }
 
     /** Surcharge de compatibilité pour le rendu avec décalage entier. */
@@ -150,21 +218,34 @@ public class TimelineRenderer {
 
         Graphics2D g2 = (Graphics2D) g;
 
-        // Rendu subpixel haute qualité et anticrénelage pur
-        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
-                RenderingHints.VALUE_ANTIALIAS_ON);
-        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
-                RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-        g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS,
-                RenderingHints.VALUE_FRACTIONALMETRICS_ON);
-        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        g2.setRenderingHint(RenderingHints.KEY_RENDERING,
-                RenderingHints.VALUE_RENDER_QUALITY);
-        g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL,
-                RenderingHints.VALUE_STROKE_PURE);
+        if (exportMode) {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_RENDERING,
+                    RenderingHints.VALUE_RENDER_SPEED);
+            g2.setRenderingHint(RenderingHints.KEY_COLOR_RENDERING,
+                    RenderingHints.VALUE_COLOR_RENDER_SPEED);
+            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        } else {
+            // Rendu subpixel haute qualité et anticrénelage pur
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS,
+                    RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g2.setRenderingHint(RenderingHints.KEY_RENDERING,
+                    RenderingHints.VALUE_RENDER_QUALITY);
+            g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL,
+                    RenderingHints.VALUE_STROKE_PURE);
 
-        app.services.SpellGrammarService.getInstance().clearVisibleIssues();
+            app.services.SpellGrammarService.getInstance().clearVisibleIssues();
+        }
 
         int bandHeight = panelHeight / bandCount;
 
@@ -180,13 +261,27 @@ public class TimelineRenderer {
         }
         drawTexts(g2, texts, bandSeparators, bandHeight, offsetX, activeBand, isEditing, textX, currentInput, editingItem, cursorIndex, cursorRightSide, caretVisible, separatorsVisible, panelWidth);
         if (separatorsVisible) {
-            drawSeparators(g2, bandSeparators, bandHeight, offsetX, panelWidth);
+            drawSeparators(g2, bandSeparators, texts, bandHeight, offsetX, panelWidth);
         }
         if (isEditing && editingItem != null && caretVisible) {
             drawEditingCaret(g2, editingItem, bandSeparators, bandHeight, offsetX, cursorIndex, cursorRightSide, panelWidth);
         }
         drawPlanMarkers(g2, planMarkers, offsetX, panelHeight, panelWidth);
         drawCursor(g2, panelHeight);
+    }
+
+    private Color darkenColor(Color color) {
+        if (color == null) {
+            return new Color(25, 25, 25);
+        }
+        Color darker = color.darker();
+        if (darker.equals(color)) {
+            return new Color(Math.max(0, color.getRed() - 15),
+                             Math.max(0, color.getGreen() - 15),
+                             Math.max(0, color.getBlue() - 15),
+                             color.getAlpha());
+        }
+        return darker;
     }
 
     private void drawBands(Graphics2D g2, int panelWidth, int panelHeight, int bandHeight, int selectedBand, int editingBand) {
@@ -200,11 +295,10 @@ public class TimelineRenderer {
                 g2.fillRect(0, 0, panelWidth, panelHeight);
             }
 
-            // Bande actuellement sélectionnée : mise en valeur par un voile translucide
+            // Bande actuellement sélectionnée : mise en valeur par un assombrissement
             if (selectedBand >= 0 && selectedBand < bandCount) {
                 int y = selectedBand * bandHeight;
-                Color sel = customization.timelineSelectedBand;
-                g2.setColor(new Color(sel.getRed(), sel.getGreen(), sel.getBlue(), 90));
+                g2.setColor(new Color(0, 0, 0, 60));
                 g2.fillRect(0, y, panelWidth, bandHeight);
             }
 
@@ -218,13 +312,13 @@ public class TimelineRenderer {
         }
 
         for (int i = 0; i < bandCount; i++) {
+            Color baseBandColor = (i % 2 == 0) ? customization.timelineEvenBand : customization.timelineOddBand;
+
             if (AppCustomization.BAND_BG_COLOR.equals(customization.bandBackgroundMode)) {
                 if (i == selectedBand)
-                    g2.setColor(customization.timelineSelectedBand);
-                else if (i % 2 == 0)
-                    g2.setColor(customization.timelineEvenBand);
+                    g2.setColor(darkenColor(baseBandColor));
                 else
-                    g2.setColor(customization.timelineOddBand);
+                    g2.setColor(baseBandColor);
 
                 g2.fillRect(0, i * bandHeight, panelWidth, bandHeight);
                 if (i == editingBand) {
@@ -237,17 +331,19 @@ public class TimelineRenderer {
             BufferedImage image = getBandImageForIndex(i);
             if (image != null) {
                 g2.drawImage(image, 0, i * bandHeight, panelWidth, bandHeight, null);
+                if (i == selectedBand) {
+                    g2.setColor(new Color(0, 0, 0, 60));
+                    g2.fillRect(0, i * bandHeight, panelWidth, bandHeight);
+                }
                 if (i == editingBand) {
                     g2.setColor(new Color(0, 0, 0, 75));
                     g2.fillRect(0, i * bandHeight, panelWidth, bandHeight);
                 }
             } else {
                 if (i == selectedBand)
-                    g2.setColor(customization.timelineSelectedBand);
-                else if (i % 2 == 0)
-                    g2.setColor(customization.timelineEvenBand);
+                    g2.setColor(darkenColor(baseBandColor));
                 else
-                    g2.setColor(customization.timelineOddBand);
+                    g2.setColor(baseBandColor);
                 g2.fillRect(0, i * bandHeight, panelWidth, bandHeight);
                 if (i == editingBand) {
                     g2.setColor(new Color(0, 0, 0, 75));
@@ -264,10 +360,12 @@ public class TimelineRenderer {
         int totalHeight = Math.max(bandHeight, Math.min(panelHeight, bandCount * bandHeight));
         int centerY = totalHeight / 2;
 
-        for (int screenX = 0; screenX < panelWidth; screenX++) {
-            double timeSeconds = (screenX - offsetX) / pixelsPerSecond;
-            if (timeSeconds < 0 || timeSeconds > waveformData.getDurationSeconds()) continue;
+        int startX = Math.max(0, (int) Math.floor(offsetX));
+        int endX = Math.min(panelWidth, (int) Math.ceil(waveformData.getDurationSeconds() * pixelsPerSecond + offsetX));
+        if (startX >= endX) return;
 
+        for (int screenX = startX; screenX < endX; screenX++) {
+            double timeSeconds = (screenX - offsetX) / pixelsPerSecond;
             float amplitude = waveformData.getAmplitudeAt(timeSeconds);
             if (amplitude > 0) {
                 int barHeight = (int) (amplitude * (totalHeight / 2.0) * 0.92);
@@ -322,12 +420,13 @@ public class TimelineRenderer {
 
         Font textFont = buildTimelineFont(bandHeight);
         g2.setFont(textFont);
-        FontMetrics fm = (cachedFontMetrics != null && cachedTimelineFont == textFont)
+        FontMetrics fm = (cachedFontMetrics != null && cachedFontMetrics.getFont() == textFont)
                 ? cachedFontMetrics
                 : g2.getFontMetrics(textFont);
         cachedFontMetrics = fm;
         int textTopY = 1;
         int targetTextHeight = Math.max(8, bandHeight - 2);
+        double scaleY = computeScaleY(fm, targetTextHeight);
 
         g2.setColor(Color.WHITE);
 
@@ -340,135 +439,76 @@ public class TimelineRenderer {
             g2.setColor(Color.WHITE);
         }
 
-        int startTextIdx = Math.max(0, findTextIndex(texts, (int) Math.floor(-offsetX - 500)) - 1);
-        for (int ti = startTextIdx; ti < texts.size(); ti++) {
-            TextItem t = texts.get(ti);
-            if (t == null) continue;
-            if (t.text == null) t.text = "";
-            if (t.x > panelWidth - offsetX + 500) {
-                break; // Liste triée par X : les textes suivants sont tous hors écran à droite
-            }
+        int nTexts = texts.size();
+        if (cachedPhraseStarts.length < nTexts) {
+            cachedPhraseStarts = new int[Math.max(nTexts, 64)];
+            cachedPhraseEnds = new int[Math.max(nTexts, 64)];
+        }
 
-            int bandBaselineY = computeBaselineY(t.band, bandHeight, textTopY, fm, targetTextHeight);
+        int[] resolvedBounds = new int[4];
+        for (int ti = 0; ti < nTexts; ti++) {
+            TextItem t = texts.get(ti);
+            if (t == null) {
+                cachedPhraseStarts[ti] = 0;
+                cachedPhraseEnds[ti] = 0;
+                continue;
+            }
+            if (t.text == null) t.text = "";
 
             ArrayList<SeparatorMark> sepList = bandSeparators.get(t.band);
-            int leftSep = Integer.MIN_VALUE;
-            int rightSep = Integer.MAX_VALUE;
-            int nextPhraseStartX = Integer.MAX_VALUE;
-            ArrayList<SeparatorMark> innerMarks = scratchInnerMarks;
-            innerMarks.clear();
-
-            if (sepList != null && !sepList.isEmpty()) {
-                int searchIdx = findSepIndex(sepList, t.x);
-                // Recherche vers la gauche du repère START le plus proche <= t.x
-                int maxI = Math.min(searchIdx + 1, sepList.size() - 1);
-                for (int i = maxI; i >= 0; i--) {
-                    SeparatorMark s = sepList.get(i);
-                    if (s.x > t.x) continue;
-                    if (s.isStartBoundary()) {
-                        leftSep = s.x;
-                        break;
-                    }
-                    if (s.isEndBoundary() && s.x < t.x) {
-                        // Un repère END situé STRICTEMENT à gauche appartient à une réplique antérieure :
-                        // On ne doit jamais traverser un END vers la gauche pour voler un START antérieur !
-                        break;
-                    }
-                }
-                // Recherche vers la droite du repère END le plus proche > t.x
-                for (int i = Math.max(0, searchIdx - 1); i < sepList.size(); i++) {
-                    SeparatorMark s = sepList.get(i);
-                    if (s.x <= t.x) continue; // Un repère de fin de réplique doit être STRICTEMENT après le début
-                    if (s.isEndBoundary()) {
-                        rightSep = s.x;
-                        break;
-                    }
-                    if (s.isStartBoundary()) {
-                        nextPhraseStartX = s.x;
-                        break; // Une nouvelle réplique commence à droite : ne jamais traverser un START !
-                    }
-                }
-            }
+            resolvePhraseBoundaries(sepList, t.x, resolvedBounds);
+            int leftSep = resolvedBounds[0];
+            int rightSep = resolvedBounds[1];
+            int nextPhraseStartX = resolvedBounds[2];
+            int maxInnerX = resolvedBounds[3];
 
             int segmentStart = (leftSep != Integer.MIN_VALUE) ? leftSep : t.x;
             int segmentEnd;
 
-            double textWidth = fm.stringWidth(t.text);
-            int naturalWidth = Math.max(100, (int) Math.round(textWidth * 1.25));
+            double textWidth = measureTextWidth(fm, t.text) * scaleY;
+            int naturalWidth = Math.max(24, (int) Math.ceil(textWidth + 6.0));
 
             if (rightSep != Integer.MAX_VALUE) {
                 segmentEnd = Math.max(segmentStart + 10, rightSep);
             } else {
                 segmentEnd = segmentStart + naturalWidth;
-                if (nextPhraseStartX != Integer.MAX_VALUE && segmentEnd > nextPhraseStartX - 5) {
-                    segmentEnd = Math.max(segmentStart + 10, nextPhraseStartX - 5);
+                if (maxInnerX != Integer.MIN_VALUE && maxInnerX > segmentStart) {
+                    segmentEnd = Math.max(segmentEnd, maxInnerX + Math.max(60, naturalWidth));
+                }
+                if (nextPhraseStartX != Integer.MAX_VALUE && segmentEnd > nextPhraseStartX - 4) {
+                    segmentEnd = Math.max(segmentStart + 10, nextPhraseStartX - 4);
                 }
             }
+            cachedPhraseStarts[ti] = segmentStart;
+            cachedPhraseEnds[ti] = segmentEnd;
+        }
+
+        // Passe 1 : Rendu des textes des phrases, de la sélection et des soulignements orthographiques
+        for (int ti = 0; ti < nTexts; ti++) {
+            TextItem t = texts.get(ti);
+            if (t == null) continue;
+
+            int segmentStart = cachedPhraseStarts[ti];
+            int segmentEnd = cachedPhraseEnds[ti];
 
             // Viewport Culling Mathématiquement Exact & Optimal (supporte des timelines de 7h+) :
-            // Un texte n'est ignoré que si son extrémité droite est complètement sortie à gauche (< -300px),
-            // ou si son début n'a pas encore atteint l'écran (> panelWidth + 300px).
+            // Un texte n'est ignoré que si son extrémité droite est complètement sortie à gauche (< -400px),
+            // ou si son début n'a pas encore atteint l'écran (> panelWidth + 400px).
             double screenStart = segmentStart + offsetX;
             double screenEnd = segmentEnd + offsetX;
-            if (screenEnd < -300 || screenStart > panelWidth + 300) {
+            if (screenEnd < -400 || screenStart > panelWidth + 400) {
                 continue;
             }
 
-            // Collecte des repères syllabiques internes (INNER) situés strictement entre START et END
-            if (sepList != null && !sepList.isEmpty()) {
-                int startI = findSepIndex(sepList, segmentStart + 1);
-                for (int i = startI; i < sepList.size(); i++) {
-                    SeparatorMark m = sepList.get(i);
-                    if (m.x >= segmentEnd) break;
-                    if (m.type == SeparatorMark.Type.INNER && m.x > segmentStart) {
-                        innerMarks.add(m);
-                    }
-                }
-            }
+            int bandBaselineY = computeBaselineY(t.band, bandHeight, textTopY, fm, targetTextHeight);
+            ArrayList<SeparatorMark> sepList = bandSeparators.get(t.band);
+            ArrayList<SeparatorMark> innerMarks = scratchInnerMarks;
+            innerMarks.clear();
+
+            // Collecte des repères syllabiques internes (INNER) valides (sans coupure après clitique ni vide)
+            collectValidInnerMarks(sepList, segmentStart, segmentEnd, t, innerMarks);
 
             double availableWidth = Math.max(20.0, (double) (segmentEnd - segmentStart));
-
-            // Badge du personnage (rôle) : pastille rectangulaire positionnée à GAUCHE du repère START
-            if (t.role != null && t.role.name != null && !t.role.name.isEmpty()) {
-                Color roleColor = (t.role.color != null) ? t.role.color : new Color(0, 120, 215);
-
-                Font oldFont = g2.getFont();
-                float labelFontSize = Math.max(9.5f, Math.min(13.5f, (float) (bandHeight * 0.16f)));
-                if (cachedLabelFont == null || cachedLabelBandHeight != bandHeight) {
-                    cachedLabelFont = textFont.deriveFont(Font.BOLD, labelFontSize);
-                    cachedLabelFontMetrics = g2.getFontMetrics(cachedLabelFont);
-                    cachedLabelBandHeight = bandHeight;
-                }
-                Font labelFont = cachedLabelFont;
-                FontMetrics lfm = cachedLabelFontMetrics;
-                g2.setFont(labelFont);
-
-                int padX = Math.max(4, Math.round(labelFontSize * 0.38f));
-                int padY = Math.max(1, Math.round(labelFontSize * 0.12f));
-                int lw = lfm.stringWidth(t.role.name) + padX * 2;
-                int lh = lfm.getHeight() + padY;
-
-                int badgeTop = t.band * bandHeight + 2;
-                int labelY = badgeTop + padY + lfm.getAscent() - 1;
-
-                // Positionnement sur le côté GAUCHE du repère START
-                double labelX = segmentStart + offsetX - lw - 2;
-
-                // Fond avec la couleur du rôle, bords rectangulaires nets (pas d'arrondi)
-                g2.setColor(roleColor);
-                g2.fillRect((int) Math.round(labelX), badgeTop, lw, lh);
-
-                // Contour fin
-                g2.setColor(isDarkColor(roleColor) ? new Color(255, 255, 255, 160) : new Color(0, 0, 0, 80));
-                g2.setStroke(new BasicStroke(1.0f));
-                g2.drawRect((int) Math.round(labelX), badgeTop, lw, lh);
-
-                // Couleur du texte : noir par défaut, blanc si le rôle est noir/sombre
-                Color textColor = isDarkColor(roleColor) ? Color.WHITE : Color.BLACK;
-                g2.setColor(textColor);
-                g2.drawString(t.role.name, (float) (labelX + padX), (float) labelY);
-                g2.setFont(oldFont);
-            }
 
             if (!t.text.isEmpty()) {
                 Color roleColor = (t.role != null && t.role.color != null) ? t.role.color : Color.WHITE;
@@ -487,8 +527,8 @@ public class TimelineRenderer {
                 if (innerMarks.isEmpty()) {
                     // Pas de séparateurs internes : la phrase entière est étirée d'un seul bloc
                     g2.setColor(roleColor);
-                    double leftPad = (leftSep != Integer.MIN_VALUE) ? 6.0 : 2.0;
-                    double rightPad = (rightSep != Integer.MAX_VALUE) ? 8.0 : 2.0;
+                    double leftPad = 2.0;
+                    double rightPad = 4.0;
                     double drawX = segmentStart + offsetX + leftPad;
                     double width = Math.max(2.0, availableWidth - (leftPad + rightPad));
 
@@ -516,25 +556,29 @@ public class TimelineRenderer {
                         if (idx > len) idx = len;
 
                         String segText = t.text.substring(prevIdx, idx);
-                        if (!segText.isEmpty()) {
-                            double leftPad = (prevIdx == 0 && leftSep != Integer.MIN_VALUE) ? 6.0 : 2.0;
-                            double rightPad = 4.0;
+                        boolean hasVisibleChars = !segText.trim().isEmpty();
+                        if (hasVisibleChars) {
+                            double leftPad = 2.0;
+                            double rightPad = 3.0;
                             double segStartX = segStart + offsetX + leftPad;
                             double segEndX = segEnd + offsetX - rightPad;
                             double width = Math.max(2.0, segEndX - segStartX);
 
                             drawScaledText(g2, fm, segText, segStartX, bandBaselineY, width, targetTextHeight, false);
                             anyTextDrawn = true;
+                            prevX = mark.x;
+                            prevIdx = idx;
+                        } else {
+                            // Tronçon vide = vraie pause : le mot suivant démarre à la barre d'ouverture
+                            prevIdx = idx;
+                            prevX = mark.x;
                         }
-
-                        prevX = mark.x;
-                        prevIdx = idx;
                     }
 
                     String remaining = t.text.substring(Math.min(prevIdx, len));
                     if (!remaining.isEmpty()) {
                         double leftPad = 2.0;
-                        double rightPad = (rightSep != Integer.MAX_VALUE) ? 8.0 : 2.0;
+                        double rightPad = 4.0;
                         double segStartX = prevX + offsetX + leftPad;
                         double segEndX = segmentEnd + offsetX - rightPad;
                         double width = Math.max(2.0, segEndX - segStartX);
@@ -558,8 +602,8 @@ public class TimelineRenderer {
                 selStart = Math.max(0, Math.min(selStart, tlen));
                 selEnd = Math.max(selStart, Math.min(selEnd, tlen));
                 if (selEnd > selStart) {
-                    double selStartX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, selStart, false);
-                    double selEndX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, selEnd, false);
+                    double selStartX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, selStart, true, targetTextHeight, this.activeSegmentEndMarkX);
+                    double selEndX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, selEnd, false, targetTextHeight, this.activeSegmentEndMarkX);
                     if (selEndX < selStartX) {
                         double tmp = selStartX;
                         selStartX = selEndX;
@@ -578,9 +622,9 @@ public class TimelineRenderer {
             }
 
             // Soulignement des anomalies orthographiques et grammaticales
-            // Condition explicite : visible uniquement si les signes/séparateurs sont affichés
+            // Condition explicite : visible uniquement si les signes/séparateurs sont affichés et hors export vidéo
             // Temporisation 1 seconde : si l'utilisateur est activement en train de taper ce texte, on masque les erreurs pendant la frappe
-            if (separatorsVisible && t.text != null && !t.text.isEmpty()) {
+            if (!exportMode && separatorsVisible && t.text != null && !t.text.isEmpty()) {
                 boolean isActivelyTypingThisItem = isEditing && (t == editingItem) && (System.currentTimeMillis() - lastTypingTimestamp < 1000);
                 if (!isActivelyTypingThisItem) {
                     List<app.services.SpellGrammarService.SpellCheckIssue> issues =
@@ -589,8 +633,8 @@ public class TimelineRenderer {
                         for (app.services.SpellGrammarService.SpellCheckIssue issue : issues) {
                             int safeStart = Math.max(0, Math.min(issue.startIdx, t.text.length()));
                             int safeEnd = Math.max(safeStart, Math.min(issue.endIdx, t.text.length()));
-                            double startScreenX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, safeStart, false);
-                            double endScreenX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, safeEnd, false);
+                            double startScreenX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, safeStart, false, targetTextHeight);
+                            double endScreenX = computeCursorXForSegments(fm, t, offsetX, segmentStart, segmentEnd, innerMarks, safeEnd, false, targetTextHeight);
 
                             if (endScreenX >= -100 && startScreenX <= panelWidth + 100) {
                                 int ascent = (int) Math.round(fm.getAscent() * ((double) targetTextHeight / Math.max(1, fm.getHeight())));
@@ -608,6 +652,90 @@ public class TimelineRenderer {
                     }
                 }
             }
+        }
+
+        // Passe 2 : Rendu des étiquettes de rôles (avec mise à l'échelle 10% à 200% et translucidité en cas de chevauchement sur une phrase)
+        float baseLabelFontSize = exportMode
+                ? Math.max(3.0f, (float) (bandHeight * 0.125f))
+                : Math.max(7.5f, Math.min(11.0f, (float) (bandHeight * 0.125f)));
+        float labelFontSize = Math.max(1.5f, baseLabelFontSize * (float) roleLabelScale);
+
+        if (cachedLabelFont == null || cachedLabelBandHeight != bandHeight
+                || Math.abs(cachedLabelFontSize - labelFontSize) > 0.01f
+                || !cachedLabelFont.getFamily().equals(textFont.getFamily())) {
+            cachedLabelFont = textFont.deriveFont(Font.BOLD, labelFontSize);
+            cachedLabelFontMetrics = g2.getFontMetrics(cachedLabelFont);
+            cachedLabelBandHeight = bandHeight;
+            cachedLabelFontSize = labelFontSize;
+        }
+        Font labelFont = cachedLabelFont;
+        FontMetrics lfm = cachedLabelFontMetrics;
+        int padX = Math.max(1, Math.round(labelFontSize * 0.25f));
+        int padY = Math.max(0, Math.round(labelFontSize * 0.10f));
+
+        for (int ti = 0; ti < nTexts; ti++) {
+            TextItem t = texts.get(ti);
+            if (t == null || t.role == null || t.role.name == null || t.role.name.isEmpty()) continue;
+
+            int segmentStart = cachedPhraseStarts[ti];
+            int segmentEnd = cachedPhraseEnds[ti];
+            double screenStart = segmentStart + offsetX;
+            double screenEnd = segmentEnd + offsetX;
+            if (screenEnd < -400 || screenStart > panelWidth + 400) {
+                continue;
+            }
+
+            Color roleColor = (t.role.color != null) ? t.role.color : new Color(0, 120, 215);
+            Font oldFont = g2.getFont();
+            g2.setFont(labelFont);
+
+            int lw = lfm.stringWidth(t.role.name) + padX * 2;
+            int lh = lfm.getHeight() + padY * 2;
+
+            int minTop = t.band * bandHeight + 1;
+            int maxTop = Math.max(minTop, (t.band + 1) * bandHeight - lh - 1);
+            int badgeTop = Math.max(minTop, Math.min(maxTop, t.band * bandHeight + Math.max(2, (bandHeight - lh) / 6)));
+            int labelY = badgeTop + padY + lfm.getAscent();
+
+            // Positionnement sur le côté GAUCHE du repère START avec marge aérée
+            double labelX = segmentStart + offsetX - lw - 3;
+            double badgeWorldLeft = segmentStart - lw - 3;
+            double badgeWorldRight = segmentStart - 3;
+
+            boolean overlapsPhrase = doesRoleBadgeOverlapAnyPhrase(
+                    badgeWorldLeft, badgeWorldRight, t.band, ti, texts, cachedPhraseStarts, cachedPhraseEnds);
+
+            if (!overlapsPhrase && activeBand == t.band && isEditing && editingItem == null
+                    && currentInput != null && !currentInput.isEmpty()) {
+                double liveW = measureTextWidth(fm, currentInput) * scaleY;
+                if (badgeWorldLeft < textX + liveW && badgeWorldRight > textX) {
+                    overlapsPhrase = true;
+                }
+            }
+
+            Composite oldComp = g2.getComposite();
+            if (overlapsPhrase) {
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, OVERLAPPING_ROLE_BADGE_ALPHA));
+            }
+
+            // Fond avec la couleur du rôle, bords rectangulaires nets
+            g2.setColor(roleColor);
+            g2.fillRect((int) Math.round(labelX), badgeTop, lw, lh);
+
+            // Contour net et contrasté
+            g2.setColor(isDarkColor(roleColor) ? new Color(255, 255, 255, 175) : new Color(0, 0, 0, 95));
+            g2.setStroke(new BasicStroke(0.9f));
+            g2.drawRect((int) Math.round(labelX), badgeTop, lw, lh);
+
+            // Couleur du texte : noir par défaut, blanc si le rôle est noir/sombre
+            Color textColor = isDarkColor(roleColor) ? Color.WHITE : Color.BLACK;
+            g2.setColor(textColor);
+            g2.drawString(t.role.name, (float) (labelX + padX), (float) labelY);
+
+            if (overlapsPhrase) {
+                g2.setComposite(oldComp);
+            }
+            g2.setFont(oldFont);
         }
     }
 
@@ -657,9 +785,122 @@ public class TimelineRenderer {
         }
         int size = Math.max(18, bandHeight);
         cachedTimelineFont = new Font(family, Font.BOLD, size);
+        cachedFontMetrics = null;
+        cachedLabelFont = null;
+        cachedLabelFontMetrics = null;
+        cachedBadgeFont = null;
+        cachedBadgeMetrics = null;
         cachedBandHeight = bandHeight;
         cachedFontFamily = family;
         return cachedTimelineFont;
+    }
+
+    /**
+     * Calcule le facteur d'échelle vertical (scaleY) exact selon les métriques de la police active
+     * afin que le texte (ascension + descente) tienne toujours dans la bande sans déborder.
+     */
+    public static double computeScaleY(FontMetrics fm, int targetTextHeight) {
+        if (fm == null) return 1.0;
+        int verticalSpan = Math.max(1, Math.max(fm.getHeight(), fm.getAscent() + fm.getDescent()));
+        return (double) Math.max(8, targetTextHeight) / verticalSpan;
+    }
+
+    private static final java.awt.font.FontRenderContext FRACTIONAL_FRC =
+            new java.awt.font.FontRenderContext(null, true, true);
+
+    /**
+     * Mesure la largeur réelle (en pixels non-étirés) d'une chaîne pour la police donnée,
+     * en prenant le maximum entre stringWidth et les bornes fractionnaires des glyphes
+     * afin d'éviter tout débordement lors d'un changement de police.
+     */
+    public static double measureTextWidth(FontMetrics fm, String text) {
+        if (fm == null || text == null || text.isEmpty()) return 0.0;
+        double sw = fm.stringWidth(text);
+        try {
+            Font f = fm.getFont();
+            if (f != null) {
+                Rectangle2D bounds = f.getStringBounds(text, FRACTIONAL_FRC);
+                double bw = Math.max(bounds.getWidth(), bounds.getMaxX());
+                return Math.max(sw, bw);
+            }
+        } catch (Exception ignored) {
+        }
+        return sw;
+    }
+
+    /**
+     * Résout de manière déterministe les bornes d'une phrase commençant à {@code textX} :
+     * - {@code outBounds[0]} = leftSep (START de cette phrase)
+     * - {@code outBounds[1]} = rightSep (END de cette phrase, ou Integer.MAX_VALUE)
+     * - {@code outBounds[2]} = nextPhraseStartX (START de la phrase suivante, ou Integer.MAX_VALUE)
+     * - {@code outBounds[3]} = maxInnerX (dernier INNER appartenant à cette phrase, ou Integer.MIN_VALUE)
+     *
+     * Gère proprement le cas où le symbole END de la phrase précédente est collé exactement sur (ou très près de)
+     * le symbole START de la phrase courante : un END situé en {@code <= leftSep} appartient toujours à la phrase
+     * précédente et n'est jamais confondu avec la fin de la phrase courante.
+     */
+    public static void resolvePhraseBoundaries(ArrayList<SeparatorMark> sepList, int textX, int[] outBounds) {
+        int leftSep = Integer.MIN_VALUE;
+        int rightSep = Integer.MAX_VALUE;
+        int nextPhraseStartX = Integer.MAX_VALUE;
+        int maxInnerX = Integer.MIN_VALUE;
+
+        if (sepList != null && !sepList.isEmpty()) {
+            int startMarkIdx = -1;
+            int searchIdx = findSepIndex(sepList, textX);
+            // 1. Trouver le repère START associé à ce TextItem (priorité à s.x == textX, sinon le START immédiatement <= textX)
+            for (int i = Math.max(0, searchIdx - 2); i < sepList.size(); i++) {
+                SeparatorMark s = sepList.get(i);
+                if (s == null) continue;
+                if (s.x > textX) break;
+                if (s.isStartBoundary() && s.x == textX) {
+                    leftSep = s.x;
+                    startMarkIdx = i;
+                    break;
+                }
+            }
+            if (startMarkIdx == -1) {
+                int maxI = Math.min(searchIdx + 2, sepList.size() - 1);
+                for (int i = maxI; i >= 0; i--) {
+                    SeparatorMark s = sepList.get(i);
+                    if (s == null || s.x > textX) continue;
+                    if (s.isStartBoundary()) {
+                        leftSep = s.x;
+                        startMarkIdx = i;
+                        break;
+                    }
+                    if (s.isEndBoundary() && s.x < textX) {
+                        break;
+                    }
+                }
+            }
+
+            int phraseOriginX = (leftSep != Integer.MIN_VALUE) ? leftSep : textX;
+            int scanFrom = (startMarkIdx != -1) ? (startMarkIdx + 1) : Math.max(0, searchIdx - 1);
+            for (int i = scanFrom; i < sepList.size(); i++) {
+                SeparatorMark s = sepList.get(i);
+                if (s == null) continue;
+                // Ignorer tout repère situé avant ou exactement sur l'origine de la phrase
+                // (notamment le repère END de la phrase précédente lorsqu'il est collé au START courant)
+                if (s.x <= phraseOriginX) continue;
+                if (s.isEndBoundary()) {
+                    rightSep = s.x;
+                    break;
+                }
+                if (s.isStartBoundary()) {
+                    nextPhraseStartX = s.x;
+                    break;
+                }
+                if ((s.type == SeparatorMark.Type.INNER || s.type == SeparatorMark.Type.LEGACY) && s.x > maxInnerX) {
+                    maxInnerX = s.x;
+                }
+            }
+        }
+
+        outBounds[0] = leftSep;
+        outBounds[1] = rightSep;
+        outBounds[2] = nextPhraseStartX;
+        outBounds[3] = maxInnerX;
     }
 
     /**
@@ -672,7 +913,7 @@ public class TimelineRenderer {
      */
     private int computeBaselineY(int bandIndex, int bandHeight, int textTopY, FontMetrics fm, int targetTextHeight) {
         int bandTop = bandIndex * bandHeight;
-        double scaleY = (double) targetTextHeight / Math.max(1, fm.getHeight());
+        double scaleY = computeScaleY(fm, targetTextHeight);
         return bandTop + textTopY + (int) Math.round(fm.getAscent() * scaleY);
     }
 
@@ -691,11 +932,7 @@ public class TimelineRenderer {
 
     /**
      * Recherche dichotomique (Binary Search en O(log N)) dans une liste ordonnée de repères de séparation.
-     * 
-     * Étant donné que les repères sont triés par coordonnée temporelle X croissante :
-     * - Au lieu de parcourir séquentiellement des milliers de repères (ce qui ralentirait le rendu 60 FPS),
-     *   on divise l'intervalle par deux à chaque étape.
-     * - Retourne l'index exact ou le point d'insertion du repère le plus proche.
+     * Retourne le premier index >= targetX (lower bound).
      */
     public static int findSepIndex(ArrayList<SeparatorMark> list, int targetX) {
         if (list == null || list.isEmpty()) return 0;
@@ -706,10 +943,8 @@ public class TimelineRenderer {
             int midVal = list.get(mid).x;
             if (midVal < targetX) {
                 low = mid + 1;
-            } else if (midVal > targetX) {
-                high = mid - 1;
             } else {
-                return mid;
+                high = mid - 1;
             }
         }
         return low;
@@ -738,11 +973,12 @@ public class TimelineRenderer {
     }
 
     private Font getBadgeFont(int bandHeight) {
-        if (cachedBadgeFont != null && cachedBadgeBandHeight == bandHeight) {
-            return cachedBadgeFont;
-        }
         String family = customization.timelineFontFamily != null && !customization.timelineFontFamily.isBlank()
                 ? customization.timelineFontFamily : "Segoe UI";
+        if (cachedBadgeFont != null && cachedBadgeBandHeight == bandHeight
+                && cachedBadgeFont.getFamily().equals(family)) {
+            return cachedBadgeFont;
+        }
         int size = Math.max(9, (int)(bandHeight * 0.2f));
         cachedBadgeFont = new Font(family, Font.BOLD, size);
         cachedBadgeBandHeight = bandHeight;
@@ -750,16 +986,40 @@ public class TimelineRenderer {
     }
 
     /**
-     * Dessine une chaîne de caractères étirée élastiquement via une transformation affine 2D (AffineTransform).
+     * Détecte si une portion de texte correspond à une prolongation phonétique explicite
+     * (ex: "Nooooon !", "Euuuh...", voyelles répétées au moins 3 fois, tildes de prolongation).
+     */
+    public static boolean isTextProlongedPattern(String text) {
+        if (text == null || text.length() < 2) return false;
+        String clean = text.trim().toLowerCase();
+        // Voyelles ou consonnes sonores répétées 3+ fois d'affilée (ex: "ooo", "aaa", "eee", "mmm", "uuu")
+        if (clean.matches(".*([a-zà-ÿ])\\1{2,}.*")) return true;
+        // Tilde de prolongation vocalique (ex: '~')
+        if (clean.contains("~")) return true;
+        return false;
+    }
+
+    /**
+     * Calcule le facteur d'échelle horizontal (scaleX) pour un texte ou tronçon sur la bande rythmo.
      * 
-     * Spécificité métier de la bande rythmo :
-     * Le texte n'est pas simplement rendu à taille fixe : il doit occuper précisément
-     * l'intervalle temporel alloué au dialogue ou au mot.
-     * 
-     * - scaleY adapte la hauteur des lettres pour occuper harmonieusement la hauteur de la piste.
-     * - scaleX étire ou compresse la largeur du texte (ratio targetWidth / sourceWidth)
-     *   tout en préservant des limites de sécurité (min 0.05x, max 15x) pour éviter les distorsions extrêmes.
-     * - translate(anchorX, baselineY) positionne l'origine directement sur la ligne de base.
+     * Étire, rétrécit ou compresse élastiquement le texte selon la largeur cible (targetWidth)
+     * et la largeur réelle mesurée dans la police active (sourceWidth), afin que le texte
+     * occupe exactement toute la durée de la phrase (ou du segment délimité par une fin)
+     * sans jamais déborder en dehors de la phrase.
+     */
+    public static double computeEffectiveScaleX(String text, double targetWidth, double sourceWidth, double scaleY) {
+        if (sourceWidth <= 0) return scaleY;
+        double rawScaleX = targetWidth / sourceWidth;
+        if (Double.isNaN(rawScaleX) || Double.isInfinite(rawScaleX) || rawScaleX <= 0) {
+            return scaleY;
+        }
+
+        double minScaleX = 0.02;
+        return Math.max(minScaleX, rawScaleX);
+    }
+
+    /**
+     * Dessine une chaîne de caractères étirée ou compressée élastiquement via une transformation affine 2D (AffineTransform).
      */
     private void drawScaledText(Graphics2D g2,
                                 FontMetrics fm,
@@ -770,24 +1030,13 @@ public class TimelineRenderer {
                                 int targetTextHeight,
                                 boolean anchoredRight) {
         if (text == null || text.isEmpty()) return;
-        double sourceWidth = fm.stringWidth(text);
+        double sourceWidth = measureTextWidth(fm, text);
         if (sourceWidth <= 0) return;
-        try {
-            java.awt.geom.Rectangle2D bounds = fm.getFont().getStringBounds(text, g2.getFontRenderContext());
-            if (bounds != null && bounds.getWidth() > sourceWidth) {
-                sourceWidth = bounds.getWidth();
-            }
-        } catch (Throwable ignored) {}
 
-        double scaleY = (double) targetTextHeight / Math.max(1, fm.getHeight());
+        double scaleY = computeScaleY(fm, targetTextHeight);
         double scaleX = scaleY;
         if (targetWidth != null && targetWidth > 0) {
-            scaleX = targetWidth / sourceWidth;
-            if (Double.isNaN(scaleX) || Double.isInfinite(scaleX) || scaleX <= 0) {
-                scaleX = scaleY;
-            } else {
-                scaleX = Math.max(0.02, Math.min(scaleX, 15.0));
-            }
+            scaleX = computeEffectiveScaleX(text, targetWidth, sourceWidth, scaleY);
         }
 
         AffineTransform old = g2.getTransform();
@@ -799,29 +1048,169 @@ public class TimelineRenderer {
     }
 
     /**
+     * Filtre et collecte les repères syllabiques internes (INNER) valides :
+     * élimine les coupures redondantes, les trous/espaces vides et les césures après clitiques français.
+     */
+    public static void collectValidInnerMarks(ArrayList<SeparatorMark> sepList, int segmentStart, int segmentEnd, TextItem t, ArrayList<SeparatorMark> outList) {
+        outList.clear();
+        if (sepList == null || sepList.isEmpty()) return;
+        int textLen = (t != null && t.text != null) ? t.text.length() : 0;
+        int prevInnerX = Integer.MIN_VALUE;
+
+        for (SeparatorMark m : sepList) {
+            if (m == null) continue;
+            if (m.x <= segmentStart || m.x >= segmentEnd) continue;
+            if (m.type == SeparatorMark.Type.INNER || m.type == SeparatorMark.Type.LEGACY) {
+                if (prevInnerX != Integer.MIN_VALUE && !outList.isEmpty()) {
+                    SeparatorMark last = outList.get(outList.size() - 1);
+                    boolean distinctSplits = (last.splitIndex >= 0 && m.splitIndex >= 0 && last.splitIndex != m.splitIndex);
+                    int dedupTol = distinctSplits ? 2 : 4;
+                    if (Math.abs(m.x - prevInnerX) <= dedupTol) {
+                        if (last.signType == SeparatorMark.SignType.DEFAULT && m.signType != SeparatorMark.SignType.DEFAULT) {
+                            outList.set(outList.size() - 1, m);
+                            prevInnerX = m.x;
+                        }
+                        continue; // Doublon strict ou superposé
+                    }
+                }
+                prevInnerX = m.x;
+                outList.add(m);
+            }
+        }
+
+        int prevSplit = 0;
+        for (int i = 0; i < outList.size(); i++) {
+            SeparatorMark m = outList.get(i);
+            if (m.splitIndex < 0) {
+                if (textLen > 0) {
+                    int nextKnownSplit = textLen;
+                    for (int j = i + 1; j < outList.size(); j++) {
+                        if (outList.get(j).splitIndex >= 0) {
+                            nextKnownSplit = Math.min(textLen, outList.get(j).splitIndex);
+                            break;
+                        }
+                    }
+                    double ratio = (double) (m.x - segmentStart) / Math.max(1, segmentEnd - segmentStart);
+                    int interp = (int) Math.round(ratio * textLen);
+                    m.splitIndex = Math.max(prevSplit, Math.min(Math.max(prevSplit, nextKnownSplit), interp));
+                } else {
+                    m.splitIndex = 0;
+                }
+            } else {
+                m.splitIndex = Math.max(prevSplit, Math.min(textLen, m.splitIndex));
+            }
+            prevSplit = m.splitIndex;
+        }
+    }
+
+    /**
      * Calcule la position horizontale précise en pixels à l'écran du curseur de texte (caret d'édition)
      * en tenant compte des déformations non linéaires introduites par les séparateurs syllabiques internes.
      */
     public double computeCursorXForSegments(FontMetrics fm,
-                                              TextItem t,
-                                              double offsetX,
-                                              int startWorldX,
-                                              int endWorldX,
-                                              ArrayList<SeparatorMark> innerMarks,
-                                              int cursorIdx,
-                                              boolean cursorRightSide) {
-        double prevX = startWorldX + offsetX;
-        int prevIdx = 0;
-        int len = t.text.length();
+                                            TextItem t,
+                                            double offsetX,
+                                            int startWorldX,
+                                            int endWorldX,
+                                            ArrayList<SeparatorMark> innerMarks,
+                                            int cursorIdx,
+                                            boolean cursorRightSide) {
+        int targetTextHeight = (fm != null) ? Math.max(8, fm.getHeight()) : 40;
+        return computeCursorXForSegments(fm, t, offsetX, startWorldX, endWorldX, innerMarks, cursorIdx, cursorRightSide, targetTextHeight, this.activeSegmentEndMarkX);
+    }
 
-        if (cursorIdx == 0 && !cursorRightSide) {
-            return (startWorldX + offsetX) - 4.0;
+    public double computeCursorXForSegments(FontMetrics fm,
+                                            TextItem t,
+                                            double offsetX,
+                                            int startWorldX,
+                                            int endWorldX,
+                                            ArrayList<SeparatorMark> innerMarks,
+                                            int cursorIdx,
+                                            boolean cursorRightSide,
+                                            int targetTextHeight) {
+        return computeCursorXForSegments(fm, t, offsetX, startWorldX, endWorldX, innerMarks, cursorIdx, cursorRightSide, targetTextHeight, this.activeSegmentEndMarkX);
+    }
+
+    public double computeCursorXForSegments(FontMetrics fm,
+                                            TextItem t,
+                                            double offsetX,
+                                            int startWorldX,
+                                            int endWorldX,
+                                            ArrayList<SeparatorMark> innerMarks,
+                                            int cursorIdx,
+                                            boolean cursorRightSide,
+                                            int targetTextHeight,
+                                            int targetSegEndMarkX) {
+        if (t == null || t.text == null) {
+            return startWorldX + offsetX + 4.0;
         }
+
+        int len = t.text.length();
+        if (len == 0 && (innerMarks == null || innerMarks.isEmpty())) {
+            return startWorldX + offsetX + 4.0;
+        }
+
+        if (fm == null) {
+            if (cachedFontMetrics != null) {
+                fm = cachedFontMetrics;
+            } else {
+                Font f = buildTimelineFont(targetTextHeight);
+                BufferedImage dummy = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+                fm = dummy.getGraphics().getFontMetrics(f != null ? f : new Font("Arial", Font.BOLD, Math.max(18, targetTextHeight)));
+            }
+        }
+        if (targetTextHeight <= 0) {
+            targetTextHeight = (fm != null) ? Math.max(8, fm.getHeight()) : 40;
+        }
+
+        double scaleY = computeScaleY(fm, targetTextHeight);
+
+        // Cas 1 : Aucun séparateur interne
+        if (innerMarks == null || innerMarks.isEmpty()) {
+            double leftPad = 2.0;
+            double rightPad = 4.0;
+            double segStartX = startWorldX + offsetX + leftPad;
+            double segEndX = endWorldX + offsetX - rightPad;
+            double segWidth = Math.max(2.0, segEndX - segStartX);
+            double total = measureTextWidth(fm, t.text);
+            if (total <= 0) return segStartX;
+
+            double scaleX = computeEffectiveScaleX(t.text, segWidth, total, scaleY);
+            int localIdx = Math.max(0, Math.min(cursorIdx, len));
+            double charOffset = measureTextWidth(fm, t.text.substring(0, localIdx)) * scaleX;
+            return segStartX + charOffset;
+        }
+
+        // Cas 2 : Présence de séparateurs internes
+        int matchedSegIdx = -1;
+        if (targetSegEndMarkX != -1) {
+            int pIdx = 0;
+            for (int mi = 0; mi < innerMarks.size(); mi++) {
+                SeparatorMark m = innerMarks.get(mi);
+                int idx = Math.max(pIdx, Math.min(len, m.splitIndex >= 0 ? m.splitIndex : 0));
+                if (targetSegEndMarkX != Integer.MAX_VALUE && Math.abs(m.x - targetSegEndMarkX) <= 6) {
+                    if (cursorIdx >= pIdx && cursorIdx <= idx) {
+                        matchedSegIdx = mi;
+                    }
+                    break;
+                }
+                pIdx = idx;
+            }
+            if (matchedSegIdx == -1 && targetSegEndMarkX == Integer.MAX_VALUE) {
+                int lastSplit = Math.max(0, Math.min(len, innerMarks.get(innerMarks.size() - 1).splitIndex));
+                if (cursorIdx >= lastSplit && cursorIdx <= len) {
+                    matchedSegIdx = innerMarks.size();
+                }
+            }
+        }
+
+        int prevX = startWorldX;
+        int prevIdx = 0;
 
         for (int mi = 0; mi < innerMarks.size(); mi++) {
             SeparatorMark mark = innerMarks.get(mi);
-            double segStart = prevX;
-            double segEnd = mark.x + offsetX;
+            int segStart = prevX;
+            int segEnd = mark.x;
             int idx = mark.splitIndex;
             if (idx < 0) {
                 double ratio = (double) (mark.x - startWorldX) / Math.max(1, endWorldX - startWorldX);
@@ -830,52 +1219,52 @@ public class TimelineRenderer {
             if (idx < prevIdx) idx = prevIdx;
             if (idx > len) idx = len;
 
-            boolean isTargetSegment = (mark.x == activeSegmentEndMarkX);
-            if (isTargetSegment || cursorIdx < idx || (cursorIdx == idx && !cursorRightSide)) {
-                if (cursorIdx == idx && !cursorRightSide) {
-                    return segEnd - 4.0; // Côté gauche du signe
-                }
-                if (cursorIdx == prevIdx && cursorRightSide) {
-                    return segStart + 2.0; // Côté droit du signe précédent
-                }
+            boolean inThisSegment = (matchedSegIdx != -1)
+                    ? (mi == matchedSegIdx)
+                    : ((cursorIdx < idx) || (cursorIdx == idx && !cursorRightSide));
+
+            if (inThisSegment) {
                 String segText = t.text.substring(prevIdx, idx);
-                double leftPad = (prevIdx == 0) ? 6.0 : 2.0;
-                double rightPad = 4.0;
-                double usableStart = segStart + leftPad;
-                double usableEnd = segEnd - rightPad;
-                double segWidth = Math.max(2.0, usableEnd - usableStart);
-                if (segText.isEmpty()) return usableStart;
-                double total = fm.stringWidth(segText);
-                if (total <= 0) return usableStart;
-                String before = segText.substring(0, Math.max(0, Math.min(cursorIdx - prevIdx, segText.length())));
-                double bw = fm.stringWidth(before);
-                return usableStart + (bw / total) * segWidth;
+                double leftPad = 2.0;
+                double rightPad = 3.0;
+                double segStartX = segStart + offsetX + leftPad;
+                double segEndX = segEnd + offsetX - rightPad;
+                double segWidth = Math.max(2.0, segEndX - segStartX);
+                if (segText.isEmpty()) {
+                    return Math.min(segStartX, segEnd + offsetX - 3.0);
+                }
+
+                double total = measureTextWidth(fm, segText);
+                if (total <= 0) return Math.min(segStartX, segEnd + offsetX - 3.0);
+
+                double scaleX = computeEffectiveScaleX(segText, segWidth, total, scaleY);
+                int localIdx = Math.max(0, Math.min(cursorIdx - prevIdx, segText.length()));
+                double charOffset = measureTextWidth(fm, segText.substring(0, localIdx)) * scaleX;
+                return Math.min(segStartX + charOffset, segEnd + offsetX - 3.0);
             }
 
-            prevX = mark.x + offsetX;
+            prevX = mark.x;
             prevIdx = idx;
         }
 
-        double segStart = prevX;
-        double segEnd = endWorldX + offsetX;
-        if (cursorIdx == len && cursorRightSide) {
-            return segEnd + 4.0; // Côté droit du signe de fin
-        }
-        if (cursorIdx == prevIdx && cursorRightSide && (!innerMarks.isEmpty() || prevIdx > 0)) {
-            return segStart + 2.0; // Côté droit du dernier signe interne
-        }
+        // Dernier tronçon après le dernier séparateur interne
+        int segStart = prevX;
+        int segEnd = endWorldX;
         String segText = t.text.substring(Math.min(prevIdx, len));
-        double leftPad = (prevIdx == 0) ? 6.0 : 2.0;
-        double rightPad = 8.0;
-        double usableStart = segStart + leftPad;
-        double usableEnd = segEnd - rightPad;
-        double segWidth = Math.max(2.0, usableEnd - usableStart);
-        if (segText.isEmpty()) return usableStart;
-        double total = fm.stringWidth(segText);
-        if (total <= 0) return usableStart;
+        double leftPad = 2.0;
+        double rightPad = 4.0;
+        double segStartX = segStart + offsetX + leftPad;
+        double segEndX = segEnd + offsetX - rightPad;
+        double segWidth = Math.max(2.0, segEndX - segStartX);
+        if (segText.isEmpty()) return segStartX;
+
+        double total = measureTextWidth(fm, segText);
+        if (total <= 0) return segStartX;
+
+        double scaleX = computeEffectiveScaleX(segText, segWidth, total, scaleY);
         int localIdx = Math.max(0, Math.min(cursorIdx - prevIdx, segText.length()));
-        double bw = fm.stringWidth(segText.substring(0, localIdx));
-        return usableStart + (bw / total) * segWidth;
+        double charOffset = measureTextWidth(fm, segText.substring(0, localIdx)) * scaleX;
+        return segStartX + charOffset;
     }
 
     /**
@@ -896,77 +1285,109 @@ public class TimelineRenderer {
         FontMetrics fm = g2.getFontMetrics(textFont);
         int textTopY = 1;
         int targetTextHeight = Math.max(8, bandHeight - 2);
+        double scaleY = computeScaleY(fm, targetTextHeight);
         int bandBaselineY = computeBaselineY(editingItem.band, bandHeight, textTopY, fm, targetTextHeight);
 
         ArrayList<SeparatorMark> sepList = bandSeparators.get(editingItem.band);
-        int leftSep = Integer.MIN_VALUE;
-        int rightSep = Integer.MAX_VALUE;
-        int nextPhraseStartX = Integer.MAX_VALUE;
+        int[] resolvedBounds = new int[4];
+        resolvePhraseBoundaries(sepList, editingItem.x, resolvedBounds);
+        int leftSep = resolvedBounds[0];
+        int rightSep = resolvedBounds[1];
+        int nextPhraseStartX = resolvedBounds[2];
+        int maxInnerX = resolvedBounds[3];
         ArrayList<SeparatorMark> innerMarks = new ArrayList<>();
-
-        if (sepList != null && !sepList.isEmpty()) {
-            int searchIdx = findSepIndex(sepList, editingItem.x);
-            int maxI = Math.min(searchIdx + 1, sepList.size() - 1);
-            for (int i = maxI; i >= 0; i--) {
-                SeparatorMark s = sepList.get(i);
-                if (s.x > editingItem.x) continue;
-                if (s.isStartBoundary()) { leftSep = s.x; break; }
-                if (s.isEndBoundary() && s.x < editingItem.x) break;
-            }
-            for (int i = Math.max(0, searchIdx - 1); i < sepList.size(); i++) {
-                SeparatorMark s = sepList.get(i);
-                if (s.x <= editingItem.x) continue;
-                if (s.isEndBoundary()) { rightSep = s.x; break; }
-                if (s.isStartBoundary()) { nextPhraseStartX = s.x; break; }
-            }
-        }
 
         int segmentStart = (leftSep != Integer.MIN_VALUE) ? leftSep : editingItem.x;
         int segmentEnd;
-        double textWidth = fm.stringWidth(editingItem.text);
-        int naturalWidth = Math.max(100, (int) Math.round(textWidth * 1.25));
+        double textWidth = measureTextWidth(fm, editingItem.text) * scaleY;
+        int naturalWidth = Math.max(24, (int) Math.ceil(textWidth + 6.0));
         if (rightSep != Integer.MAX_VALUE) {
             segmentEnd = Math.max(segmentStart + 10, rightSep);
         } else {
             segmentEnd = segmentStart + naturalWidth;
-            if (nextPhraseStartX != Integer.MAX_VALUE && segmentEnd > nextPhraseStartX - 5) {
-                segmentEnd = Math.max(segmentStart + 10, nextPhraseStartX - 5);
+            if (maxInnerX != Integer.MIN_VALUE && maxInnerX > segmentStart) {
+                segmentEnd = Math.max(segmentEnd, maxInnerX + Math.max(60, naturalWidth));
+            }
+            if (nextPhraseStartX != Integer.MAX_VALUE && segmentEnd > nextPhraseStartX - 4) {
+                segmentEnd = Math.max(segmentStart + 10, nextPhraseStartX - 4);
             }
         }
 
-        if (sepList != null && !sepList.isEmpty()) {
-            int startI = findSepIndex(sepList, segmentStart + 1);
-            for (int i = startI; i < sepList.size(); i++) {
-                SeparatorMark m = sepList.get(i);
-                if (m.x >= segmentEnd) break;
-                if (m.type == SeparatorMark.Type.INNER && m.x > segmentStart) {
-                    innerMarks.add(m);
-                }
-            }
-        }
+        collectValidInnerMarks(sepList, segmentStart, segmentEnd, editingItem, innerMarks);
 
-        int safeIdx = Math.max(0, Math.min(cursorIndex, editingItem.text.length()));
-        double cursorScreenX = computeCursorXForSegments(fm, editingItem, offsetX, segmentStart, segmentEnd, innerMarks, safeIdx, cursorRightSide);
-        if (editingItem.text.isEmpty()) {
-            cursorScreenX += 12;
-        }
+        int len = editingItem.text.length();
+        int safeIdx = Math.max(0, Math.min(cursorIndex, len));
+        double cursorScreenX = computeCursorXForSegments(fm, editingItem, offsetX, segmentStart, segmentEnd, innerMarks, safeIdx, cursorRightSide, targetTextHeight, this.activeSegmentEndMarkX);
 
         if (cursorScreenX >= -50 && cursorScreenX <= panelWidth + 50) {
-            int cursorTop = bandBaselineY - (int) Math.round(fm.getAscent() * ((double) targetTextHeight / Math.max(1, fm.getHeight())));
+            int cursorTop = bandBaselineY - (int) Math.round(fm.getAscent() * scaleY);
             int cursorBottom = bandBaselineY + 2;
             int cursorH = Math.max(12, cursorBottom - cursorTop);
             double cursorW = 3.0;
             double drawX = cursorScreenX - cursorW / 2.0;
 
-            boolean isNearSeparator = false;
-            for (SeparatorMark m : innerMarks) {
-                if (m.splitIndex == safeIdx) {
-                    isNearSeparator = true;
-                    break;
+            // Déterminer dans quel segment se trouve le caret pour orienter la flèche cyan (◄ ou ►)
+            int activeSegIdx = -1;
+            if (!innerMarks.isEmpty()) {
+                int pIdx = 0;
+                for (int mi = 0; mi < innerMarks.size(); mi++) {
+                    SeparatorMark m = innerMarks.get(mi);
+                    int idx = Math.max(pIdx, Math.min(len, m.splitIndex >= 0 ? m.splitIndex : 0));
+                    if (this.activeSegmentEndMarkX != Integer.MAX_VALUE && Math.abs(m.x - this.activeSegmentEndMarkX) <= 6) {
+                        if (safeIdx >= pIdx && safeIdx <= idx) {
+                            activeSegIdx = mi;
+                        }
+                        break;
+                    }
+                    pIdx = idx;
                 }
+                if (activeSegIdx == -1 && this.activeSegmentEndMarkX == Integer.MAX_VALUE) {
+                    activeSegIdx = innerMarks.size();
+                }
+                if (activeSegIdx == -1) {
+                    for (int mi = 0; mi < innerMarks.size(); mi++) {
+                        SeparatorMark m = innerMarks.get(mi);
+                        if (safeIdx < m.splitIndex || (safeIdx == m.splitIndex && !cursorRightSide)) {
+                            activeSegIdx = mi;
+                            break;
+                        }
+                    }
+                    if (activeSegIdx == -1) activeSegIdx = innerMarks.size();
+                }
+            } else {
+                activeSegIdx = 0;
             }
-            if (safeIdx == 0 || safeIdx == editingItem.text.length()) {
-                isNearSeparator = true;
+
+            boolean isNearSeparator = false;
+            boolean pointRight = cursorRightSide;
+            if (!innerMarks.isEmpty()) {
+                int segStartChar = (activeSegIdx == 0) ? 0 : innerMarks.get(activeSegIdx - 1).splitIndex;
+                int segEndChar = (activeSegIdx == innerMarks.size()) ? len : innerMarks.get(activeSegIdx).splitIndex;
+                if (segStartChar == segEndChar) {
+                    // Segment vide : le curseur est au début de ce segment (prêt à écrire vers la droite ►)
+                    isNearSeparator = true;
+                    pointRight = true;
+                } else if (activeSegIdx < innerMarks.size() && safeIdx == segEndChar) {
+                    isNearSeparator = true;
+                    pointRight = false; // Côté gauche du séparateur de droite (◄)
+                } else if (activeSegIdx > 0 && safeIdx == segStartChar) {
+                    isNearSeparator = true;
+                    pointRight = true;  // Côté droit du séparateur de gauche (►)
+                } else if (activeSegIdx == 0 && safeIdx == 0) {
+                    isNearSeparator = true;
+                    pointRight = true;
+                } else if (activeSegIdx == innerMarks.size() && safeIdx == len && len > 0) {
+                    isNearSeparator = true;
+                    pointRight = false;
+                }
+            } else {
+                if (safeIdx == 0) {
+                    isNearSeparator = true;
+                    pointRight = true;
+                } else if (safeIdx == len && len > 0) {
+                    isNearSeparator = true;
+                    pointRight = false;
+                }
             }
 
             // Dessin du caret blanc haute visibilité (jamais recouvert par un séparateur ni teinté en jaune)
@@ -982,7 +1403,7 @@ public class TimelineRenderer {
                 Color dirColor = new Color(0, 225, 255);
                 g2.setColor(dirColor);
                 int midY = (cursorTop + cursorBottom) / 2;
-                if (!cursorRightSide) {
+                if (!pointRight) {
                     g2.drawLine((int) Math.round(drawX), cursorTop, (int) Math.round(drawX - 4), cursorTop);
                     g2.drawLine((int) Math.round(drawX), cursorBottom, (int) Math.round(drawX - 4), cursorBottom);
                     int[] arrowX = { (int) Math.round(drawX - 6), (int) Math.round(drawX - 1), (int) Math.round(drawX - 1) };
@@ -999,14 +1420,11 @@ public class TimelineRenderer {
         }
     }
 
-    private void drawSeparators(Graphics2D g2, Map<Integer, ArrayList<SeparatorMark>> bandSeparators, int bandHeight, double offsetX, int panelWidth) {
+    private void drawSeparators(Graphics2D g2, Map<Integer, ArrayList<SeparatorMark>> bandSeparators, ArrayList<TextItem> texts, int bandHeight, double offsetX, int panelWidth) {
         float strokeW = Math.max(2f, (float) (bandHeight * 0.035f));
         g2.setStroke(new BasicStroke(strokeW));
         double triSize = Math.max(8.0, bandHeight * 0.15);
         double dotR = Math.max(3.0, bandHeight * 0.06);
-
-        double minWorldX = -offsetX - 70;
-        double maxWorldX = panelWidth - offsetX + 70;
 
         for (int band : bandSeparators.keySet()) {
             ArrayList<SeparatorMark> list = bandSeparators.get(band);
@@ -1014,59 +1432,112 @@ public class TimelineRenderer {
             int bandTop = band * bandHeight;
             int bandMid = bandTop + bandHeight / 2;
 
-            int startIdx = Math.max(0, findSepIndex(list, (int) Math.floor(minWorldX)) - 1);
-
-            for (int i = startIdx; i < list.size(); i++) {
+            for (int i = 0; i < list.size(); i++) {
                 SeparatorMark mark = list.get(i);
+                if (mark == null) continue;
                 double sx = mark.x + offsetX;
-                if (mark.x > maxWorldX) {
-                    break; // La liste étant triée, tous les suivants sont hors écran à droite
-                }
-                if (sx < -70) {
-                    continue; // Hors champ visible à gauche
+                if (sx < -100 || sx > panelWidth + 100) {
+                    continue; // Hors champ visible
                 }
                 switch (mark.type) {
                     case START -> {
+                        // Anti-doublon : ne jamais afficher deux flèches vertes au même endroit
+                        if (i > 0) {
+                            SeparatorMark prevMark = list.get(i - 1);
+                            if (prevMark.type == SeparatorMark.Type.START && Math.abs(prevMark.x - mark.x) <= 6) {
+                                continue;
+                            }
+                        }
+                        // Si un END de la phrase précédente est collé sur ce START, décaler légèrement le START à droite
+                        boolean gluedWithPrevEnd = false;
+                        for (int k = Math.max(0, i - 2); k <= Math.min(list.size() - 1, i + 2); k++) {
+                            SeparatorMark other = list.get(k);
+                            if (other != null && other.type == SeparatorMark.Type.END && Math.abs(other.x - mark.x) <= 6) {
+                                gluedWithPrevEnd = true;
+                                break;
+                            }
+                        }
+                        double drawSx = gluedWithPrevEnd ? (sx + 3.5) : sx;
                         BufferedImage startImg = getStartImage();
+                        int arrowH = Math.max(14, (int) Math.round(bandHeight * 0.38));
                         if (startImg != null) {
-                            double imgHeight = Math.max(14.0, bandHeight * 0.40);
                             double aspect = (double) startImg.getWidth() / Math.max(1, startImg.getHeight());
-                            double imgWidth = imgHeight * aspect;
-                            int imgX = (int) Math.round(sx - imgWidth / 2.0);
-                            int imgY = bandTop + bandHeight + 3;
-                            g2.drawImage(startImg, imgX, imgY, (int) Math.round(imgWidth), (int) Math.round(imgHeight), null);
+                            double imgWidth = arrowH * aspect;
+                            int imgX = (int) Math.round(drawSx - imgWidth / 2.0);
+                            int imgY = bandTop + bandHeight - arrowH - 4;
+                            g2.drawImage(startImg, imgX, imgY, (int) Math.round(imgWidth), arrowH, null);
                         } else {
-                            int isx = (int) Math.round(sx);
-                            int itriW = (int) Math.round(Math.max(8.0, bandHeight * 0.15));
-                            int itriH = (int) Math.round(Math.max(10.0, bandHeight * 0.25));
-                            int baseY = bandTop + bandHeight + 3;
+                            int isx = (int) Math.round(drawSx);
+                            int itriW = (int) Math.round(Math.max(8.0, arrowH * 0.60));
+                            int baseY = bandTop + bandHeight - 4;
                             int[] px = { isx, isx - itriW / 2, isx + itriW / 2 };
-                            int[] py = { baseY, baseY + itriH, baseY + itriH };
+                            int[] py = { baseY - arrowH, baseY, baseY };
                             g2.setColor(new Color(80, 220, 120));
                             g2.fillPolygon(px, py, 3);
                         }
                     }
                     case END -> {
+                        // Anti-doublon : ne jamais afficher deux flèches rouges au même endroit
+                        if (i > 0) {
+                            SeparatorMark prevMark = list.get(i - 1);
+                            if (prevMark.type == SeparatorMark.Type.END && Math.abs(prevMark.x - mark.x) <= 6) {
+                                continue;
+                            }
+                        }
+                        // Si ce END est collé sur le START de la phrase suivante, décaler légèrement le END à gauche
+                        boolean gluedWithNextStart = false;
+                        for (int k = Math.max(0, i - 2); k <= Math.min(list.size() - 1, i + 2); k++) {
+                            SeparatorMark other = list.get(k);
+                            if (other != null && other.type == SeparatorMark.Type.START && Math.abs(other.x - mark.x) <= 6) {
+                                gluedWithNextStart = true;
+                                break;
+                            }
+                        }
+                        double drawSx = gluedWithNextStart ? (sx - 3.5) : sx;
                         BufferedImage endImg = getEndImage();
+                        int arrowH = Math.max(14, (int) Math.round(bandHeight * 0.38));
                         if (endImg != null) {
-                            double imgHeight = Math.max(14.0, bandHeight * 0.40);
                             double aspect = (double) endImg.getWidth() / Math.max(1, endImg.getHeight());
-                            double imgWidth = imgHeight * aspect;
-                            int imgX = (int) Math.round(sx - imgWidth / 2.0);
-                            int imgY = bandTop + bandHeight + 3;
-                            g2.drawImage(endImg, imgX, imgY, (int) Math.round(imgWidth), (int) Math.round(imgHeight), null);
+                            double imgWidth = arrowH * aspect;
+                            int imgX = (int) Math.round(drawSx - imgWidth / 2.0);
+                            int imgY = bandTop + bandHeight - arrowH - 4;
+                            g2.drawImage(endImg, imgX, imgY, (int) Math.round(imgWidth), arrowH, null);
                         } else {
-                            int isx = (int) Math.round(sx);
-                            int itriW = (int) Math.round(Math.max(8.0, bandHeight * 0.15));
-                            int itriH = (int) Math.round(Math.max(10.0, bandHeight * 0.25));
-                            int baseY = bandTop + bandHeight + 3;
+                            int isx = (int) Math.round(drawSx);
+                            int itriW = (int) Math.round(Math.max(8.0, arrowH * 0.60));
+                            int baseY = bandTop + bandHeight - 4;
                             int[] px = { isx, isx - itriW / 2, isx + itriW / 2 };
-                            int[] py = { baseY, baseY + itriH, baseY + itriH };
+                            int[] py = { baseY - arrowH, baseY, baseY };
                             g2.setColor(new Color(255, 60, 60));
                             g2.fillPolygon(px, py, 3);
                         }
                     }
                     case INNER -> {
+                        if (mark.signType == SeparatorMark.SignType.PLAN_CUT) {
+                            // Ignoré : les changements de plan sont exclusivement matérialisés par la grande barre verticale
+                            continue;
+                        }
+                        // Le repère de début de phrase est EXCLUSIVEMENT la flèche verte :
+                        // Ne jamais dessiner de séparateur intérieur superposé ou adjacent (<= 6px) à la flèche START ou END
+                        boolean overlapsBoundary = false;
+                        for (int k = Math.max(0, i - 2); k <= Math.min(list.size() - 1, i + 2); k++) {
+                            SeparatorMark other = list.get(k);
+                            if (other != mark && (other.type == SeparatorMark.Type.START || other.type == SeparatorMark.Type.END) && Math.abs(other.x - mark.x) <= 6) {
+                                overlapsBoundary = true;
+                                break;
+                            }
+                        }
+                        if (overlapsBoundary) {
+                            continue;
+                        }
+
+                        if (i > 0) {
+                            SeparatorMark prevMark = list.get(i - 1);
+                            if (prevMark.type == SeparatorMark.Type.INNER && Math.abs(prevMark.x - mark.x) < 3) {
+                                // Doublon strict identique
+                                continue;
+                            }
+                        }
                         Color sepCol = customization.timelineSeparator;
                         String badge = null;
                         if (mark.signType == SeparatorMark.SignType.FVR) {
@@ -1300,6 +1771,7 @@ public class TimelineRenderer {
         int width = image.getWidth();
         int height = image.getHeight();
         BufferedImage transparentImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        int minX = width, maxX = -1, minY = height, maxY = -1;
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
                 int rgb = image.getRGB(x, y);
@@ -1310,10 +1782,25 @@ public class TimelineRenderer {
                 // Si le pixel est blanc opaque, on le rend transparent
                 if (alpha > 200 && red > 235 && green > 235 && blue > 235) {
                     transparentImage.setRGB(x, y, 0x00000000);
-                } else {
+                } else if (alpha > 20) {
                     transparentImage.setRGB(x, y, rgb);
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                } else {
+                    transparentImage.setRGB(x, y, 0x00000000);
                 }
             }
+        }
+        if (minX <= maxX && minY <= maxY) {
+            int cropW = maxX - minX + 1;
+            int cropH = maxY - minY + 1;
+            BufferedImage cropped = new BufferedImage(cropW, cropH, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = cropped.createGraphics();
+            g.drawImage(transparentImage.getSubimage(minX, minY, cropW, cropH), 0, 0, null);
+            g.dispose();
+            return cropped;
         }
         return transparentImage;
     }

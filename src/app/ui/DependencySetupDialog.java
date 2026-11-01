@@ -26,8 +26,9 @@ public class DependencySetupDialog extends JDialog {
     public DependencySetupDialog(Frame parent) {
         super(parent, "OmeRyth — Composants Essentiels", true);
         setSize(650, 480);
+        setMinimumSize(new Dimension(500, 360));
         setLocationRelativeTo(parent);
-        setResizable(false);
+        setResizable(true);
         setLayout(new BorderLayout(15, 15));
 
         // Fond sombre moderne

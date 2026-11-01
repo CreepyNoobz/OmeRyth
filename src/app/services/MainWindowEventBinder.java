@@ -104,6 +104,11 @@ public class MainWindowEventBinder {
                 if (keyBoardListener.dispatchKeyEvent(e)) {
                     return true;
                 }
+            } else if (e.getID() == java.awt.event.KeyEvent.KEY_TYPED) {
+                if (timelinePanel.isEditing() && src != timelinePanel) {
+                    keyBoardListener.keyTyped(e);
+                    return true;
+                }
             } else if (e.getID() == java.awt.event.KeyEvent.KEY_RELEASED) {
                 keyBoardListener.keyReleased(e);
             }

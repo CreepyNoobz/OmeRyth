@@ -42,20 +42,90 @@ public class ExportVideoDialog extends JDialog {
         public final int height;
         public final double visibleSeconds;
         public final int fps;
+        public final int roleLabelScalePercent;
         public final boolean isBuiltin;
 
         public ExportPreset(String name, int width, int height, double visibleSeconds, int fps, boolean isBuiltin) {
+            this(name, width, height, visibleSeconds, fps, 100, isBuiltin);
+        }
+
+        public ExportPreset(String name, int width, int height, double visibleSeconds, int fps, int roleLabelScalePercent, boolean isBuiltin) {
             this.name = name;
             this.width = width;
             this.height = height;
             this.visibleSeconds = visibleSeconds;
             this.fps = fps;
+            this.roleLabelScalePercent = Math.max(10, Math.min(200, roleLabelScalePercent));
             this.isBuiltin = isBuiltin;
         }
 
         @Override
         public String toString() {
             return name;
+        }
+    }
+
+    public static class TextOverlayConfig {
+        public boolean enabled = false;
+        public String text = "© OmeRyth";
+        public String fontFamily = "Segoe UI";
+        public int fontSize = 42;
+        public boolean bold = true;
+        public boolean italic = false;
+        public Color color = Color.WHITE;
+        public int opacity = 80; // 0 à 100%
+        public double angle = 0.0; // degrés (-180° à +180°)
+        public int posX = 50; // % largeur (0 à 100%)
+        public int posY = 50; // % hauteur (0 à 100%)
+        public double exactPosX = 50.0;
+        public double exactPosY = 50.0;
+        private boolean hasExactPos = false;
+        public boolean outline = true;
+        public Color outlineColor = new Color(0, 0, 0, 220);
+        public int outlineWidth = 3;
+
+        public double getEffectivePosX() {
+            if (hasExactPos && Math.abs(exactPosX - posX) <= 1.0) {
+                return exactPosX;
+            }
+            return posX;
+        }
+
+        public double getEffectivePosY() {
+            if (hasExactPos && Math.abs(exactPosY - posY) <= 1.0) {
+                return exactPosY;
+            }
+            return posY;
+        }
+
+        public void setExactPosition(double xPct, double yPct) {
+            this.exactPosX = Math.max(0.0, Math.min(100.0, xPct));
+            this.exactPosY = Math.max(0.0, Math.min(100.0, yPct));
+            this.posX = (int) Math.round(this.exactPosX);
+            this.posY = (int) Math.round(this.exactPosY);
+            this.hasExactPos = true;
+        }
+
+        public TextOverlayConfig copy() {
+            TextOverlayConfig c = new TextOverlayConfig();
+            c.enabled = this.enabled;
+            c.text = this.text;
+            c.fontFamily = this.fontFamily;
+            c.fontSize = this.fontSize;
+            c.bold = this.bold;
+            c.italic = this.italic;
+            c.color = this.color;
+            c.opacity = this.opacity;
+            c.angle = this.angle;
+            c.posX = this.posX;
+            c.posY = this.posY;
+            c.exactPosX = this.exactPosX;
+            c.exactPosY = this.exactPosY;
+            c.hasExactPos = this.hasExactPos;
+            c.outline = this.outline;
+            c.outlineColor = this.outlineColor;
+            c.outlineWidth = this.outlineWidth;
+            return c;
         }
     }
 
@@ -79,6 +149,9 @@ public class ExportVideoDialog extends JDialog {
         public java.util.List<String> layerOrder = new java.util.ArrayList<>(java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"));
         public java.util.List<double[]> voiceKeepZones = new java.util.ArrayList<>();
         public boolean voiceCutMode = true;
+        public boolean mirrorVideo = false;
+        public int roleLabelScalePercent = 100; // 10% à 200%
+        public TextOverlayConfig textOverlay = new TextOverlayConfig();
         public boolean approved = false;
     }
 
@@ -99,6 +172,9 @@ public class ExportVideoDialog extends JDialog {
         public double visibleSeconds;
         public String encoder;
         public java.util.List<String> layerOrder;
+        public boolean mirrorVideo;
+        public int roleLabelScalePercent = 100;
+        public TextOverlayConfig textOverlay = new TextOverlayConfig();
         public boolean isBuiltin;
 
         public MontagePreset(String name, int width, int height, Rectangle videoRect, Rectangle bandRect,
@@ -106,6 +182,26 @@ public class ExportVideoDialog extends JDialog {
                              int antiCopyrightOpacity, boolean blurBackground, int blurRadius,
                              int blurOpacity, int fps, double visibleSeconds, String encoder,
                              java.util.List<String> layerOrder, boolean isBuiltin) {
+            this(name, width, height, videoRect, bandRect, templateName, removeVocals, antiCopyright,
+                    antiCopyrightOpacity, blurBackground, blurRadius, blurOpacity, fps, visibleSeconds, encoder,
+                    layerOrder, null, false, isBuiltin);
+        }
+
+        public MontagePreset(String name, int width, int height, Rectangle videoRect, Rectangle bandRect,
+                             String templateName, boolean removeVocals, boolean antiCopyright,
+                             int antiCopyrightOpacity, boolean blurBackground, int blurRadius,
+                             int blurOpacity, int fps, double visibleSeconds, String encoder,
+                             java.util.List<String> layerOrder, TextOverlayConfig textOverlay, boolean isBuiltin) {
+            this(name, width, height, videoRect, bandRect, templateName, removeVocals, antiCopyright,
+                    antiCopyrightOpacity, blurBackground, blurRadius, blurOpacity, fps, visibleSeconds, encoder,
+                    layerOrder, textOverlay, false, isBuiltin);
+        }
+
+        public MontagePreset(String name, int width, int height, Rectangle videoRect, Rectangle bandRect,
+                             String templateName, boolean removeVocals, boolean antiCopyright,
+                             int antiCopyrightOpacity, boolean blurBackground, int blurRadius,
+                             int blurOpacity, int fps, double visibleSeconds, String encoder,
+                             java.util.List<String> layerOrder, TextOverlayConfig textOverlay, boolean mirrorVideo, boolean isBuiltin) {
             this.name = name;
             this.width = width;
             this.height = height;
@@ -122,12 +218,643 @@ public class ExportVideoDialog extends JDialog {
             this.visibleSeconds = visibleSeconds;
             this.encoder = encoder != null ? encoder : "auto";
             this.layerOrder = (layerOrder != null) ? new java.util.ArrayList<>(layerOrder) : new java.util.ArrayList<>(java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"));
+            if (textOverlay != null) {
+                this.textOverlay = textOverlay.copy();
+            }
+            this.mirrorVideo = mirrorVideo;
             this.isBuiltin = isBuiltin;
         }
 
         @Override
         public String toString() {
             return name;
+        }
+    }
+
+    public static String[] getAvailableWatermarkFonts() {
+        java.util.LinkedHashSet<String> fonts = new java.util.LinkedHashSet<>();
+        String[] priority = new String[]{"Segoe UI", "Arial", "Impact", "Montserrat", "Verdana", "Tahoma", "Trebuchet MS", "Georgia", "Times New Roman", "Consolas", "Courier New"};
+        for (String p : priority) fonts.add(p);
+        try {
+            String[] sys = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
+            for (String s : sys) fonts.add(s);
+        } catch (Throwable ignored) {}
+        return fonts.toArray(new String[0]);
+    }
+
+    public static Dimension computeTextOverlayExportSize(TextOverlayConfig cfg) {
+        if (cfg == null || cfg.text == null || cfg.text.trim().isEmpty()) {
+            return new Dimension(120, 48);
+        }
+        int style = Font.PLAIN;
+        if (cfg.bold && cfg.italic) style = Font.BOLD | Font.ITALIC;
+        else if (cfg.bold) style = Font.BOLD;
+        else if (cfg.italic) style = Font.ITALIC;
+        Font font = new Font(cfg.fontFamily != null ? cfg.fontFamily : "Segoe UI", style, Math.max(6, cfg.fontSize));
+        java.awt.font.FontRenderContext frc = new java.awt.font.FontRenderContext(null, true, true);
+        String[] lines = cfg.text.split("\r?\n");
+        int maxW = 40;
+        int lineH = Math.max(12, cfg.fontSize);
+        for (String line : lines) {
+            java.awt.geom.Rectangle2D b = font.getStringBounds(line, frc);
+            maxW = Math.max(maxW, (int) Math.ceil(b.getWidth()));
+            lineH = Math.max(lineH, (int) Math.ceil(b.getHeight()));
+        }
+        int pad = (cfg.outline ? cfg.outlineWidth * 2 : 0) + 16;
+        return new Dimension(maxW + pad, lines.length * lineH + pad);
+    }
+
+    public static void drawTextOverlay(Graphics2D g2Original, TextOverlayConfig cfg, int canvasW, int canvasH) {
+        if (cfg == null || !cfg.enabled || cfg.text == null || cfg.text.trim().isEmpty()) {
+            return;
+        }
+        float alpha = Math.max(0.0f, Math.min(1.0f, cfg.opacity / 100.0f));
+        if (alpha <= 0.001f) return;
+
+        Graphics2D g2 = (Graphics2D) g2Original.create();
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+
+            int style = Font.PLAIN;
+            if (cfg.bold && cfg.italic) style = Font.BOLD | Font.ITALIC;
+            else if (cfg.bold) style = Font.BOLD;
+            else if (cfg.italic) style = Font.ITALIC;
+
+            Font font = new Font(cfg.fontFamily != null ? cfg.fontFamily : "Segoe UI", style, Math.max(6, cfg.fontSize));
+            g2.setFont(font);
+            FontMetrics fm = g2.getFontMetrics(font);
+
+            double cx = (canvasW * cfg.getEffectivePosX()) / 100.0;
+            double cy = (canvasH * cfg.getEffectivePosY()) / 100.0;
+
+            java.awt.geom.AffineTransform origXform = g2.getTransform();
+            g2.translate(cx, cy);
+            if (Math.abs(cfg.angle) > 0.001) {
+                g2.rotate(Math.toRadians(cfg.angle));
+            }
+
+            String[] lines = cfg.text.split("\r?\n");
+            int lineHeight = fm.getHeight();
+            int totalHeight = lines.length * lineHeight;
+            int startY = -totalHeight / 2 + fm.getAscent();
+
+            for (int i = 0; i < lines.length; i++) {
+                String line = lines[i];
+                int textW = fm.stringWidth(line);
+                int drawX = -textW / 2;
+                int drawY = startY + i * lineHeight;
+
+                if (cfg.outline && cfg.outlineWidth > 0) {
+                    try {
+                        java.awt.font.FontRenderContext frc = g2.getFontRenderContext();
+                        java.awt.font.GlyphVector gv = font.createGlyphVector(frc, line);
+                        Shape glyphShape = gv.getOutline(drawX, drawY);
+
+                        float outlineAlpha = alpha * Math.min(1.0f, (cfg.outlineColor != null ? cfg.outlineColor.getAlpha() / 255.0f : 1.0f));
+                        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, outlineAlpha));
+                        Color baseOutline = cfg.outlineColor != null ? cfg.outlineColor : Color.BLACK;
+                        g2.setColor(new Color(baseOutline.getRed(), baseOutline.getGreen(), baseOutline.getBlue()));
+                        g2.setStroke(new BasicStroke(cfg.outlineWidth * 2.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                        g2.draw(glyphShape);
+                    } catch (Throwable ignored) {
+                        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha * 0.7f));
+                        g2.setColor(cfg.outlineColor != null ? cfg.outlineColor : Color.BLACK);
+                        g2.drawString(line, drawX + cfg.outlineWidth, drawY + cfg.outlineWidth);
+                    }
+                }
+
+                float fillAlpha = alpha * Math.min(1.0f, (cfg.color != null ? cfg.color.getAlpha() / 255.0f : 1.0f));
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, fillAlpha));
+                Color baseColor = cfg.color != null ? cfg.color : Color.WHITE;
+                g2.setColor(new Color(baseColor.getRed(), baseColor.getGreen(), baseColor.getBlue()));
+                g2.drawString(line, drawX, drawY);
+            }
+
+            g2.setTransform(origXform);
+        } finally {
+            g2.dispose();
+        }
+    }
+
+    private static String serializeTextOverlay(TextOverlayConfig c) {
+        if (c == null) return "";
+        String b64Text = (c.text != null && !c.text.isEmpty())
+                ? java.util.Base64.getEncoder().encodeToString(c.text.getBytes(StandardCharsets.UTF_8))
+                : "";
+        int colRgb = (c.color != null) ? c.color.getRGB() : Color.WHITE.getRGB();
+        int outColRgb = (c.outlineColor != null) ? c.outlineColor.getRGB() : new Color(0, 0, 0, 220).getRGB();
+        return c.enabled + ";" + b64Text + ";" + (c.fontFamily != null ? c.fontFamily : "Segoe UI") + ";" +
+               c.fontSize + ";" + c.bold + ";" + c.italic + ";" + colRgb + ";" + c.opacity + ";" +
+               c.angle + ";" + c.posX + ";" + c.posY + ";" + c.outline + ";" + outColRgb + ";" + c.outlineWidth;
+    }
+
+    private static TextOverlayConfig deserializeTextOverlay(String raw) {
+        TextOverlayConfig c = new TextOverlayConfig();
+        if (raw == null || raw.trim().isEmpty()) return c;
+        try {
+            String[] parts = raw.split(";", -1);
+            if (parts.length >= 14) {
+                c.enabled = Boolean.parseBoolean(parts[0]);
+                if (!parts[1].isEmpty()) {
+                    c.text = new String(java.util.Base64.getDecoder().decode(parts[1]), StandardCharsets.UTF_8);
+                }
+                c.fontFamily = parts[2];
+                c.fontSize = Integer.parseInt(parts[3]);
+                c.bold = Boolean.parseBoolean(parts[4]);
+                c.italic = Boolean.parseBoolean(parts[5]);
+                c.color = new Color(Integer.parseInt(parts[6]), true);
+                c.opacity = Integer.parseInt(parts[7]);
+                c.angle = Double.parseDouble(parts[8]);
+                c.posX = Integer.parseInt(parts[9]);
+                c.posY = Integer.parseInt(parts[10]);
+                c.outline = Boolean.parseBoolean(parts[11]);
+                c.outlineColor = new Color(Integer.parseInt(parts[12]), true);
+                c.outlineWidth = Integer.parseInt(parts[13]);
+            }
+        } catch (Exception ex) {
+            System.err.println("Erreur chargement watermark: " + ex.getMessage());
+        }
+        return c;
+    }
+
+    public class WatermarkControlGroup {
+        public final JCheckBox checkEnabled;
+        public final JTextField textInput;
+        public final JComboBox<String> comboFont;
+        public final JSpinner spinnerFontSize;
+        public final JCheckBox checkBold;
+        public final JCheckBox checkItalic;
+        public final JButton btnTextColor;
+        public final JCheckBox checkOutline;
+        public final JButton btnOutlineColor;
+        public final JSpinner spinnerOutlineWidth;
+        public final JComboBox<String> comboPosition;
+        public final JSpinner spinnerPosX;
+        public final JSpinner spinnerPosY;
+        public final JSpinner spinnerAngle;
+        public final JSlider sliderOpacity;
+        public final JLabel lblOpacityVal;
+
+        private Color currentColor = Color.WHITE;
+        private Color currentOutlineColor = new Color(0, 0, 0, 220);
+        private boolean isUpdating = false;
+        private boolean isUpdatingPos = false;
+        private final Runnable changeCallback;
+        private JPanel contentPanel;
+
+        public WatermarkControlGroup(Runnable changeCallback) {
+            this.changeCallback = changeCallback;
+
+            checkEnabled = new JCheckBox("Activer l'incrustation de texte / filigrane", false);
+            checkEnabled.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            checkEnabled.setForeground(new Color(56, 189, 248)); // Sky Blue
+
+            textInput = new JTextField("© OmeRyth");
+            textInput.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+
+            comboFont = new JComboBox<>(getAvailableWatermarkFonts());
+            comboFont.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            comboFont.setSelectedItem("Segoe UI");
+
+            spinnerFontSize = new JSpinner(new SpinnerNumberModel(42, 8, 300, 2));
+            checkBold = new JCheckBox("Gras", true);
+            checkBold.setFont(new Font("Segoe UI", Font.BOLD, 10));
+            checkItalic = new JCheckBox("Italique", false);
+            checkItalic.setFont(new Font("Segoe UI", Font.ITALIC, 10));
+
+            btnTextColor = new JButton("Couleur...");
+            btnTextColor.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+            btnTextColor.setForeground(Color.BLACK);
+            btnTextColor.setIcon(createColorIcon(currentColor));
+
+            checkOutline = new JCheckBox("Contour", true);
+            checkOutline.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+            checkOutline.setForeground(new Color(212, 212, 216));
+
+            btnOutlineColor = new JButton("Noir");
+            btnOutlineColor.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+            btnOutlineColor.setForeground(Color.BLACK);
+            btnOutlineColor.setIcon(createColorIcon(currentOutlineColor));
+
+            spinnerOutlineWidth = new JSpinner(new SpinnerNumberModel(3, 1, 15, 1));
+
+            String[] posOptions = new String[]{
+                    "Centre (50%, 50%)",
+                    "En haut à gauche (10%, 8%)",
+                    "En haut au centre (50%, 8%)",
+                    "En haut à droite (90%, 8%)",
+                    "En bas à gauche (10%, 92%)",
+                    "En bas au centre (50%, 92%)",
+                    "En bas à droite (90%, 92%)",
+                    "Personnalisée"
+            };
+            comboPosition = new JComboBox<>(posOptions);
+            comboPosition.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+
+            spinnerPosX = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
+            spinnerPosY = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
+
+            spinnerAngle = new JSpinner(new SpinnerNumberModel(0.0, -180.0, 180.0, 5.0));
+
+            sliderOpacity = new JSlider(0, 100, 80);
+            sliderOpacity.setOpaque(false);
+            lblOpacityVal = new JLabel("80%");
+            lblOpacityVal.setFont(new Font("Consolas", Font.BOLD, 11));
+            lblOpacityVal.setForeground(new Color(56, 189, 248));
+
+            setupListeners();
+        }
+
+        private void setupListeners() {
+            checkEnabled.addActionListener(e -> {
+                updateContentEnabledState();
+                triggerChange();
+            });
+
+            textInput.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+                @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { if (!isUpdating) triggerChange(); }
+                @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { if (!isUpdating) triggerChange(); }
+                @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { if (!isUpdating) triggerChange(); }
+            });
+
+            comboFont.addActionListener(e -> { if (!isUpdating) triggerChange(); });
+            spinnerFontSize.addChangeListener(e -> { if (!isUpdating) triggerChange(); });
+            checkBold.addActionListener(e -> { if (!isUpdating) triggerChange(); });
+            checkItalic.addActionListener(e -> { if (!isUpdating) triggerChange(); });
+
+            btnTextColor.addActionListener(e -> {
+                Color c = JColorChooser.showDialog(ExportVideoDialog.this, "Couleur du texte", currentColor);
+                if (c != null) {
+                    currentColor = c;
+                    btnTextColor.setIcon(createColorIcon(currentColor));
+                    triggerChange();
+                }
+            });
+
+            checkOutline.addActionListener(e -> {
+                boolean en = checkOutline.isSelected();
+                btnOutlineColor.setEnabled(en);
+                spinnerOutlineWidth.setEnabled(en);
+                triggerChange();
+            });
+
+            btnOutlineColor.addActionListener(e -> {
+                Color c = JColorChooser.showDialog(ExportVideoDialog.this, "Couleur du contour", currentOutlineColor);
+                if (c != null) {
+                    currentOutlineColor = c;
+                    btnOutlineColor.setIcon(createColorIcon(currentOutlineColor));
+                    triggerChange();
+                }
+            });
+
+            spinnerOutlineWidth.addChangeListener(e -> { if (!isUpdating) triggerChange(); });
+
+            comboPosition.addActionListener(e -> {
+                if (isUpdating || isUpdatingPos) return;
+                int idx = comboPosition.getSelectedIndex();
+                isUpdatingPos = true;
+                switch (idx) {
+                    case 0 -> { spinnerPosX.setValue(50); spinnerPosY.setValue(50); }
+                    case 1 -> { spinnerPosX.setValue(10); spinnerPosY.setValue(8); }
+                    case 2 -> { spinnerPosX.setValue(50); spinnerPosY.setValue(8); }
+                    case 3 -> { spinnerPosX.setValue(90); spinnerPosY.setValue(8); }
+                    case 4 -> { spinnerPosX.setValue(10); spinnerPosY.setValue(92); }
+                    case 5 -> { spinnerPosX.setValue(50); spinnerPosY.setValue(92); }
+                    case 6 -> { spinnerPosX.setValue(90); spinnerPosY.setValue(92); }
+                }
+                isUpdatingPos = false;
+                triggerChange();
+            });
+
+            javax.swing.event.ChangeListener posListener = e -> {
+                if (isUpdating || isUpdatingPos) return;
+                int px = ((Number) spinnerPosX.getValue()).intValue();
+                int py = ((Number) spinnerPosY.getValue()).intValue();
+                isUpdatingPos = true;
+                if (px == 50 && py == 50) comboPosition.setSelectedIndex(0);
+                else if (px == 10 && py == 8) comboPosition.setSelectedIndex(1);
+                else if (px == 50 && py == 8) comboPosition.setSelectedIndex(2);
+                else if (px == 90 && py == 8) comboPosition.setSelectedIndex(3);
+                else if (px == 10 && py == 92) comboPosition.setSelectedIndex(4);
+                else if (px == 50 && py == 92) comboPosition.setSelectedIndex(5);
+                else if (px == 90 && py == 92) comboPosition.setSelectedIndex(6);
+                else comboPosition.setSelectedIndex(7);
+                isUpdatingPos = false;
+                triggerChange();
+            };
+            spinnerPosX.addChangeListener(posListener);
+            spinnerPosY.addChangeListener(posListener);
+
+            spinnerAngle.addChangeListener(e -> { if (!isUpdating) triggerChange(); });
+
+            sliderOpacity.addChangeListener(e -> {
+                lblOpacityVal.setText(sliderOpacity.getValue() + "%");
+                if (!isUpdating) triggerChange();
+            });
+        }
+
+        public JPanel createPanel(String title) {
+            JPanel panel = new JPanel();
+            panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+            panel.setBorder(BorderFactory.createTitledBorder(
+                    BorderFactory.createLineBorder(new Color(63, 63, 70)),
+                    title,
+                    TitledBorder.LEFT, TitledBorder.TOP,
+                    new Font("Segoe UI", Font.PLAIN, 11),
+                    new Color(212, 212, 216)
+            ));
+
+            JPanel topToggle = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 2));
+            topToggle.setOpaque(false);
+            topToggle.add(checkEnabled);
+            panel.add(topToggle);
+
+            contentPanel = new JPanel();
+            contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
+            contentPanel.setOpaque(false);
+            contentPanel.setBorder(new EmptyBorder(2, 4, 4, 4));
+
+            // 1. Texte
+            JPanel rowText = new JPanel(new BorderLayout(6, 0));
+            rowText.setOpaque(false);
+            JLabel lblTxt = new JLabel("Texte :");
+            lblTxt.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            lblTxt.setPreferredSize(new Dimension(65, 22));
+            rowText.add(lblTxt, BorderLayout.WEST);
+            rowText.add(textInput, BorderLayout.CENTER);
+            contentPanel.add(rowText);
+            contentPanel.add(Box.createVerticalStrut(4));
+
+            // 2. Position
+            JPanel rowPos = new JPanel(new GridBagLayout());
+            rowPos.setOpaque(false);
+            GridBagConstraints gbcP = new GridBagConstraints();
+            gbcP.fill = GridBagConstraints.HORIZONTAL;
+            gbcP.insets = new Insets(1, 2, 1, 2);
+
+            gbcP.gridx = 0; gbcP.weightx = 0;
+            JLabel lblPos = new JLabel("Position :");
+            lblPos.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            lblPos.setPreferredSize(new Dimension(65, 22));
+            rowPos.add(lblPos, gbcP);
+
+            gbcP.gridx = 1; gbcP.weightx = 0.55;
+            rowPos.add(comboPosition, gbcP);
+
+            gbcP.gridx = 2; gbcP.weightx = 0;
+            JLabel lblX = new JLabel("X:");
+            lblX.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            rowPos.add(lblX, gbcP);
+
+            gbcP.gridx = 3; gbcP.weightx = 0.22;
+            spinnerPosX.setPreferredSize(new Dimension(46, 22));
+            rowPos.add(spinnerPosX, gbcP);
+
+            gbcP.gridx = 4; gbcP.weightx = 0;
+            JLabel lblY = new JLabel("Y:");
+            lblY.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            rowPos.add(lblY, gbcP);
+
+            gbcP.gridx = 5; gbcP.weightx = 0.22;
+            spinnerPosY.setPreferredSize(new Dimension(46, 22));
+            rowPos.add(spinnerPosY, gbcP);
+
+            gbcP.gridx = 6; gbcP.weightx = 0;
+            JLabel lblPct = new JLabel("%");
+            lblPct.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            rowPos.add(lblPct, gbcP);
+            contentPanel.add(rowPos);
+            contentPanel.add(Box.createVerticalStrut(4));
+
+            // 3. Inclinaison
+            JPanel rowAngle = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 1));
+            rowAngle.setOpaque(false);
+            JLabel lblAng = new JLabel("Inclinaison :");
+            lblAng.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            lblAng.setPreferredSize(new Dimension(65, 22));
+            rowAngle.add(lblAng);
+
+            spinnerAngle.setPreferredSize(new Dimension(54, 22));
+            rowAngle.add(spinnerAngle);
+            JLabel lblDeg = new JLabel("°");
+            lblDeg.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            rowAngle.add(lblDeg);
+
+            rowAngle.add(Box.createHorizontalStrut(6));
+            JButton btn0 = createAngleBtn("0°", 0.0);
+            JButton btnM45 = createAngleBtn("-45°", -45.0);
+            JButton btnP45 = createAngleBtn("+45°", 45.0);
+            JButton btn90 = createAngleBtn("90°", 90.0);
+            rowAngle.add(btn0);
+            rowAngle.add(btnM45);
+            rowAngle.add(btnP45);
+            rowAngle.add(btn90);
+            contentPanel.add(rowAngle);
+            contentPanel.add(Box.createVerticalStrut(4));
+
+            // 4. Police & Style
+            JPanel rowFont = new JPanel(new GridBagLayout());
+            rowFont.setOpaque(false);
+            GridBagConstraints gbcF = new GridBagConstraints();
+            gbcF.fill = GridBagConstraints.HORIZONTAL;
+            gbcF.insets = new Insets(1, 2, 1, 2);
+
+            gbcF.gridx = 0; gbcF.weightx = 0;
+            JLabel lblF = new JLabel("Police :");
+            lblF.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            lblF.setPreferredSize(new Dimension(65, 22));
+            rowFont.add(lblF, gbcF);
+
+            gbcF.gridx = 1; gbcF.weightx = 0.45;
+            rowFont.add(comboFont, gbcF);
+
+            gbcF.gridx = 2; gbcF.weightx = 0;
+            JLabel lblSz = new JLabel("Taille :");
+            lblSz.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            rowFont.add(lblSz, gbcF);
+
+            gbcF.gridx = 3; gbcF.weightx = 0.25;
+            spinnerFontSize.setPreferredSize(new Dimension(48, 22));
+            rowFont.add(spinnerFontSize, gbcF);
+
+            gbcF.gridx = 4; gbcF.weightx = 0;
+            JLabel lblPx = new JLabel("px");
+            lblPx.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            rowFont.add(lblPx, gbcF);
+
+            gbcF.gridx = 5; gbcF.weightx = 0;
+            rowFont.add(checkBold, gbcF);
+
+            gbcF.gridx = 6; gbcF.weightx = 0;
+            rowFont.add(checkItalic, gbcF);
+            contentPanel.add(rowFont);
+            contentPanel.add(Box.createVerticalStrut(4));
+
+            // 5. Couleur & Contour
+            JPanel rowCol = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 1));
+            rowCol.setOpaque(false);
+            JLabel lblC = new JLabel("Couleur :");
+            lblC.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            lblC.setPreferredSize(new Dimension(65, 22));
+            rowCol.add(lblC);
+
+            rowCol.add(btnTextColor);
+            rowCol.add(createPaletteBtn("Blanc", Color.WHITE));
+            rowCol.add(createPaletteBtn("Or / Doré", new Color(245, 158, 11)));
+            rowCol.add(createPaletteBtn("Ciel", new Color(56, 189, 248)));
+            rowCol.add(createPaletteBtn("Rouge", new Color(239, 68, 68)));
+            rowCol.add(createPaletteBtn("Noir", Color.BLACK));
+
+            rowCol.add(Box.createHorizontalStrut(6));
+            rowCol.add(checkOutline);
+            spinnerOutlineWidth.setPreferredSize(new Dimension(40, 22));
+            rowCol.add(spinnerOutlineWidth);
+            rowCol.add(btnOutlineColor);
+            contentPanel.add(rowCol);
+            contentPanel.add(Box.createVerticalStrut(4));
+
+            // 6. Opacité
+            JPanel rowOp = new JPanel(new BorderLayout(6, 0));
+            rowOp.setOpaque(false);
+            JLabel lblOp = new JLabel("Opacité :");
+            lblOp.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            lblOp.setPreferredSize(new Dimension(65, 22));
+            rowOp.add(lblOp, BorderLayout.WEST);
+            sliderOpacity.setPreferredSize(new Dimension(160, 22));
+            rowOp.add(sliderOpacity, BorderLayout.CENTER);
+            rowOp.add(lblOpacityVal, BorderLayout.EAST);
+            contentPanel.add(rowOp);
+
+            panel.add(contentPanel);
+            updateContentEnabledState();
+            return panel;
+        }
+
+        private JButton createAngleBtn(String label, double angle) {
+            JButton b = new JButton(label);
+            b.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+            b.setForeground(Color.BLACK);
+            b.setMargin(new Insets(1, 4, 1, 4));
+            b.addActionListener(e -> {
+                spinnerAngle.setValue(angle);
+                triggerChange();
+            });
+            return b;
+        }
+
+        private JButton createPaletteBtn(String tip, Color c) {
+            JButton b = new JButton();
+            b.setToolTipText(tip);
+            b.setPreferredSize(new Dimension(18, 18));
+            b.setMargin(new Insets(0, 0, 0, 0));
+            b.setIcon(createColorIcon(c));
+            b.addActionListener(e -> {
+                currentColor = c;
+                btnTextColor.setIcon(createColorIcon(currentColor));
+                triggerChange();
+            });
+            return b;
+        }
+
+        private Icon createColorIcon(Color c) {
+            return new Icon() {
+                @Override
+                public void paintIcon(Component cmp, Graphics g, int x, int y) {
+                    g.setColor(c);
+                    g.fillRect(x + 1, y + 1, 12, 12);
+                    g.setColor(new Color(80, 80, 80));
+                    g.drawRect(x + 1, y + 1, 12, 12);
+                }
+                @Override public int getIconWidth() { return 14; }
+                @Override public int getIconHeight() { return 14; }
+            };
+        }
+
+        private void triggerChange() {
+            if (!isUpdating && changeCallback != null) {
+                changeCallback.run();
+            }
+        }
+
+        private void updateContentEnabledState() {
+            boolean en = checkEnabled.isSelected();
+            setContainerEnabled(contentPanel, en);
+            if (en) {
+                boolean outEn = checkOutline.isSelected();
+                btnOutlineColor.setEnabled(outEn);
+                spinnerOutlineWidth.setEnabled(outEn);
+            }
+        }
+
+        private void setContainerEnabled(Container c, boolean en) {
+            if (c == null) return;
+            for (Component comp : c.getComponents()) {
+                comp.setEnabled(en);
+                if (comp instanceof Container child) {
+                    setContainerEnabled(child, en);
+                }
+            }
+        }
+
+        public void syncFromConfig(TextOverlayConfig cfg) {
+            if (cfg == null) return;
+            isUpdating = true;
+            try {
+                checkEnabled.setSelected(cfg.enabled);
+                textInput.setText(cfg.text != null ? cfg.text : "");
+                if (cfg.fontFamily != null) {
+                    comboFont.setSelectedItem(cfg.fontFamily);
+                }
+                spinnerFontSize.setValue(Math.max(8, cfg.fontSize));
+                checkBold.setSelected(cfg.bold);
+                checkItalic.setSelected(cfg.italic);
+                currentColor = cfg.color != null ? cfg.color : Color.WHITE;
+                btnTextColor.setIcon(createColorIcon(currentColor));
+                sliderOpacity.setValue(Math.max(0, Math.min(100, cfg.opacity)));
+                lblOpacityVal.setText(sliderOpacity.getValue() + "%");
+                spinnerAngle.setValue(cfg.angle);
+                spinnerPosX.setValue(Math.max(0, Math.min(100, cfg.posX)));
+                spinnerPosY.setValue(Math.max(0, Math.min(100, cfg.posY)));
+                checkOutline.setSelected(cfg.outline);
+                currentOutlineColor = cfg.outlineColor != null ? cfg.outlineColor : new Color(0, 0, 0, 220);
+                btnOutlineColor.setIcon(createColorIcon(currentOutlineColor));
+                spinnerOutlineWidth.setValue(Math.max(1, Math.min(15, cfg.outlineWidth)));
+
+                int px = cfg.posX;
+                int py = cfg.posY;
+                if (px == 50 && py == 50) comboPosition.setSelectedIndex(0);
+                else if (px == 10 && py == 8) comboPosition.setSelectedIndex(1);
+                else if (px == 50 && py == 8) comboPosition.setSelectedIndex(2);
+                else if (px == 90 && py == 8) comboPosition.setSelectedIndex(3);
+                else if (px == 10 && py == 92) comboPosition.setSelectedIndex(4);
+                else if (px == 50 && py == 92) comboPosition.setSelectedIndex(5);
+                else if (px == 90 && py == 92) comboPosition.setSelectedIndex(6);
+                else comboPosition.setSelectedIndex(7);
+
+                updateContentEnabledState();
+            } finally {
+                isUpdating = false;
+            }
+        }
+
+        public void syncToConfig(TextOverlayConfig cfg) {
+            if (cfg == null) return;
+            cfg.enabled = checkEnabled.isSelected();
+            cfg.text = textInput.getText();
+            cfg.fontFamily = (String) comboFont.getSelectedItem();
+            cfg.fontSize = ((Number) spinnerFontSize.getValue()).intValue();
+            cfg.bold = checkBold.isSelected();
+            cfg.italic = checkItalic.isSelected();
+            cfg.color = currentColor;
+            cfg.opacity = sliderOpacity.getValue();
+            cfg.angle = ((Number) spinnerAngle.getValue()).doubleValue();
+            cfg.posX = ((Number) spinnerPosX.getValue()).intValue();
+            cfg.posY = ((Number) spinnerPosY.getValue()).intValue();
+            cfg.outline = checkOutline.isSelected();
+            cfg.outlineColor = currentOutlineColor;
+            cfg.outlineWidth = ((Number) spinnerOutlineWidth.getValue()).intValue();
         }
     }
 
@@ -148,6 +875,8 @@ public class ExportVideoDialog extends JDialog {
     private final JSpinner spinnerWidth;
     private final JSpinner spinnerHeight;
     private final JSpinner spinnerVisibleSeconds;
+    private final JSlider sliderRoleLabelScale;
+    private final JLabel lblRoleLabelScaleVal;
     private final JComboBox<String> comboFps;
     private final JComboBox<String> comboEncoder;
     private final JComboBox<String> comboCpuCores;
@@ -197,10 +926,14 @@ public class ExportVideoDialog extends JDialog {
     private JCheckBox checkMontageRemoveVocals;
     private JCheckBox checkAntiCopyright;
     private JSpinner spinnerAntiCopyrightOpacity;
+    private JCheckBox checkMirrorVideo;
     private JComboBox<String> comboMontageFps;
     private JComboBox<String> comboMontageEncoder;
     private JComboBox<String> comboMontageCpuCores;
     private JSpinner spinnerMontageVisibleSeconds;
+    private JSlider sliderMontageRoleLabelScale;
+    private JLabel lblMontageRoleLabelScaleVal;
+    private boolean isSyncingRoleLabelScale = false;
     private boolean updatingMontageSpinners = false;
 
     // Contrôles du Fond Flouté et de l'Ordre des Calques
@@ -226,6 +959,31 @@ public class ExportVideoDialog extends JDialog {
 
     private final JTabbedPane tabbedPane;
     private final ExportConfig config = new ExportConfig();
+    private WatermarkControlGroup watermarkGroupMontage;
+    private WatermarkControlGroup watermarkGroupBandeau;
+    private boolean isSyncingWatermark = false;
+
+    private void onWatermarkChanged(WatermarkControlGroup source) {
+        if (isSyncingWatermark) return;
+        isSyncingWatermark = true;
+        try {
+            source.syncToConfig(config.textOverlay);
+            if (source == watermarkGroupMontage && watermarkGroupBandeau != null) {
+                watermarkGroupBandeau.syncFromConfig(config.textOverlay);
+            } else if (source == watermarkGroupBandeau && watermarkGroupMontage != null) {
+                watermarkGroupMontage.syncFromConfig(config.textOverlay);
+            }
+            if (montageCanvas != null) {
+                montageCanvas.setTextOverlay(config.textOverlay);
+            }
+            if (singleBandPreview != null) {
+                singleBandPreview.setTextOverlay(config.textOverlay);
+            }
+        } finally {
+            isSyncingWatermark = false;
+        }
+    }
+
     private boolean updatingPreset = false;
     private final ExportPreset customPresetItem;
 
@@ -428,6 +1186,23 @@ public class ExportVideoDialog extends JDialog {
         formPanel.add(spinnerVisibleSeconds, gbc);
 
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.3;
+        JLabel lblRoleScale = new JLabel("Taille étiquettes des rôles (10% - 200%) :");
+        lblRoleScale.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        formPanel.add(lblRoleScale, gbc);
+        gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 0.7;
+        JPanel roleScalePanel = new JPanel(new BorderLayout(6, 0));
+        roleScalePanel.setOpaque(false);
+        sliderRoleLabelScale = new JSlider(10, 200, 100);
+        sliderRoleLabelScale.setOpaque(false);
+        sliderRoleLabelScale.setToolTipText("Ajuste la taille des étiquettes des rôles de 10% à 200% (devient translucide en cas de chevauchement sur une phrase)");
+        lblRoleLabelScaleVal = new JLabel("100%");
+        lblRoleLabelScaleVal.setFont(new Font("Consolas", Font.BOLD, 11));
+        lblRoleLabelScaleVal.setForeground(new Color(56, 189, 248));
+        roleScalePanel.add(sliderRoleLabelScale, BorderLayout.CENTER);
+        roleScalePanel.add(lblRoleLabelScaleVal, BorderLayout.EAST);
+        formPanel.add(roleScalePanel, gbc);
+
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.3;
         JLabel lblFps = new JLabel("Fluidité (FPS) :");
         lblFps.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         formPanel.add(lblFps, gbc);
@@ -474,10 +1249,34 @@ public class ExportVideoDialog extends JDialog {
         formPanel.add(infoLabel, gbc);
 
         singleBandPreview = new SingleBandPreviewPanel(timelinePanel, bandCount, origW, origH, 8.0);
+        singleBandPreview.setOnWatermarkChanged(() -> {
+            if (isSyncingWatermark) return;
+            isSyncingWatermark = true;
+            try {
+                if (watermarkGroupBandeau != null) watermarkGroupBandeau.syncFromConfig(config.textOverlay);
+                if (watermarkGroupMontage != null) watermarkGroupMontage.syncFromConfig(config.textOverlay);
+                if (montageCanvas != null) montageCanvas.repaint();
+            } finally {
+                isSyncingWatermark = false;
+            }
+        });
+
+        watermarkGroupBandeau = new WatermarkControlGroup(() -> onWatermarkChanged(watermarkGroupBandeau));
+        JPanel watermarkPanelTab1 = watermarkGroupBandeau.createPanel("Texte / Filigrane Superposé (Watermark)");
+
+        ScrollablePanel bandeauTopPanel = new ScrollablePanel();
+        bandeauTopPanel.setLayout(new BoxLayout(bandeauTopPanel, BoxLayout.Y_AXIS));
+        bandeauTopPanel.add(formPanel);
+        bandeauTopPanel.add(Box.createVerticalStrut(4));
+        bandeauTopPanel.add(watermarkPanelTab1);
+
+        JScrollPane scrollBandeauTop = new JScrollPane(bandeauTopPanel, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scrollBandeauTop.setBorder(null);
+        scrollBandeauTop.getVerticalScrollBar().setUnitIncrement(22);
 
         JPanel centerBandeauPanel = new JPanel(new BorderLayout(8, 8));
-        centerBandeauPanel.add(formPanel, BorderLayout.NORTH);
-        centerBandeauPanel.add(singleBandPreview, BorderLayout.CENTER);
+        centerBandeauPanel.add(scrollBandeauTop, BorderLayout.CENTER);
+        centerBandeauPanel.add(singleBandPreview, BorderLayout.SOUTH);
         tabBandeauPanel.add(centerBandeauPanel, BorderLayout.CENTER);
 
         // ==========================================
@@ -493,6 +1292,11 @@ public class ExportVideoDialog extends JDialog {
         populatePresets(currentScreenWidth, currentScreenHeight);
         populateMontagePresets();
 
+        if (watermarkGroupMontage != null) watermarkGroupMontage.syncFromConfig(config.textOverlay);
+        if (watermarkGroupBandeau != null) watermarkGroupBandeau.syncFromConfig(config.textOverlay);
+        if (montageCanvas != null) montageCanvas.setTextOverlay(config.textOverlay);
+        if (singleBandPreview != null) singleBandPreview.setTextOverlay(config.textOverlay);
+
         comboPreset.addItemListener(e -> {
             if (e.getStateChange() == ItemEvent.SELECTED && !updatingPreset) {
                 ExportPreset selected = (ExportPreset) comboPreset.getSelectedItem();
@@ -506,6 +1310,31 @@ public class ExportVideoDialog extends JDialog {
         spinnerWidth.addChangeListener(e -> onSpinnerChanged());
         spinnerHeight.addChangeListener(e -> onSpinnerChanged());
         spinnerVisibleSeconds.addChangeListener(e -> onSpinnerChanged());
+        sliderRoleLabelScale.addChangeListener(e -> {
+            int val = sliderRoleLabelScale.getValue();
+            lblRoleLabelScaleVal.setText(val + "%");
+            config.roleLabelScalePercent = val;
+            if (singleBandPreview != null) {
+                singleBandPreview.setRoleLabelScale(val / 100.0);
+            }
+            if (!isSyncingRoleLabelScale) {
+                isSyncingRoleLabelScale = true;
+                try {
+                    if (sliderMontageRoleLabelScale != null) {
+                        sliderMontageRoleLabelScale.setValue(val);
+                    }
+                    if (lblMontageRoleLabelScaleVal != null) {
+                        lblMontageRoleLabelScaleVal.setText(val + "%");
+                    }
+                    if (montageCanvas != null) {
+                        montageCanvas.setRoleLabelScale(val / 100.0);
+                    }
+                    onSpinnerChanged();
+                } finally {
+                    isSyncingRoleLabelScale = false;
+                }
+            }
+        });
         comboFps.addItemListener(e -> {
             if (e.getStateChange() == ItemEvent.SELECTED) onSpinnerChanged();
         });
@@ -538,6 +1367,7 @@ public class ExportVideoDialog extends JDialog {
         buttonPanel.add(btnExport);
         add(buttonPanel, BorderLayout.SOUTH);
 
+        applyBlackButtonText(this);
         pack();
         int finalW = Math.max(dialogW, getWidth());
         int finalH = Math.max(dialogH, getHeight());
@@ -546,6 +1376,30 @@ public class ExportVideoDialog extends JDialog {
         setSize(finalW, finalH);
         setLocationRelativeTo(owner);
         updateVoiceRemovalTimelineVisibility();
+        applyBlackButtonText(this);
+    }
+
+    /**
+     * Force la couleur du texte de tous les boutons (JButton, JToggleButton, etc.) en noir.
+     */
+    public static void applyBlackButtonText(Component comp) {
+        if (comp == null) return;
+        if (comp instanceof AbstractButton) {
+            comp.setForeground(Color.BLACK);
+        }
+        if (comp instanceof Container) {
+            for (Component child : ((Container) comp).getComponents()) {
+                applyBlackButtonText(child);
+            }
+        }
+    }
+
+    @Override
+    public void setVisible(boolean b) {
+        if (b) {
+            applyBlackButtonText(this);
+        }
+        super.setVisible(b);
     }
 
     public void setVideoSnapshot(BufferedImage snapshot) {
@@ -893,9 +1747,11 @@ public class ExportVideoDialog extends JDialog {
         layerPanel.add(lblLayerOrder);
 
         layerListModel = new DefaultListModel<>();
+        LayerItem itemWatermark = new LayerItem("WATERMARK", "Filigrane / Texte");
         LayerItem itemBand = new LayerItem("BAND", "Bande Rythmo");
         LayerItem itemVideo = new LayerItem("VIDEO", "Vidéo source");
         LayerItem itemBlur = new LayerItem("BACKGROUND_BLUR", "Fond Vidéo Flouté");
+        layerListModel.addElement(itemWatermark);
         layerListModel.addElement(itemBand);
         layerListModel.addElement(itemVideo);
         layerListModel.addElement(itemBlur);
@@ -903,10 +1759,10 @@ public class ExportVideoDialog extends JDialog {
         layerList = new JList<>(layerListModel);
         layerList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         layerList.setSelectedIndex(0);
-        layerList.setVisibleRowCount(3);
+        layerList.setVisibleRowCount(4);
         layerList.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         JScrollPane layerScroll = new JScrollPane(layerList);
-        layerScroll.setPreferredSize(new Dimension(220, 62));
+        layerScroll.setPreferredSize(new Dimension(220, 80));
 
         JPanel layerListContainer = new JPanel(new GridBagLayout());
         GridBagConstraints gbcL = new GridBagConstraints();
@@ -924,6 +1780,55 @@ public class ExportVideoDialog extends JDialog {
         btnLayerDown.setToolTipText("Reculer ce calque vers l'arrière-plan (en-dessous)");
         btnLayerDown.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         btnLayerDown.setForeground(Color.BLACK);
+
+        Runnable updateLayerBtnStates = () -> {
+            int idx = layerList.getSelectedIndex();
+            btnLayerUp.setEnabled(idx > 0);
+            btnLayerDown.setEnabled(idx >= 0 && idx < layerListModel.getSize() - 1);
+        };
+
+        btnLayerUp.addActionListener(e -> {
+            int idx = layerList.getSelectedIndex();
+            if (idx > 0) {
+                LayerItem item = layerListModel.remove(idx);
+                layerListModel.add(idx - 1, item);
+                layerList.setSelectedIndex(idx - 1);
+                applyLayerOrderToCanvas();
+                onMontageParamChanged();
+                updateLayerBtnStates.run();
+            }
+        });
+
+        btnLayerDown.addActionListener(e -> {
+            int idx = layerList.getSelectedIndex();
+            if (idx >= 0 && idx < layerListModel.getSize() - 1) {
+                LayerItem item = layerListModel.remove(idx);
+                layerListModel.add(idx + 1, item);
+                layerList.setSelectedIndex(idx + 1);
+                applyLayerOrderToCanvas();
+                onMontageParamChanged();
+                updateLayerBtnStates.run();
+            }
+        });
+
+        layerList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                updateLayerBtnStates.run();
+                LayerItem sel = layerList.getSelectedValue();
+                if (sel != null && montageCanvas != null) {
+                    if ("VIDEO".equals(sel.id)) {
+                        montageCanvas.setSelectedElement(MontagePreviewCanvas.ElementType.VIDEO);
+                    } else if ("BAND".equals(sel.id)) {
+                        montageCanvas.setSelectedElement(MontagePreviewCanvas.ElementType.BAND);
+                    } else if ("WATERMARK".equals(sel.id)) {
+                        montageCanvas.setSelectedElement(MontagePreviewCanvas.ElementType.WATERMARK);
+                    }
+                }
+            }
+        });
+
+        updateLayerBtnStates.run();
+
         layerBtnCol.add(btnLayerUp);
         layerBtnCol.add(btnLayerDown);
 
@@ -987,6 +1892,16 @@ public class ExportVideoDialog extends JDialog {
         antiCopyrightPanel.add(lblPercent);
         optionsPanel.add(antiCopyrightPanel);
 
+        checkMirrorVideo = new JCheckBox("Inverser l'image vidéo (Miroir horizontal)", false);
+        checkMirrorVideo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        checkMirrorVideo.setForeground(new Color(56, 189, 248));
+        checkMirrorVideo.setToolTipText("Inverse horizontalement la vidéo et le fond flouté (effet miroir anti-copyright), sans toucher à la bande rythmo.");
+        checkMirrorVideo.addActionListener(e -> {
+            montageCanvas.setMirrorVideo(checkMirrorVideo.isSelected());
+            onMontageParamChanged();
+        });
+        optionsPanel.add(checkMirrorVideo);
+
         Runnable updateAntiCopyright = () -> {
             boolean active = checkAntiCopyright.isSelected();
             spinnerAntiCopyrightOpacity.setEnabled(active);
@@ -1026,6 +1941,45 @@ public class ExportVideoDialog extends JDialog {
         optRow.add(lblS, gbcO);
         optionsPanel.add(optRow);
 
+        JPanel roleScaleMontageRow = new JPanel(new BorderLayout(6, 0));
+        JLabel lblRoleScaleM = new JLabel("Taille étiquettes rôles :");
+        lblRoleScaleM.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        roleScaleMontageRow.add(lblRoleScaleM, BorderLayout.WEST);
+        sliderMontageRoleLabelScale = new JSlider(10, 200, 100);
+        sliderMontageRoleLabelScale.setOpaque(false);
+        sliderMontageRoleLabelScale.setToolTipText("Ajuste la taille des étiquettes des rôles de 10% à 200% (devient translucide en cas de chevauchement sur une phrase)");
+        lblMontageRoleLabelScaleVal = new JLabel("100%");
+        lblMontageRoleLabelScaleVal.setFont(new Font("Consolas", Font.BOLD, 11));
+        lblMontageRoleLabelScaleVal.setForeground(new Color(56, 189, 248));
+        roleScaleMontageRow.add(sliderMontageRoleLabelScale, BorderLayout.CENTER);
+        roleScaleMontageRow.add(lblMontageRoleLabelScaleVal, BorderLayout.EAST);
+        sliderMontageRoleLabelScale.addChangeListener(e -> {
+            int val = sliderMontageRoleLabelScale.getValue();
+            lblMontageRoleLabelScaleVal.setText(val + "%");
+            config.roleLabelScalePercent = val;
+            if (montageCanvas != null) {
+                montageCanvas.setRoleLabelScale(val / 100.0);
+            }
+            if (!isSyncingRoleLabelScale) {
+                isSyncingRoleLabelScale = true;
+                try {
+                    if (sliderRoleLabelScale != null) {
+                        sliderRoleLabelScale.setValue(val);
+                    }
+                    if (lblRoleLabelScaleVal != null) {
+                        lblRoleLabelScaleVal.setText(val + "%");
+                    }
+                    if (singleBandPreview != null) {
+                        singleBandPreview.setRoleLabelScale(val / 100.0);
+                    }
+                    onMontageParamChanged();
+                } finally {
+                    isSyncingRoleLabelScale = false;
+                }
+            }
+        });
+        optionsPanel.add(roleScaleMontageRow);
+
         JPanel encRow = new JPanel(new BorderLayout(6, 0));
         JLabel lblEncM = new JLabel("Accélération :");
         lblEncM.setFont(new Font("Segoe UI", Font.PLAIN, 11));
@@ -1053,6 +2007,12 @@ public class ExportVideoDialog extends JDialog {
         optionsPanel.add(cpuRow);
 
         controlsPanel.add(optionsPanel);
+        controlsPanel.add(Box.createVerticalStrut(4));
+
+        watermarkGroupMontage = new WatermarkControlGroup(() -> onWatermarkChanged(watermarkGroupMontage));
+        JPanel watermarkPanelTab2 = watermarkGroupMontage.createPanel("6. Texte / Filigrane Superposé (Watermark)");
+        controlsPanel.add(watermarkPanelTab2);
+        controlsPanel.add(Box.createVerticalStrut(4));
         JScrollPane scrollControls = new JScrollPane(controlsPanel, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         scrollControls.setBorder(null);
         scrollControls.setPreferredSize(new Dimension(520, 720));
@@ -1063,6 +2023,18 @@ public class ExportVideoDialog extends JDialog {
 
         // Écouteurs pour synchroniser le canevas et les contrôles
         montageCanvas.setOnLayoutChanged(this::syncMontageSpinnersFromCanvas);
+        montageCanvas.setOnWatermarkChanged(() -> {
+            if (isSyncingWatermark) return;
+            isSyncingWatermark = true;
+            try {
+                if (watermarkGroupMontage != null) watermarkGroupMontage.syncFromConfig(config.textOverlay);
+                if (watermarkGroupBandeau != null) watermarkGroupBandeau.syncFromConfig(config.textOverlay);
+                if (singleBandPreview != null) singleBandPreview.repaint();
+                onMontageParamChanged();
+            } finally {
+                isSyncingWatermark = false;
+            }
+        });
 
         comboMontageResolution.addItemListener(e -> {
             if (e.getStateChange() == ItemEvent.SELECTED) {
@@ -1153,6 +2125,23 @@ public class ExportVideoDialog extends JDialog {
             spinnerElemY.setValue(r.y);
             spinnerElemW.setValue(r.width);
             spinnerElemH.setValue(r.height);
+            if (layerList != null && layerListModel != null) {
+                for (int i = 0; i < layerListModel.getSize(); i++) {
+                    if ("VIDEO".equals(layerListModel.get(i).id)) {
+                        layerList.setSelectedIndex(i);
+                        break;
+                    }
+                }
+            }
+        } else if (sel == MontagePreviewCanvas.ElementType.WATERMARK) {
+            if (layerList != null && layerListModel != null) {
+                for (int i = 0; i < layerListModel.getSize(); i++) {
+                    if ("WATERMARK".equals(layerListModel.get(i).id)) {
+                        layerList.setSelectedIndex(i);
+                        break;
+                    }
+                }
+            }
         } else {
             btnSelectBand.setSelected(true);
             Rectangle r = montageCanvas.getBandRect();
@@ -1160,6 +2149,14 @@ public class ExportVideoDialog extends JDialog {
             spinnerElemY.setValue(r.y);
             spinnerElemW.setValue(r.width);
             spinnerElemH.setValue(r.height);
+            if (layerList != null && layerListModel != null) {
+                for (int i = 0; i < layerListModel.getSize(); i++) {
+                    if ("BAND".equals(layerListModel.get(i).id)) {
+                        layerList.setSelectedIndex(i);
+                        break;
+                    }
+                }
+            }
         }
         updatingMontageSpinners = false;
     }
@@ -1231,6 +2228,8 @@ public class ExportVideoDialog extends JDialog {
             config.blurBackgroundVideo = (checkBlurBackground != null && checkBlurBackground.isSelected());
             config.blurRadius = (spinnerBlurRadius != null) ? ((Number) spinnerBlurRadius.getValue()).intValue() : 25;
             config.blurOpacity = (spinnerBlurOpacity != null) ? ((Number) spinnerBlurOpacity.getValue()).intValue() : 85;
+            config.mirrorVideo = (checkMirrorVideo != null && checkMirrorVideo.isSelected());
+            config.roleLabelScalePercent = (sliderMontageRoleLabelScale != null) ? sliderMontageRoleLabelScale.getValue() : 100;
             java.util.List<String> order = new java.util.ArrayList<>();
             if (layerListModel != null) {
                 for (int i = layerListModel.getSize() - 1; i >= 0; i--) {
@@ -1253,8 +2252,11 @@ public class ExportVideoDialog extends JDialog {
             config.includeAudio = true;
             config.removeVocals = false;
             config.voiceKeepZones = new java.util.ArrayList<>();
+            config.voiceCutMode = true;
             config.antiCopyright = false;
             config.antiCopyrightOpacity = 0;
+            config.mirrorVideo = false;
+            config.roleLabelScalePercent = (sliderRoleLabelScale != null) ? sliderRoleLabelScale.getValue() : 100;
             config.encoder = switch (comboEncoder.getSelectedIndex()) {
                 case 1 -> "nvenc";
                 case 2 -> "amf";
@@ -1263,6 +2265,16 @@ public class ExportVideoDialog extends JDialog {
                 default -> "auto";
             };
             config.cpuThreads = getThreadsFromCpuIndex(comboCpuCores.getSelectedIndex());
+        }
+
+        if (isMontage) {
+            if (watermarkGroupMontage != null) {
+                watermarkGroupMontage.syncToConfig(config.textOverlay);
+            }
+        } else {
+            if (watermarkGroupBandeau != null) {
+                watermarkGroupBandeau.syncToConfig(config.textOverlay);
+            }
         }
 
         config.approved = true;
@@ -1321,7 +2333,7 @@ public class ExportVideoDialog extends JDialog {
                 var state = mp.status().state();
                 if (state == uk.co.caprica.vlcj.player.base.State.ENDED || state == uk.co.caprica.vlcj.player.base.State.STOPPED) {
                     if (videoFile != null) {
-                        mp.media().play(videoFile.getAbsolutePath(), ":start-time=" + curT, ":file-caching=150", ":clock-jitter=0", ":clock-synchro=0");
+                        mp.media().play(videoFile.getAbsolutePath(), ":start-time=" + curT, ":file-caching=150", ":clock-jitter=0");
                     } else {
                         mp.controls().play();
                         mp.controls().setTime(targetMs);
@@ -1329,7 +2341,7 @@ public class ExportVideoDialog extends JDialog {
                 } else {
                     long vlcTime = mp.status().time();
                     long diffMs = (vlcTime >= 0) ? Math.abs(vlcTime - targetMs) : Long.MAX_VALUE;
-                    if (diffMs > 250 || vlcTime < 0) {
+                    if (diffMs > 650 || vlcTime < 0) {
                         mp.controls().setTime(targetMs);
                     }
                     if (state == uk.co.caprica.vlcj.player.base.State.PAUSED) {
@@ -1337,6 +2349,19 @@ public class ExportVideoDialog extends JDialog {
                     } else {
                         mp.controls().play();
                     }
+                    javax.swing.Timer ensurePlayTimer = new javax.swing.Timer(45, ev -> {
+                        if (isPreviewPlaying && mediaPlayerComponent != null && mediaPlayerComponent.mediaPlayer() != null) {
+                            try {
+                                var m = mediaPlayerComponent.mediaPlayer();
+                                if (!m.status().isPlaying()) {
+                                    m.controls().setPause(false);
+                                    m.controls().play();
+                                }
+                            } catch (Throwable ignored2) {}
+                        }
+                    });
+                    ensurePlayTimer.setRepeats(false);
+                    ensurePlayTimer.start();
                 }
             } catch (Throwable ignored) {}
         }
@@ -1484,12 +2509,25 @@ public class ExportVideoDialog extends JDialog {
 
     private void applyPreset(ExportPreset p) {
         updatingPreset = true;
-        spinnerWidth.setValue(p.width);
-        spinnerHeight.setValue(p.height);
-        spinnerVisibleSeconds.setValue(p.visibleSeconds);
-        comboFps.setSelectedIndex(p.fps == 24 ? 2 : (p.fps == 30 ? 1 : 0));
-        updatingPreset = false;
+        isSyncingRoleLabelScale = true;
+        try {
+            spinnerWidth.setValue(p.width);
+            spinnerHeight.setValue(p.height);
+            spinnerVisibleSeconds.setValue(p.visibleSeconds);
+            comboFps.setSelectedIndex(p.fps == 24 ? 2 : (p.fps == 30 ? 1 : 0));
+            int scalePct = Math.max(10, Math.min(200, p.roleLabelScalePercent));
+            config.roleLabelScalePercent = scalePct;
+            if (sliderRoleLabelScale != null) sliderRoleLabelScale.setValue(scalePct);
+            if (lblRoleLabelScaleVal != null) lblRoleLabelScaleVal.setText(scalePct + "%");
+            if (sliderMontageRoleLabelScale != null) sliderMontageRoleLabelScale.setValue(scalePct);
+            if (lblMontageRoleLabelScaleVal != null) lblMontageRoleLabelScaleVal.setText(scalePct + "%");
+            if (montageCanvas != null) montageCanvas.setRoleLabelScale(scalePct / 100.0);
+        } finally {
+            isSyncingRoleLabelScale = false;
+            updatingPreset = false;
+        }
         if (singleBandPreview != null) {
+            singleBandPreview.setRoleLabelScale(p.roleLabelScalePercent / 100.0);
             singleBandPreview.updateParams(p.width, p.height, p.visibleSeconds);
         }
     }
@@ -1591,7 +2629,7 @@ public class ExportVideoDialog extends JDialog {
         }
 
         String finalName = "[Perso] " + newName.trim();
-        ExportPreset renamed = new ExportPreset(finalName, sel.width, sel.height, sel.visibleSeconds, sel.fps, false);
+        ExportPreset renamed = new ExportPreset(finalName, sel.width, sel.height, sel.visibleSeconds, sel.fps, sel.roleLabelScalePercent, false);
         int idx = presetModel.getIndexOf(sel);
         if (idx >= 0) {
             presetModel.removeElementAt(idx);
@@ -1611,31 +2649,31 @@ public class ExportVideoDialog extends JDialog {
         MontagePreset pOrig = new MontagePreset("Format d'origine OmeRyth", 1920, 1080,
                 new Rectangle(0, 0, 1920, 780), new Rectangle(0, 780, 1920, 300),
                 "OMERYTH_ORIGINAL", false, false, 20, false, 25, 85, 60, 8.0, "auto",
-                java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"), true);
+                java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND", "WATERMARK"), true);
         montagePresetModel.addElement(pOrig);
 
         MontagePreset pTiktok = new MontagePreset("TikTok / Shorts 9:16 (Flou + Bande)", 1080, 1920,
                 new Rectangle(0, 420, 1080, 608), new Rectangle(0, 1040, 1080, 240),
                 "TIKTOK_CENTER_9_16", false, false, 20, true, 25, 85, 60, 6.0, "auto",
-                java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"), true);
+                java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND", "WATERMARK"), true);
         montagePresetModel.addElement(pTiktok);
 
         MontagePreset pYoutube = new MontagePreset("YouTube / Cinéma 16:9 (Plein écran)", 1920, 1080,
                 new Rectangle(0, 0, 1920, 1080), new Rectangle(0, 840, 1920, 240),
                 "FULLSCREEN_16_9", false, false, 20, false, 25, 85, 60, 8.0, "auto",
-                java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"), true);
+                java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND", "WATERMARK"), true);
         montagePresetModel.addElement(pYoutube);
 
         MontagePreset pStudio = new MontagePreset("Grand Bandeau Studio (75% Vidéo / 25% Bande)", 1920, 1080,
                 new Rectangle(0, 0, 1920, 810), new Rectangle(0, 810, 1920, 270),
                 "STUDIO_LARGE_BAND", false, false, 20, false, 25, 85, 60, 8.0, "auto",
-                java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"), true);
+                java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND", "WATERMARK"), true);
         montagePresetModel.addElement(pStudio);
 
         MontagePreset pCarre = new MontagePreset("Format Carré 1:1 (Réseaux)", 1080, 1080,
                 new Rectangle(0, 0, 1080, 540), new Rectangle(0, 540, 1080, 540),
                 "STACKED_TOP_BOTTOM", false, false, 20, false, 25, 85, 60, 6.0, "auto",
-                java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND"), true);
+                java.util.Arrays.asList("BACKGROUND_BLUR", "VIDEO", "BAND", "WATERMARK"), true);
         montagePresetModel.addElement(pCarre);
 
         for (MontagePreset custom : loadCustomMontagePresetsFromFile()) {
@@ -1669,6 +2707,13 @@ public class ExportVideoDialog extends JDialog {
         spinnerAntiCopyrightOpacity.setEnabled(p.antiCopyright);
         spinnerAntiCopyrightOpacity.setValue(p.antiCopyrightOpacity);
 
+        if (checkMirrorVideo != null) {
+            checkMirrorVideo.setSelected(p.mirrorVideo);
+        }
+        if (montageCanvas != null) {
+            montageCanvas.setMirrorVideo(p.mirrorVideo);
+        }
+
         checkBlurBackground.setSelected(p.blurBackground);
         spinnerBlurRadius.setEnabled(p.blurBackground);
         spinnerBlurRadius.setValue(p.blurRadius);
@@ -1693,12 +2738,48 @@ public class ExportVideoDialog extends JDialog {
 
         if (p.layerOrder != null && !p.layerOrder.isEmpty()) {
             layerListModel.clear();
-            for (String lid : p.layerOrder) {
-                if ("BAND".equals(lid)) layerListModel.addElement(new LayerItem("BAND", "Bande Rythmo"));
-                else if ("VIDEO".equals(lid)) layerListModel.addElement(new LayerItem("VIDEO", "Vidéo source"));
-                else if ("BACKGROUND_BLUR".equals(lid)) layerListModel.addElement(new LayerItem("BACKGROUND_BLUR", "Fond Vidéo Flouté"));
+            boolean hasWatermarkLayer = false;
+            // Dans p.layerOrder, les calques sont stockés de l'arrière (index 0) vers l'avant (dernier index).
+            // L'UI affiche du haut (devant) vers le bas (derrière). On insère donc de l'avant vers l'arrière.
+            for (int i = p.layerOrder.size() - 1; i >= 0; i--) {
+                String lid = p.layerOrder.get(i);
+                if ("WATERMARK".equals(lid)) {
+                    layerListModel.addElement(new LayerItem("WATERMARK", "Filigrane / Texte"));
+                    hasWatermarkLayer = true;
+                } else if ("BAND".equals(lid)) {
+                    layerListModel.addElement(new LayerItem("BAND", "Bande Rythmo"));
+                } else if ("VIDEO".equals(lid)) {
+                    layerListModel.addElement(new LayerItem("VIDEO", "Vidéo source"));
+                } else if ("BACKGROUND_BLUR".equals(lid)) {
+                    layerListModel.addElement(new LayerItem("BACKGROUND_BLUR", "Fond Vidéo Flouté"));
+                }
+            }
+            if (!hasWatermarkLayer) {
+                layerListModel.add(0, new LayerItem("WATERMARK", "Filigrane / Texte"));
             }
             applyLayerOrderToCanvas();
+        }
+
+        if (p.textOverlay != null) {
+            config.textOverlay = p.textOverlay.copy();
+            if (watermarkGroupMontage != null) watermarkGroupMontage.syncFromConfig(config.textOverlay);
+            if (watermarkGroupBandeau != null) watermarkGroupBandeau.syncFromConfig(config.textOverlay);
+            if (montageCanvas != null) montageCanvas.setTextOverlay(config.textOverlay);
+            if (singleBandPreview != null) singleBandPreview.setTextOverlay(config.textOverlay);
+        }
+
+        int scalePct = Math.max(10, Math.min(200, p.roleLabelScalePercent > 0 ? p.roleLabelScalePercent : 100));
+        isSyncingRoleLabelScale = true;
+        try {
+            config.roleLabelScalePercent = scalePct;
+            if (sliderMontageRoleLabelScale != null) sliderMontageRoleLabelScale.setValue(scalePct);
+            if (lblMontageRoleLabelScaleVal != null) lblMontageRoleLabelScaleVal.setText(scalePct + "%");
+            if (sliderRoleLabelScale != null) sliderRoleLabelScale.setValue(scalePct);
+            if (lblRoleLabelScaleVal != null) lblRoleLabelScaleVal.setText(scalePct + "%");
+            if (montageCanvas != null) montageCanvas.setRoleLabelScale(scalePct / 100.0);
+            if (singleBandPreview != null) singleBandPreview.setRoleLabelScale(scalePct / 100.0);
+        } finally {
+            isSyncingRoleLabelScale = false;
         }
 
         syncMontageSpinnersFromCanvas();
@@ -1744,7 +2825,7 @@ public class ExportVideoDialog extends JDialog {
             default -> "auto";
         };
         java.util.List<String> layers = new ArrayList<>();
-        for (int i = 0; i < layerListModel.getSize(); i++) layers.add(layerListModel.get(i).id);
+        for (int i = layerListModel.getSize() - 1; i >= 0; i--) layers.add(layerListModel.get(i).id);
 
         String defaultName = w + "x" + h + " (" + sec + "s, " + fps + "fps)";
         String name = (String) JOptionPane.showInputDialog(
@@ -1760,7 +2841,10 @@ public class ExportVideoDialog extends JDialog {
         if (name == null || name.trim().isEmpty()) return;
 
         String finalName = "[Perso] " + name.trim();
-        MontagePreset newPreset = new MontagePreset(finalName, w, h, vr, br, tName, remVoc, antiC, antiCopac, blur, blurR, blurOp, fps, sec, enc, layers, false);
+        TextOverlayConfig wmCfg = (config.textOverlay != null) ? config.textOverlay.copy() : new TextOverlayConfig();
+        boolean mirror = (checkMirrorVideo != null && checkMirrorVideo.isSelected());
+        MontagePreset newPreset = new MontagePreset(finalName, w, h, vr, br, tName, remVoc, antiC, antiCopac, blur, blurR, blurOp, fps, sec, enc, layers, wmCfg, mirror, false);
+        newPreset.roleLabelScalePercent = (sliderMontageRoleLabelScale != null) ? sliderMontageRoleLabelScale.getValue() : 100;
 
         int insertIdx = montagePresetModel.getSize() - 1;
         montagePresetModel.insertElementAt(newPreset, Math.max(0, insertIdx));
@@ -1863,7 +2947,21 @@ public class ExportVideoDialog extends JDialog {
                         if (parts.length > 15 && !parts[15].isEmpty()) {
                             layers.addAll(java.util.Arrays.asList(parts[15].split(",")));
                         }
-                        list.add(new MontagePreset(name, w, h, vr, br, template, remVoc, antiC, antiCopac, blur, blurR, blurOp, fps, sec, enc, layers, false));
+                        TextOverlayConfig wmCfg = new TextOverlayConfig();
+                        if (parts.length > 16 && !parts[16].trim().isEmpty()) {
+                            wmCfg = deserializeTextOverlay(parts[16]);
+                        }
+                        boolean mirror = false;
+                        if (parts.length > 17 && !parts[17].trim().isEmpty()) {
+                            mirror = Boolean.parseBoolean(parts[17].trim());
+                        }
+                        MontagePreset mp = new MontagePreset(name, w, h, vr, br, template, remVoc, antiC, antiCopac, blur, blurR, blurOp, fps, sec, enc, layers, wmCfg, mirror, false);
+                        if (parts.length > 18 && !parts[18].trim().isEmpty()) {
+                            try {
+                                mp.roleLabelScalePercent = Math.max(10, Math.min(200, Integer.parseInt(parts[18].trim())));
+                            } catch (NumberFormatException ignored) {}
+                        }
+                        list.add(mp);
                     }
                 }
             }
@@ -1882,10 +2980,11 @@ public class ExportVideoDialog extends JDialog {
                 String vrStr = p.videoRect.x + "," + p.videoRect.y + "," + p.videoRect.width + "," + p.videoRect.height;
                 String brStr = p.bandRect.x + "," + p.bandRect.y + "," + p.bandRect.width + "," + p.bandRect.height;
                 String layersStr = (p.layerOrder != null) ? String.join(",", p.layerOrder) : "";
+                String wmStr = serializeTextOverlay(p.textOverlay);
                 String val = p.name + "|" + p.width + "|" + p.height + "|" + vrStr + "|" + brStr + "|" +
                         p.templateName + "|" + p.removeVocals + "|" + p.antiCopyright + "|" + p.antiCopyrightOpacity + "|" +
                         p.blurBackground + "|" + p.blurRadius + "|" + p.blurOpacity + "|" + p.fps + "|" +
-                        p.visibleSeconds + "|" + p.encoder + "|" + layersStr;
+                        p.visibleSeconds + "|" + p.encoder + "|" + layersStr + "|" + wmStr + "|" + p.mirrorVideo + "|" + p.roleLabelScalePercent;
                 props.setProperty("montage_preset." + (count++), val);
             }
         }
@@ -1929,7 +3028,8 @@ public class ExportVideoDialog extends JDialog {
         }
 
         String finalName = "[Perso] " + name.trim();
-        ExportPreset newPreset = new ExportPreset(finalName, w, h, sec, fps, false);
+        int roleScalePct = (sliderRoleLabelScale != null) ? sliderRoleLabelScale.getValue() : 100;
+        ExportPreset newPreset = new ExportPreset(finalName, w, h, sec, fps, roleScalePct, false);
 
         int insertIdx = presetModel.getSize() - 1;
         presetModel.insertElementAt(newPreset, Math.max(0, insertIdx));
@@ -1985,7 +3085,13 @@ public class ExportVideoDialog extends JDialog {
                         int h = Integer.parseInt(parts[2]);
                         double sec = Double.parseDouble(parts[3]);
                         int fps = Integer.parseInt(parts[4]);
-                        list.add(new ExportPreset(name, w, h, sec, fps, false));
+                        int roleScalePct = 100;
+                        if (parts.length >= 6 && !parts[5].trim().isEmpty()) {
+                            try {
+                                roleScalePct = Math.max(10, Math.min(200, Integer.parseInt(parts[5].trim())));
+                            } catch (NumberFormatException ignored) {}
+                        }
+                        list.add(new ExportPreset(name, w, h, sec, fps, roleScalePct, false));
                     }
                 }
             }
@@ -2001,7 +3107,7 @@ public class ExportVideoDialog extends JDialog {
         for (int i = 0; i < presetModel.getSize(); i++) {
             ExportPreset p = presetModel.getElementAt(i);
             if (p != null && !p.isBuiltin && p != customPresetItem) {
-                String val = p.name + "|" + p.width + "|" + p.height + "|" + p.visibleSeconds + "|" + p.fps;
+                String val = p.name + "|" + p.width + "|" + p.height + "|" + p.visibleSeconds + "|" + p.fps + "|" + p.roleLabelScalePercent;
                 props.setProperty("preset." + (count++), val);
             }
         }
@@ -2019,6 +3125,14 @@ public class ExportVideoDialog extends JDialog {
         return config;
     }
 
+    public JSlider getSliderRoleLabelScale() {
+        return sliderRoleLabelScale;
+    }
+
+    public JSlider getSliderMontageRoleLabelScale() {
+        return sliderMontageRoleLabelScale;
+    }
+
     /**
      * Panneau d'aperçu graphique réel de la bande rythmo pour l'onglet "Bandeau Seul".
      * Affiche fidèlement la vraie bande du projet (textes, rôles, séparateurs, repère de lecture rouge)
@@ -2030,6 +3144,7 @@ public class ExportVideoDialog extends JDialog {
         private int targetW = 1920;
         private int targetH = 100;
         private double visibleSeconds = 8.0;
+        private double roleLabelScale = 1.0;
         private double previewTime = 0.0;
         private TimelinePanel.ExportSession cachedSession = null;
         private int cachedSessionW = -1;
@@ -2040,9 +3155,20 @@ public class ExportVideoDialog extends JDialog {
         private int cachedH = -1;
         private double cachedSec = -1;
         private double cachedTime = -1;
+        private TextOverlayConfig textOverlayConfig;
+        private Runnable onWatermarkChanged;
+        private boolean isDraggingWm = false;
+        private Point wmDragStart = new Point();
+        private double wmStartPosX = 50.0;
+        private double wmStartPosY = 50.0;
+        private int lastDrawX = 0, lastDrawY = 0, lastDrawW = 100, lastDrawH = 40;
 
         private final JSlider timeSlider;
         private final JLabel timeLabel;
+
+        public void setOnWatermarkChanged(Runnable callback) {
+            this.onWatermarkChanged = callback;
+        }
 
         public SingleBandPreviewPanel(TimelinePanel timelinePanel, int bandCount, int initialW, int initialH, double initialSec) {
             this.timelinePanel = timelinePanel;
@@ -2090,6 +3216,10 @@ public class ExportVideoDialog extends JDialog {
                     int drawH = Math.max(10, (int) Math.round(targetH * scale));
                     int drawX = (getWidth() - drawW) / 2;
                     int drawY = (getHeight() - drawH) / 2;
+                    lastDrawX = drawX;
+                    lastDrawY = drawY;
+                    lastDrawW = drawW;
+                    lastDrawH = drawH;
 
                     // Ombre portée / Fond du conteneur
                     g2.setColor(new Color(15, 15, 18));
@@ -2104,12 +3234,13 @@ public class ExportVideoDialog extends JDialog {
                             cachedSessionH = drawH;
                             cachedSessionSec = visibleSeconds;
                             try {
-                                cachedSession = timelinePanel.createExportSession(drawW, drawH, visibleSeconds);
+                                cachedSession = timelinePanel.createExportSession(drawW, drawH, visibleSeconds, roleLabelScale);
                             } catch (Exception ex) {
                                 cachedSession = null;
                             }
                         }
                         if (cachedSession != null) {
+                            cachedSession.setRoleLabelScale(roleLabelScale);
                             Graphics2D g2Sub = (Graphics2D) g2.create(drawX, drawY, drawW, drawH);
                             try {
                                 g2Sub.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -2143,6 +3274,17 @@ public class ExportVideoDialog extends JDialog {
                         g2.drawLine(cx, drawY, cx, drawY + drawH);
                     }
 
+                    // Rendu du texte / filigrane superposé si activé
+                    if (textOverlayConfig != null && textOverlayConfig.enabled) {
+                        Graphics2D g2Overlay = (Graphics2D) g2.create(drawX, drawY, drawW, drawH);
+                        try {
+                            g2Overlay.scale(scale, scale);
+                            drawTextOverlay(g2Overlay, textOverlayConfig, targetW, targetH);
+                        } finally {
+                            g2Overlay.dispose();
+                        }
+                    }
+
                     // Bordure or / dorée stylisée
                     g2.setColor(new Color(245, 158, 11, 200));
                     g2.setStroke(new BasicStroke(1.5f));
@@ -2162,6 +3304,46 @@ public class ExportVideoDialog extends JDialog {
                 }
             };
             canvas.setBackground(new Color(20, 20, 24));
+            java.awt.event.MouseAdapter wmMouse = new java.awt.event.MouseAdapter() {
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent e) {
+                    if (textOverlayConfig != null && textOverlayConfig.enabled) {
+                        isDraggingWm = true;
+                        wmDragStart = e.getPoint();
+                        wmStartPosX = textOverlayConfig.getEffectivePosX();
+                        wmStartPosY = textOverlayConfig.getEffectivePosY();
+                        canvas.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                    }
+                }
+                @Override
+                public void mouseReleased(java.awt.event.MouseEvent e) {
+                    isDraggingWm = false;
+                    canvas.setCursor(Cursor.getDefaultCursor());
+                }
+                @Override
+                public void mouseDragged(java.awt.event.MouseEvent e) {
+                    if (isDraggingWm && textOverlayConfig != null && textOverlayConfig.enabled) {
+                        double dxPct = ((e.getX() - wmDragStart.x) / (double) Math.max(1, lastDrawW)) * 100.0;
+                        double dyPct = ((e.getY() - wmDragStart.y) / (double) Math.max(1, lastDrawH)) * 100.0;
+                        textOverlayConfig.setExactPosition(wmStartPosX + dxPct, wmStartPosY + dyPct);
+                        canvas.repaint();
+                        if (onWatermarkChanged != null) onWatermarkChanged.run();
+                    }
+                }
+            };
+            canvas.addMouseListener(wmMouse);
+            canvas.addMouseMotionListener(wmMouse);
+            canvas.addMouseWheelListener(e -> {
+                if (textOverlayConfig != null && textOverlayConfig.enabled) {
+                    double step = e.isShiftDown() ? 1.0 : 5.0;
+                    double newAngle = textOverlayConfig.angle + (e.getWheelRotation() > 0 ? step : -step);
+                    while (newAngle > 180.0) newAngle -= 360.0;
+                    while (newAngle < -180.0) newAngle += 360.0;
+                    textOverlayConfig.angle = Math.round(newAngle * 10.0) / 10.0;
+                    canvas.repaint();
+                    if (onWatermarkChanged != null) onWatermarkChanged.run();
+                }
+            });
             add(canvas, BorderLayout.CENTER);
 
             // Barre de scrubbing temporel en bas
@@ -2220,6 +3402,27 @@ public class ExportVideoDialog extends JDialog {
             this.previewTime = Math.max(0.0, time);
             this.timeLabel.setText(formatTime(previewTime));
             repaint();
+        }
+
+        public void setRoleLabelScale(double scale) {
+            this.roleLabelScale = Math.max(0.10, Math.min(2.00, scale));
+            if (cachedSession != null) {
+                cachedSession.setRoleLabelScale(this.roleLabelScale);
+            }
+            repaint();
+        }
+
+        public double getRoleLabelScale() {
+            return roleLabelScale;
+        }
+
+        public void setTextOverlay(TextOverlayConfig cfg) {
+            this.textOverlayConfig = cfg;
+            repaint();
+        }
+
+        public TextOverlayConfig getTextOverlay() {
+            return textOverlayConfig;
         }
     }
 }

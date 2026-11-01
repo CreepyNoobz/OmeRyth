@@ -33,6 +33,18 @@ if ($LASTEXITCODE -ne 0) {
 }
 Remove-Item $srcListFile -Force -ErrorAction SilentlyContinue
 
+# Compilation du helper natif d'exploration de fichiers (NativeDialog.exe)
+if (Test-Path 'src\native\NativeDialog.cs') {
+    $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+    if (Test-Path $csc) {
+        Write-Host "Compilation de NativeDialog.exe..." -ForegroundColor DarkGray
+        & $csc /nologo /target:exe /platform:anycpu /out:NativeDialog.exe /lib:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF" /r:PresentationFramework.dll /r:PresentationCore.dll /r:WindowsBase.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll src\native\NativeDialog.cs
+        if (Test-Path 'bin') {
+            Copy-Item -Path 'NativeDialog.exe' -Destination 'bin\NativeDialog.exe' -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 # Resolve jar executable (often missing from Oracle javapath symlinks)
 $jarCmd = (Get-Command jar -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source)
 if (-not $jarCmd) {
@@ -105,6 +117,7 @@ if (Test-Path $launch4jc) {
     <opt>-Xms64m</opt>
     <opt>-Xmx1024m</opt>
     <opt>-Dfile.encoding=UTF-8</opt>
+    <opt>-Dsun.awt.windows.useCommonItemDialog=true</opt>
   </jre>
 </launch4jConfig>
 "@

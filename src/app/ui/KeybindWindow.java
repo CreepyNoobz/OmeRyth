@@ -15,15 +15,16 @@ public class KeybindWindow extends JDialog {
     private KeyButton avanceMSButton = new KeyButton("→");
     private KeyButton retourDebutButton = new KeyButton("R"); 
     private KeyButton reculeMSButton = new KeyButton("←"); 
-    private KeyButton separateurButton = new KeyButton("M");
+    private KeyButton separateurButton = new KeyButton("NUMPAD 4");
     private KeyButton zoomInButton = new KeyButton("+");
     private KeyButton zoomOutButton = new KeyButton("-");
     private KeyButton finPhraseButton = new KeyButton("NUMPAD 3");
-    private KeyButton signeMpbButton = new KeyButton("NUMPAD 4");
+    private KeyButton signeMpbButton = new KeyButton("M");
     private KeyButton signeFvrButton = new KeyButton("NUMPAD 5");
     private KeyButton signeNeutralButton = new KeyButton("NUMPAD 6");
     private KeyButton signeVoyelleButton = new KeyButton("NUMPAD 7");
     private KeyButton signeRespirationButton = new KeyButton("NUMPAD 8");
+    private KeyButton signePlanButton = new KeyButton("NUMPAD 0");
     private JButton saveButton = new JButton("✔ Enregistrer");
 
     private MainFenetre parent;
@@ -33,7 +34,8 @@ public class KeybindWindow extends JDialog {
         this.parent = parent;
 
         setSize(620, 680);
-        setMinimumSize(new Dimension(620, 580));
+        setMinimumSize(new Dimension(480, 380));
+        setResizable(true);
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         setLocationRelativeTo(parent);
         setLayout(new BorderLayout());
@@ -67,7 +69,7 @@ public class KeybindWindow extends JDialog {
         addRow(contentPanel, "Avance rapide", avanceMSButton);
         addRow(contentPanel, "Recul rapide", reculeMSButton);
         addRow(contentPanel, "Retour au début", retourDebutButton);
-        addRow(contentPanel, "Séparateur de plan (standard)", separateurButton);
+        addRow(contentPanel, "Séparateur bleu (synchronisme)", separateurButton);
         addRow(contentPanel, "Zoom avant", zoomInButton);
         addRow(contentPanel, "Zoom arrière", zoomOutButton);
         addRow(contentPanel, "Fin de phrase", finPhraseButton);
@@ -76,6 +78,7 @@ public class KeybindWindow extends JDialog {
         addRow(contentPanel, "Signe Consonne Neutre", signeNeutralButton);
         addRow(contentPanel, "Signe Grande Ouverture (A / Voyelle)", signeVoyelleButton);
         addRow(contentPanel, "Signe Respiration / Souffle (h/)", signeRespirationButton);
+        addRow(contentPanel, "Changement de plan (Cut vidéo)", signePlanButton);
 
         JScrollPane scroll = new JScrollPane(contentPanel);
         scroll.setBorder(null);
@@ -87,15 +90,16 @@ public class KeybindWindow extends JDialog {
         avanceMSButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("avanceMSCode", "39"))));
         reculeMSButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("reculerMSCode", "37"))));
         retourDebutButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("retourDebutCode", "82"))));
-        separateurButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("separateurKeyCode", "77"))));
+        separateurButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("separateurKeyCode", String.valueOf(KeyEvent.VK_NUMPAD4)))));
         zoomInButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("zoomInCode", String.valueOf(KeyEvent.VK_EQUALS)))));
         zoomOutButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("zoomOutCode", String.valueOf(KeyEvent.VK_MINUS)))));
         finPhraseButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("finPhraseCode", "99"))));
-        signeMpbButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("signeMpbCode", "100"))));
+        signeMpbButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("signeMpbCode", String.valueOf(KeyEvent.VK_M)))));
         signeFvrButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("signeFvrCode", "101"))));
         signeNeutralButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("signeNeutralCode", "102"))));
         signeVoyelleButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("signeVoyelleCode", "103"))));
         signeRespirationButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("signeRespirationCode", "104"))));
+        signePlanButton.setKeyText(parent.getKeyText(Integer.parseInt(props.getProperty("signePlanCode", "96"))));
 
         // Listeners
         marcheArretButton.addActionListener(e -> listenForKey(marcheArretButton, "marcheArretCode", parent::setMarcheArretKeyCode));
@@ -111,6 +115,7 @@ public class KeybindWindow extends JDialog {
         signeNeutralButton.addActionListener(e -> listenForKey(signeNeutralButton, "signeNeutralCode", parent::setSigneNeutralKeyCode));
         signeVoyelleButton.addActionListener(e -> listenForKey(signeVoyelleButton, "signeVoyelleCode", parent::setSigneVoyelleKeyCode));
         signeRespirationButton.addActionListener(e -> listenForKey(signeRespirationButton, "signeRespirationCode", parent::setSigneRespirationKeyCode));
+        signePlanButton.addActionListener(e -> listenForKey(signePlanButton, "signePlanCode", parent::setSignePlanKeyCode));
 
         // Footer
         JPanel footerPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 15, 15));
@@ -135,6 +140,7 @@ public class KeybindWindow extends JDialog {
             FileUtils.saveKeybind("signeNeutralCode", Integer.toString(parent.getSigneNeutralKeyCode()));
             FileUtils.saveKeybind("signeVoyelleCode", Integer.toString(parent.getSigneVoyelleKeyCode()));
             FileUtils.saveKeybind("signeRespirationCode", Integer.toString(parent.getSigneRespirationKeyCode()));
+            FileUtils.saveKeybind("signePlanCode", Integer.toString(parent.getSignePlanKeyCode()));
             dispose();
         });
 

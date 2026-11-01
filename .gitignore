@@ -4,6 +4,7 @@ OmeRyth/
 OmeRyth.exe
 OmeRyth.bat
 OmeRyth_Setup.iss
+OmeRyth_Setup*.exe
 MonApplication.zip
 creer_zip_portable.bat
 manifest.txt
