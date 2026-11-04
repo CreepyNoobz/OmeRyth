@@ -1033,7 +1033,7 @@ public class TimelineRenderer {
                             double aspect = (double) startImg.getWidth() / Math.max(1, startImg.getHeight());
                             double imgWidth = imgHeight * aspect;
                             int imgX = (int) Math.round(sx - imgWidth / 2.0);
-                            int imgY = bandTop + bandHeight + 3;
+                            int imgY = bandTop + bandHeight - 4;
                             g2.drawImage(startImg, imgX, imgY, (int) Math.round(imgWidth), (int) Math.round(imgHeight), null);
                         } else {
                             int isx = (int) Math.round(sx);
@@ -1053,7 +1053,7 @@ public class TimelineRenderer {
                             double aspect = (double) endImg.getWidth() / Math.max(1, endImg.getHeight());
                             double imgWidth = imgHeight * aspect;
                             int imgX = (int) Math.round(sx - imgWidth / 2.0);
-                            int imgY = bandTop + bandHeight + 3;
+                            int imgY = bandTop + bandHeight - 4;
                             g2.drawImage(endImg, imgX, imgY, (int) Math.round(imgWidth), (int) Math.round(imgHeight), null);
                         } else {
                             int isx = (int) Math.round(sx);
@@ -1067,6 +1067,7 @@ public class TimelineRenderer {
                         }
                     }
                     case INNER -> {
+                        BufferedImage sepImg = getSepImage();
                         Color sepCol = customization.timelineSeparator;
                         String badge = null;
                         if (mark.signType == SeparatorMark.SignType.FVR) {
@@ -1088,11 +1089,16 @@ public class TimelineRenderer {
 
                         int isx = (int) Math.round(sx);
                         int idotR = (int) Math.round(dotR);
-                        g2.setColor(sepCol);
-                        g2.drawLine(isx, bandTop, isx, bandTop + bandHeight);
-                        g2.fillOval(isx - idotR, bandMid - idotR, idotR * 2, idotR * 2);
-                        g2.setColor(new Color(30, 30, 30));
-                        g2.drawOval(isx - idotR, bandMid - idotR, idotR * 2, idotR * 2);
+                        if (sepImg != null) {
+                            double imgHeight = Math.max(14.0, bandHeight * 0.60);
+                            double aspect = (double) sepImg.getWidth() / Math.max(1, sepImg.getHeight());
+                            double imgWidth = imgHeight * aspect;
+                            int imgX = (int) Math.round(sx - imgWidth / 2.0);
+                            int imgY = bandTop + bandHeight - 7;
+                            g2.drawImage(sepImg, imgX, imgY, (int) Math.round(imgWidth),
+                                    (int) Math.round(imgHeight), null);
+                        }
+                        
 
                         if (badge != null) {
                             Font badgeFont = getBadgeFont(bandHeight);
@@ -1279,6 +1285,36 @@ public class TimelineRenderer {
         }
         endImageLoaded = true;
         return endImage;
+    }
+    private static BufferedImage sepImage;
+    private static boolean sepImageLoaded = false;
+
+    private static BufferedImage getSepImage() {
+        if (sepImageLoaded) return sepImage;
+        try {
+            BufferedImage raw = null;
+            java.net.URL url = TimelineRenderer.class.getResource("/images/Sep.png");
+            if (url != null) {
+                raw = ImageIO.read(url);
+            } else {
+                File f = new File("src/images/Sep.png");
+                if (f.exists()) {
+                    raw = ImageIO.read(f);
+                } else {
+                    f = new File("images/Sep.png");
+                    if (f.exists()) {
+                        raw = ImageIO.read(f);
+                    }
+                }
+            }
+            if (raw != null) {
+                sepImage = raw;
+            }
+        } catch (Exception e) {
+            sepImage = null;
+        }
+        sepImageLoaded = true;
+        return sepImage;
     }
 
     /**

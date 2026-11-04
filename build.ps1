@@ -12,6 +12,31 @@ Get-Process -Name 'OmeRyth' -ErrorAction SilentlyContinue | Stop-Process -Force 
 Get-Process -Name 'javaw', 'java' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like '*OmeRyth*' } | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 300
 
+# 0.5. Restaurer les binaires locaux s'ils ont été remplacés par des pointeurs Git LFS (< 1 Ko)
+$localInstall = Join-Path $env:LOCALAPPDATA 'OmeRyth'
+if (Test-Path $localInstall) {
+    $jnaJar = 'libs\jna-5.13.0.jar'
+    if ((-not (Test-Path $jnaJar)) -or ((Get-Item $jnaJar).Length -lt 1024)) {
+        Write-Host "[0/4] Restauration des librairies depuis $localInstall..." -ForegroundColor Magenta
+        Copy-Item -Path (Join-Path $localInstall 'libs\*') -Destination 'libs\' -Force -ErrorAction SilentlyContinue
+    }
+    if (-not (Test-Path 'jre\bin\javaw.exe') -and (Test-Path (Join-Path $localInstall 'jre\bin\javaw.exe'))) {
+        Write-Host "[0/4] Restauration du JRE embarqué depuis $localInstall..." -ForegroundColor Magenta
+        Copy-Item -Path (Join-Path $localInstall 'jre\*') -Destination 'jre\' -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (((-not (Test-Path 'vlc\libvlc.dll')) -or ((Get-Item 'vlc\libvlc.dll').Length -lt 1024)) -and (Test-Path (Join-Path $localInstall 'vlc\libvlc.dll'))) {
+        Write-Host "[0/4] Restauration de VLC embarqué depuis $localInstall..." -ForegroundColor Magenta
+        Copy-Item -Path (Join-Path $localInstall 'vlc\*') -Destination 'vlc\' -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (((-not (Test-Path 'ffmpeg\ffprobe.exe')) -or ((Get-Item 'ffmpeg\ffprobe.exe').Length -lt 1024)) -and (Test-Path (Join-Path $localInstall 'ffmpeg\ffprobe.exe'))) {
+        Write-Host "[0/4] Restauration de FFmpeg embarqué depuis $localInstall..." -ForegroundColor Magenta
+        Copy-Item -Path (Join-Path $localInstall 'ffmpeg\*') -Destination 'ffmpeg\' -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (((-not (Test-Path 'NativeDialog.exe')) -or ((Get-Item 'NativeDialog.exe').Length -lt 1024)) -and (Test-Path (Join-Path $localInstall 'NativeDialog.exe'))) {
+        Copy-Item -Path (Join-Path $localInstall 'NativeDialog.exe') -Destination 'NativeDialog.exe' -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # 1. Clean / create bin
 if (Test-Path 'bin') {
     Remove-Item 'bin' -Recurse -Force
@@ -25,7 +50,7 @@ $srcListFile = '.src_files.txt'
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllLines($srcListFile, $javaFiles, $utf8NoBom)
 
-& javac -cp "libs/*;src" -d "bin" -encoding UTF-8 "@$srcListFile"
+& javac --release 21 -cp "libs/*;src" -d "bin" -encoding UTF-8 "@$srcListFile"
 if ($LASTEXITCODE -ne 0) {
     Remove-Item $srcListFile -Force -ErrorAction SilentlyContinue
     Write-Error "Erreur lors de la compilation Java."
