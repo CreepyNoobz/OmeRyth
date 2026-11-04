@@ -43,7 +43,7 @@ public class SimplifiedKeybindWindow extends JDialog {
             {owner.getKeyText(owner.getAvanceMSKeyCode()), "Forward 0.5s"},
             {owner.getKeyText(owner.getReculerMSKeyCode()), "Rewind 0.5s"},
             {owner.getKeyText(owner.getRetourDebutKeyCode()), "Return to video start"},
-            {owner.getKeyText(owner.getSeparateurKeyCode()), "Add shot / plan separator"},
+            {owner.getKeyText(owner.getSeparateurKeyCode()), "Add sync separator (blue line)"},
             {"Ctrl+Z", "Undo last action"},
             {"Ctrl+Y", "Redo undone action"}
         } : new Object[][] {
@@ -53,7 +53,7 @@ public class SimplifiedKeybindWindow extends JDialog {
             {owner.getKeyText(owner.getAvanceMSKeyCode()), "Avancer de 0.5s"},
             {owner.getKeyText(owner.getReculerMSKeyCode()), "Reculer de 0.5s"},
             {owner.getKeyText(owner.getRetourDebutKeyCode()), "Retour au début de la vidéo"},
-            {owner.getKeyText(owner.getSeparateurKeyCode()), "Ajouter un séparateur de texte rythmo"},
+            {owner.getKeyText(owner.getSeparateurKeyCode()), "Ajouter un séparateur bleu (synchronisme)"},
             {"Ctrl+Z", "Annuler la dernière action"},
             {"Ctrl+Y", "Rétablir l'action annulée"}
         };

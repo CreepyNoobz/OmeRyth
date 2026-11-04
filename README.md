@@ -1,12 +1,16 @@
 # OmeRyth
 
-## 🚀 Version 1.3.5 — Édition Rythmo Révolutionnée, Presets d'Export, IA Précise & Optimisation Espace (~540 Mo)
+## 🚀 Version 1.4.0 — Atelier d'Export Avancé (Étiquettes Rôles 10%-200% & Translucidité, Filigrane Interactif, Miroir Vidéo), Transcription IA & Édition Rythmo
 
 OmeRyth est un logiciel professionnel de création et de synchronisation de **bandes rythmo pour le doublage, la post-synchronisation et le karaoké**.
 
-La version 1.3.5 apporte une refonte majeure de l'ergonomie d'édition sur la bande rythmo, un système complet de préréglages d'export vidéo, une précision chirurgicale de la transcription vocale IA et une réduction drastique de **92,5 %** de la taille de l'application (passée de 7,2 Go à ~540 Mo) :
+La version 1.4.0 enrichit l'atelier d'export vidéo, perfectionne le rendu de la bande rythmo et la précision de la transcription IA, tout en conservant une empreinte disque ultra-légère (~540 Mo) :
 
 ### ✨ Nouveautés majeures :
+- 🏷️ **Taille des Étiquettes de Rôles à l'Export (10 % à 200 %) & Translucidité Intelligente** : Ajout d'un curseur (slider de `10 %` à `200 %`) dans les deux onglets d'export (*Bandeau Seul* et *Montage Vidéo + Bande*) pour ajuster dynamiquement la taille des badges de personnages, avec passage automatique en mode **translucide** (`45 %` d'opacité) lorsqu'une étiquette de rôle surpasse ou empiète sur une phrase afin de préserver la lisibilité intégrale du texte.
+- 🖼️ **Filigrane / Texte Superposé Interactif (Watermark) & Effet Miroir Vidéo** : Manipulation directe à la souris sur le canevas de montage (déplacement, redimensionnement par poignées, rotation libre ou crantée) et option d'inversion horizontale de la vidéo (*Miroir H* anti-copyright).
+- 🔇 **Exclusion Vocale Ciblée par Rôle ou Recherche de Mots** : Filtrage et pose automatique de balises de coupure ou conservation de voix par comédien/personnage ou par mots-clés sur la timeline d'export.
+- 📐 **Précision Chrono & Bornes de Phrases Collées** : Résolution exacte des phrases adjacentes partageant la même coordonnée (`END` collé au `START` suivant), étirement typographique intégral des répliques courtes et anti-débordement quelle que soit la police choisie.
 - 💾 **Empreinte Disque Optimisée (Passage de 7,2 Go à ~540 Mo)** : Téléchargement 13× plus rapide grâce au nettoyage des installateurs redondants et à l'architecture modulaire à la demande pour les modèles IA.
 - ✍️ **Édition Directe dans les Trous (Gap Typing)** : Possibilité de cliquer et taper du texte directement au sein des espaces vides entre séparateurs. Le curseur d'édition se positionne intuitivement juste après le repère d'ouverture, sans aucun artefact visuel.
 - 🛡️ **Gestion Non-Destructive des Rôles & Répliques** : La suppression d'un rôle ou de la première réplique d'un personnage isole strictement le texte concerné sans plus jamais effacer le reste de la bande.
@@ -20,6 +24,23 @@ La version 1.3.5 apporte une refonte majeure de l'ergonomie d'édition sur la ba
 ---
 
 ## 📋 Journal des Mises à Jour (Update Log)
+
+### 2026-11-01 — Version 1.4.0 : Slider d'Étiquettes de Rôles (10%-200%), Translucidité Anti-Chevauchement, Filigrane Interactif & Stabilisation Globale
+
+#### 🎬 Atelier d'Export Vidéo & Bandeau
+- **Slider de taille des étiquettes de rôles (10 % à 200 %)** : Contrôle précis et synchronisé dans les onglets *Bandeau Seul* et *Montage Vidéo + Bande*, sauvegardé dans les préréglages d'export.
+- **Translucidité automatique des étiquettes de rôles** : Si une étiquette de rôle surpasse ou empiète sur une phrase adjacente, son rendu devient automatiquement translucide (`45 %` d'opacité) et s'affiche par-dessus sans jamais masquer les lettres de la réplique.
+- **Filigrane (Watermark) dynamique sur le canevas** : Sélection, déplacement, redimensionnement et rotation directe du filigrane sur l'aperçu de montage.
+- **Miroir vidéo horizontal & Filtres** : Option d'inversion horizontale de l'image vidéo et du fond flouté sans inverser la bande rythmo.
+- **Coupure vocale par Rôle / Recherche** : Sélection rapide d'un rôle ou recherche textuelle pour poser automatiquement les balises de suppression/conservation vocale.
+- **Sélecteur de fichiers natif (`NativeDialog.exe`)** : Ouverture et sauvegarde fluides sans blocage.
+
+#### ✍️ Bande Rythmo & Transcription IA
+- **Phrases collées sur une même bande** : Distinction stricte entre le repère `END` d'une phrase et le repère `START` de la phrase suivante lorsqu'ils sont superposés.
+- **Étirement typographique & Polices** : Étirement fidèle des répliques courtes sur toute la durée du segment et calcul exact des bornes de glyphes lors d'un changement de police.
+- **Moteur WhisperX amélioré** : Recalage précis des débuts/fins de phrases sur l'énergie vocale, filtrage des mots parasites et découpage naturel des silences internes.
+
+---
 
 ### 2026-10-09 — Version 1.3.5 : Optimisation Massive de l'Espace Disque (7,2 Go ➔ ~540 Mo)
 
@@ -216,7 +237,7 @@ java -cp "bin;libs/*" app.Launcher
 ESPACE          = Lecture / Arrêt
 ← →             = Reculer / Avancer (0.5s - pause automatique en lecture)
 R               = Retour au début
-Numpad 4   = Ajouter séparateur
+Numpad 4        = Ajouter séparateur
 CTRL+Z / Y      = Annuler / Rétablir
 CTRL+W          = Afficher / Masquer la Waveform
 ```

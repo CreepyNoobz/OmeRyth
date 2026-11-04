@@ -243,6 +243,47 @@ public class FileUtils {
         saveAppState(props);
     }
 
+    public static final String DEFAULT_GLADIA_KEY = "sk_gladia_329ab1b6be0948b59240530dee458a2b";
+
+    /**
+     * Charge la clé API Gladia enregistrée ou la clé par défaut de l'utilisateur.
+     */
+    public static String loadGladiaApiKey() {
+        Properties props = loadAppState();
+        String key = props.getProperty("gladia_api_key");
+        if (key == null || key.isBlank()) {
+            return DEFAULT_GLADIA_KEY;
+        }
+        return key.trim();
+    }
+
+    /**
+     * Sauvegarde la clé API Gladia dans appstate.properties.
+     */
+    public static void saveGladiaApiKey(String key) {
+        Properties props = loadAppState();
+        props.setProperty("gladia_api_key", (key != null && !key.isBlank()) ? key.trim() : DEFAULT_GLADIA_KEY);
+        saveAppState(props);
+    }
+
+    /**
+     * Charge le moteur de transcription sélectionné ("whisper" ou "gladia").
+     */
+    public static String loadTranscriptionEngine() {
+        Properties props = loadAppState();
+        String engine = props.getProperty("transcription_engine", "gladia");
+        return "whisper".equalsIgnoreCase(engine) ? "whisper" : "gladia";
+    }
+
+    /**
+     * Sauvegarde le moteur de transcription sélectionné ("whisper" ou "gladia").
+     */
+    public static void saveTranscriptionEngine(String engine) {
+        Properties props = loadAppState();
+        props.setProperty("transcription_engine", "whisper".equalsIgnoreCase(engine) ? "whisper" : "gladia");
+        saveAppState(props);
+    }
+
     private static int parseInt(String value, int fallback) {
         try {
             return Integer.parseInt(value);
@@ -262,6 +303,7 @@ public class FileUtils {
     private static String safe(String s) {
         return s == null ? "" : s;
     }
+
     private static class DialogOutcome {
         final boolean isSuccess;
         final boolean isCancelled;
@@ -286,7 +328,17 @@ public class FileUtils {
         }
     }
 
+    public static void resetComDlgRegistrySize() {
+        try {
+            String psCmd = "Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ComDlg32\\CIDSizeMRU' -ErrorAction SilentlyContinue | " +
+                    "Get-Member -MemberType NoteProperty | Where-Object { $_.Name -match 'NativeDialog|OmeRyth|java' } | " +
+                    "ForEach-Object { Remove-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ComDlg32\\CIDSizeMRU' -Name $_.Name -ErrorAction SilentlyContinue }";
+            new ProcessBuilder("powershell", "-NoProfile", "-NonInteractive", "-Command", psCmd).start();
+        } catch (Throwable ignored) {}
+    }
+
     public static File chooseOpenFile(Window parent, String title, String... extensions) {
+        resetComDlgRegistrySize();
         String filter = buildOpenFilter(extensions);
 
         // 1. Essai via le helper natif ultra-rapide (Microsoft.Win32.OpenFileDialog moderne)
@@ -297,10 +349,10 @@ public class FileUtils {
                 return outcome.file;
             }
             if (outcome.isCancelled) {
-                // L'utilisateur a explicitement cliqué sur Annuler : arrêt immédiat
+                // L'utilisateur a explicitement cliqué sur Annuler ou fermé la fenêtre : arrêt immédiat, aucun second dialogue !
                 return null;
             }
-            // En cas d'échec d'exécution du binaire, on poursuit vers le repli
+            // En cas d'échec du binaire (non exécutable ou crash au lancement), on poursuit vers le repli
         }
 
         // 2. Repli AWT FileDialog (instantané, natif Windows COM, zéro freeze)
@@ -316,6 +368,9 @@ public class FileUtils {
                     fd = new FileDialog((Frame) null, title, FileDialog.LOAD);
                 }
                 if (extensions != null && extensions.length > 0) {
+                    if (extensions.length == 1) {
+                        fd.setFile("*." + extensions[0].toLowerCase(Locale.ROOT));
+                    }
                     fd.setFilenameFilter((dir, name) -> {
                         String lower = name.toLowerCase(Locale.ROOT);
                         for (String ext : extensions) {
@@ -331,7 +386,7 @@ public class FileUtils {
                 if (file != null && dir != null) {
                     return new File(dir, file);
                 }
-                // Si la boîte s'est fermée sans fichier sélectionné : l'utilisateur a annulé
+                // Si la boîte s'est affichée et fermée sans fichier sélectionné : l'utilisateur a annulé -> arrêt immédiat
                 return null;
             } catch (Throwable ignored) {
                 if (shown) return null;
@@ -368,6 +423,7 @@ public class FileUtils {
     }
 
     public static File chooseSaveFile(Window parent, String title, String defaultExtension) {
+        resetComDlgRegistrySize();
         String filter = buildSaveFilter(defaultExtension);
         String defExt = defaultExtension != null ? defaultExtension : "";
 
@@ -379,7 +435,7 @@ public class FileUtils {
                 return ensureExtension(outcome.file, defaultExtension);
             }
             if (outcome.isCancelled) {
-                // L'utilisateur a explicitement cliqué sur Annuler : arrêt immédiat
+                // L'utilisateur a explicitement cliqué sur Annuler ou fermé la fenêtre : arrêt immédiat
                 return null;
             }
             // En cas d'échec du binaire, on poursuit vers le repli
@@ -407,7 +463,7 @@ public class FileUtils {
                 if (file != null && dir != null) {
                     return ensureExtension(new File(dir, file), defaultExtension);
                 }
-                // Si la boîte s'est fermée sans fichier sélectionné : l'utilisateur a annulé
+                // Si la boîte s'est fermée sans fichier sélectionné : l'utilisateur a annulé -> arrêt immédiat
                 return null;
             } catch (Throwable ignored) {
                 if (shown) return null;
@@ -422,7 +478,6 @@ public class FileUtils {
                 return ensureExtension(outcome.file, defaultExtension);
             }
             if (outcome.isCancelled) {
-                // L'utilisateur a explicitement cliqué sur Annuler : arrêt immédiat
                 return null;
             }
         } catch (Throwable ignored) {}
@@ -495,18 +550,15 @@ public class FileUtils {
             }
             int exitCode = p.waitFor();
 
-            if (exitCode == 0) {
-                // Si le dialogue a renvoyé un chemin valide, c'est un succès.
-                if (result != null && !result.isEmpty() && !result.equals("::CANCELLED::")) {
-                    return DialogOutcome.success(new File(result));
-                }
-                // Si exitCode == 0 et ::CANCELLED:: (ou résultat vide), l'utilisateur a annulé.
-                return DialogOutcome.cancelled();
+            // Si le dialogue a renvoyé un chemin valide et non vide, c'est un succès.
+            if (exitCode == 0 && result != null && !result.isEmpty() && !result.equals("::CANCELLED::")) {
+                return DialogOutcome.success(new File(result));
             }
 
-            // En cas d'exitCode non-zéro (erreur d'exécution ou crash de l'exécutable),
-            // on signale un échec pour déclencher immédiatement les replis natifs AWT / JFileChooser.
-            return DialogOutcome.failed();
+            // Dans TOUS les autres cas où l'exécutable s'est lancé (annulation via le bouton Annuler, fermeture de fenêtre,
+            // ou exit code 1 renvoyé par NativeDialog en cas d'annulation), l'utilisateur a vu le dialogue et l'a annulé.
+            // On signale impérativement une annulation pour éviter d'ouvrir un deuxième dialogue en Java !
+            return DialogOutcome.cancelled();
 
         } catch (Exception ignored) {
             // Seulement si le processus n'a pas pu démarrer (exe manquant, permissions...)

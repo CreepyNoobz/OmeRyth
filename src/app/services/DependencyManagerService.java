@@ -257,6 +257,8 @@ public class DependencyManagerService {
         Frame ownerFrame = (parent instanceof Frame) ? (Frame) parent : (parent != null ? (Frame) SwingUtilities.getAncestorOfClass(Frame.class, parent) : null);
         JDialog progressDialog = new JDialog(ownerFrame, "Extraction de Whisper", true);
         progressDialog.setSize(420, 140);
+        progressDialog.setMinimumSize(new java.awt.Dimension(360, 120));
+        progressDialog.setResizable(true);
         progressDialog.setLocationRelativeTo(parent);
         progressDialog.setLayout(new BorderLayout(10, 10));
 

@@ -10,6 +10,14 @@ import app.services.VlcLogFilter;
  * sont appliquées AVANT le chargement d'AWT/Swing.
  */
 public class Launcher {
+    static {
+        // Force l'utilisation du dialogue natif Windows moderne (IFileDialog / Common Item Dialog)
+        // Doit être exécuté AVANT tout chargement de classe AWT/Swing ou Toolkit
+        System.setProperty("sun.awt.windows.useCommonItemDialog", "true");
+        // Accélération matérielle Direct3D sous Windows pour un défilement ultra-fluide 60+ FPS sans saccades
+        System.setProperty("sun.java2d.d3d", "true");
+    }
+
     public static void main(String[] args) {
         final String fileToOpen = (args != null && args.length > 0) ? args[0] : null;
 
@@ -19,13 +27,6 @@ public class Launcher {
             System.exit(0);
             return;
         }
-
-        // Force l'utilisation du dialogue natif Windows moderne (IFileDialog)
-        // Doit être exécuté avant tout chargement de classe AWT (donc avant JFrame)
-        System.setProperty("sun.awt.windows.useCommonItemDialog", "true");
-
-        // Accélération matérielle Direct3D sous Windows pour un défilement ultra-fluide 60+ FPS sans saccades
-        System.setProperty("sun.java2d.d3d", "true");
         // Configuration des chemins LibVLC (embarqué pour .exe et distribution)
         try {
             java.io.File vlcDir = new java.io.File("vlc").getAbsoluteFile();

@@ -42,7 +42,8 @@ public class RoleWindow extends JDialog {
         this.roles = roles;
 
         setSize(480, 560);
-        setMinimumSize(new Dimension(440, 500));
+        setMinimumSize(new Dimension(380, 380));
+        setResizable(true);
         setLocationRelativeTo(parent);
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         setLayout(new BorderLayout());

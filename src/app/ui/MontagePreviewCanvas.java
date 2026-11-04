@@ -13,14 +13,14 @@ import java.awt.image.BufferedImage;
 public class MontagePreviewCanvas extends JPanel {
 
     public enum ElementType {
-        NONE, VIDEO, BAND
+        NONE, VIDEO, BAND, WATERMARK
     }
 
     private static final int HANDLE_SIZE = 8;
     private static final int MIN_ELEMENT_SIZE = 30;
 
-    // Poignées de redimensionnement :
-    // 0: NW, 1: N, 2: NE, 3: E, 4: SE, 5: S, 6: SW, 7: W
+    // Poignées de redimensionnement et rotation :
+    // 0: NW, 1: N, 2: NE, 3: E, 4: SE, 5: S, 6: SW, 7: W, 8: ROTATE
     private static final int HANDLE_NW = 0;
     private static final int HANDLE_N  = 1;
     private static final int HANDLE_NE = 2;
@@ -29,6 +29,8 @@ public class MontagePreviewCanvas extends JPanel {
     private static final int HANDLE_S  = 5;
     private static final int HANDLE_SW = 6;
     private static final int HANDLE_W  = 7;
+    private static final int HANDLE_ROTATE = 8;
+    private static final int ROTATE_HANDLE_OFFSET = 22;
 
     private int exportWidth = 1920;
     private int exportHeight = 1080;
@@ -50,14 +52,18 @@ public class MontagePreviewCanvas extends JPanel {
     private int cachedBandH = -1;
     private double cachedVisibleSeconds = 8.0;
     private double visibleSeconds = 8.0;
+    private double roleLabelScale = 1.0;
     private double previewTime = 0.0;
     private boolean antiCopyright = false;
     private int antiCopyrightOpacity = 20;
 
+    private ExportVideoDialog.TextOverlayConfig textOverlayConfig;
+
     private boolean blurBackgroundVideo = false;
     private int blurRadius = 25;
     private int blurOpacity = 100;
-    private java.util.List<String> layerOrder = new java.util.ArrayList<>(java.util.List.of("BACKGROUND_BLUR", "VIDEO", "BAND"));
+    private boolean mirrorVideo = false;
+    private java.util.List<String> layerOrder = new java.util.ArrayList<>(java.util.List.of("BACKGROUND_BLUR", "VIDEO", "BAND", "WATERMARK"));
     private BufferedImage cachedBlurredSnapshot = null;
     private int cachedBlurRadius = -1;
     private BufferedImage cachedBlurSource = null;
@@ -86,12 +92,18 @@ public class MontagePreviewCanvas extends JPanel {
 
     private boolean isDragging = false;
     private boolean isResizing = false;
+    private boolean isRotatingWatermark = false;
     private int activeHandle = -1;
 
     private Point dragStartMouse = new Point();
     private Rectangle dragStartRect = new Rectangle();
+    private double dragStartWmPosX = 50.0;
+    private double dragStartWmPosY = 50.0;
+    private int dragStartWmFontSize = 42;
+    private double dragStartWmDist = 1.0;
 
     private Runnable onLayoutChanged;
+    private Runnable onWatermarkChanged;
 
     public MontagePreviewCanvas() {
         setBackground(new Color(24, 24, 27));
@@ -122,10 +134,25 @@ public class MontagePreviewCanvas extends JPanel {
 
         addMouseListener(mouseHandler);
         addMouseMotionListener(mouseHandler);
+        addMouseWheelListener(e -> {
+            if (textOverlayConfig != null && textOverlayConfig.enabled && selectedElement == ElementType.WATERMARK) {
+                double step = e.isShiftDown() ? 1.0 : 5.0;
+                double newAngle = textOverlayConfig.angle + (e.getWheelRotation() > 0 ? step : -step);
+                while (newAngle > 180.0) newAngle -= 360.0;
+                while (newAngle < -180.0) newAngle += 360.0;
+                textOverlayConfig.angle = Math.round(newAngle * 10.0) / 10.0;
+                repaint();
+                if (onWatermarkChanged != null) onWatermarkChanged.run();
+            }
+        });
     }
 
     public void setOnLayoutChanged(Runnable callback) {
         this.onLayoutChanged = callback;
+    }
+
+    public void setOnWatermarkChanged(Runnable callback) {
+        this.onWatermarkChanged = callback;
     }
 
     public void setTimelinePanel(TimelinePanel panel) {
@@ -161,6 +188,18 @@ public class MontagePreviewCanvas extends JPanel {
         this.visibleSeconds = Math.max(1.0, sec);
         invalidateBandCache();
         repaint();
+    }
+
+    public void setRoleLabelScale(double scale) {
+        this.roleLabelScale = Math.max(0.10, Math.min(2.00, scale));
+        if (cachedBandSession != null) {
+            cachedBandSession.setRoleLabelScale(this.roleLabelScale);
+        }
+        repaint();
+    }
+
+    public double getRoleLabelScale() {
+        return roleLabelScale;
     }
 
     public void setPreviewTime(double time) {
@@ -218,6 +257,15 @@ public class MontagePreviewCanvas extends JPanel {
 
     public int getBlurOpacity() {
         return blurOpacity;
+    }
+
+    public void setMirrorVideo(boolean mirror) {
+        this.mirrorVideo = mirror;
+        repaint();
+    }
+
+    public boolean isMirrorVideo() {
+        return mirrorVideo;
     }
 
     public void setLayerOrder(java.util.List<String> order) {
@@ -346,6 +394,15 @@ public class MontagePreviewCanvas extends JPanel {
         this.cachedBandH = -1;
     }
 
+    public void setTextOverlay(ExportVideoDialog.TextOverlayConfig cfg) {
+        this.textOverlayConfig = cfg;
+        repaint();
+    }
+
+    public ExportVideoDialog.TextOverlayConfig getTextOverlay() {
+        return textOverlayConfig;
+    }
+
     public void setExportResolution(int width, int height) {
         if (width <= 0 || height <= 0) return;
         this.exportWidth = width;
@@ -400,6 +457,12 @@ public class MontagePreviewCanvas extends JPanel {
     }
 
     public void centerSelectedHorizontally() {
+        if (selectedElement == ElementType.WATERMARK && textOverlayConfig != null) {
+            textOverlayConfig.setExactPosition(50.0, textOverlayConfig.getEffectivePosY());
+            repaint();
+            if (onWatermarkChanged != null) onWatermarkChanged.run();
+            return;
+        }
         Rectangle r = getSelectedRectangle();
         if (r == null) return;
         r.x = Math.max(0, (exportWidth - r.width) / 2);
@@ -408,6 +471,12 @@ public class MontagePreviewCanvas extends JPanel {
     }
 
     public void centerSelectedVertically() {
+        if (selectedElement == ElementType.WATERMARK && textOverlayConfig != null) {
+            textOverlayConfig.setExactPosition(textOverlayConfig.getEffectivePosX(), 50.0);
+            repaint();
+            if (onWatermarkChanged != null) onWatermarkChanged.run();
+            return;
+        }
         Rectangle r = getSelectedRectangle();
         if (r == null) return;
         r.y = Math.max(0, (exportHeight - r.height) / 2);
@@ -426,11 +495,6 @@ public class MontagePreviewCanvas extends JPanel {
 
     public void applyLayoutTemplate(String templateName) {
         if ("OMERYTH_ORIGINAL".equals(templateName) || "CLASSIC_16_9".equals(templateName)) {
-            // Disposition OmeRyth d'origine :
-            // Règle d'adaptation selon le nombre de bandes :
-            // 1 bande : hauteur de base
-            // 2 bandes : hauteur divisée par 2 pour chaque bande (hauteur totale identique)
-            // au-delà de 2 bandes : on augmente la taille globale
             int baseSingleH = Math.max(60, Math.min(140, (int) Math.round(exportHeight * 0.09)));
             int bandH = ExportVideoDialog.computeExportBandHeight(bandCount, baseSingleH);
             if (bandH % 2 != 0) bandH++;
@@ -438,14 +502,12 @@ public class MontagePreviewCanvas extends JPanel {
             videoRect.setBounds(0, 0, exportWidth, vidH);
             bandRect.setBounds(0, vidH, exportWidth, bandH);
         } else if ("OVERLAY_BOTTOM".equals(templateName)) {
-            // Vidéo plein écran, Bandeau incrusté en bas
             int baseSingleH = Math.max(60, Math.min(140, (int) Math.round(exportHeight * 0.09)));
             int bandH = ExportVideoDialog.computeExportBandHeight(bandCount, baseSingleH);
             if (bandH % 2 != 0) bandH++;
             videoRect.setBounds(0, 0, exportWidth, exportHeight);
             bandRect.setBounds(0, exportHeight - bandH, exportWidth, bandH);
         } else if ("LARGE_BAND_25".equals(templateName)) {
-            // Grand bandeau studio (25% base pour 1 bande, adapté si plus de bandes)
             int baseSingleH = (int) Math.round(exportHeight * 0.25);
             int bandH = ExportVideoDialog.computeExportBandHeight(bandCount, baseSingleH);
             if (bandH % 2 != 0) bandH++;
@@ -453,7 +515,6 @@ public class MontagePreviewCanvas extends JPanel {
             videoRect.setBounds(0, 0, exportWidth, vidH);
             bandRect.setBounds(0, vidH, exportWidth, bandH);
         } else if ("TIKTOK_CENTER_9_16".equals(templateName)) {
-            // 9:16 Vertical TikTok : Vidéo 16:9 au milieu, Bandeau sous la vidéo
             int vidW = exportWidth;
             int vidH = (int) Math.round(vidW * (9.0 / 16.0));
             if (vidH % 2 != 0) vidH++;
@@ -465,7 +526,6 @@ public class MontagePreviewCanvas extends JPanel {
             videoRect.setBounds(0, vidY, vidW, vidH);
             bandRect.setBounds(0, vidY + vidH + 15, exportWidth, bandH);
         } else if ("STACKED_TOP_BOTTOM".equals(templateName)) {
-            // 50% / 50%
             int half = exportHeight / 2;
             if (half % 2 != 0) half++;
             videoRect.setBounds(0, 0, exportWidth, half);
@@ -523,13 +583,83 @@ public class MontagePreviewCanvas extends JPanel {
         return new Rectangle(sx, sy, sw, sh);
     }
 
+    /**
+     * Calcule la boîte englobante non-tournée du filigrane en coordonnées écran,
+     * centrée sur (wmCenterX, wmCenterY).
+     */
+    private Rectangle computeWatermarkUnrotatedScreenRect(SheetMetrics m) {
+        if (textOverlayConfig == null || !textOverlayConfig.enabled) return null;
+        Dimension exportDim = ExportVideoDialog.computeTextOverlayExportSize(textOverlayConfig);
+        double cx = m.sheetX + ((exportWidth * textOverlayConfig.getEffectivePosX()) / 100.0) * m.scale;
+        double cy = m.sheetY + ((exportHeight * textOverlayConfig.getEffectivePosY()) / 100.0) * m.scale;
+        int sw = Math.max(32, (int) Math.round(exportDim.width * m.scale));
+        int sh = Math.max(22, (int) Math.round(exportDim.height * m.scale));
+        return new Rectangle((int) Math.round(cx - sw / 2.0), (int) Math.round(cy - sh / 2.0), sw, sh);
+    }
+
+    /**
+     * Transforme un point souris écran dans le repère local non-tourné du filigrane.
+     */
+    private Point toWatermarkLocalScreenPoint(Point p, SheetMetrics m) {
+        double cx = m.sheetX + ((exportWidth * textOverlayConfig.getEffectivePosX()) / 100.0) * m.scale;
+        double cy = m.sheetY + ((exportHeight * textOverlayConfig.getEffectivePosY()) / 100.0) * m.scale;
+        double dx = p.x - cx;
+        double dy = p.y - cy;
+        double rad = -Math.toRadians(textOverlayConfig != null ? textOverlayConfig.angle : 0.0);
+        double cos = Math.cos(rad);
+        double sin = Math.sin(rad);
+        int lx = (int) Math.round(cx + dx * cos - dy * sin);
+        int ly = (int) Math.round(cy + dx * sin + dy * cos);
+        return new Point(lx, ly);
+    }
+
+    private int getWatermarkHandleAtPoint(Rectangle wmUnrotatedScreen, Point localPoint) {
+        if (wmUnrotatedScreen == null) return -1;
+        // 1. Poignée de rotation circulaire au-dessus du bord supérieur
+        int rotX = wmUnrotatedScreen.x + wmUnrotatedScreen.width / 2;
+        int rotY = wmUnrotatedScreen.y - ROTATE_HANDLE_OFFSET;
+        if (localPoint.distance(rotX, rotY) <= 10.0) {
+            return HANDLE_ROTATE;
+        }
+        // 2. Poignées de redimensionnement (8 coins/bords)
+        return getHandleAtPoint(wmUnrotatedScreen, localPoint);
+    }
+
     // ===== Gestion des événements de souris =====
 
     private void handleMousePressed(MouseEvent e) {
         SheetMetrics m = computeSheetMetrics();
         Point p = e.getPoint();
 
-        // 1. Vérifier si on clique sur une poignée de l'élément sélectionné
+        // 0. Vérifier si on clique sur une poignée du filigrane lorsqu'il est sélectionné (ou actif)
+        if (textOverlayConfig != null && textOverlayConfig.enabled) {
+            Rectangle wmScreen = computeWatermarkUnrotatedScreenRect(m);
+            Point wmLocal = toWatermarkLocalScreenPoint(p, m);
+            if (selectedElement == ElementType.WATERMARK && wmScreen != null) {
+                int wmHandle = getWatermarkHandleAtPoint(wmScreen, wmLocal);
+                if (wmHandle == HANDLE_ROTATE) {
+                    isRotatingWatermark = true;
+                    isDragging = false;
+                    isResizing = false;
+                    activeHandle = HANDLE_ROTATE;
+                    dragStartMouse = p;
+                    return;
+                } else if (wmHandle != -1) {
+                    isResizing = true;
+                    isDragging = false;
+                    isRotatingWatermark = false;
+                    activeHandle = wmHandle;
+                    dragStartMouse = p;
+                    dragStartWmFontSize = Math.max(8, textOverlayConfig.fontSize);
+                    double cx = wmScreen.getCenterX();
+                    double cy = wmScreen.getCenterY();
+                    dragStartWmDist = Math.max(8.0, p.distance(cx, cy));
+                    return;
+                }
+            }
+        }
+
+        // 1. Vérifier si on clique sur une poignée de l'élément rectangulaire sélectionné (VIDEO / BAND)
         Rectangle selExport = getSelectedRectangle();
         if (selExport != null) {
             Rectangle selScreen = toScreenRect(selExport, m);
@@ -537,6 +667,7 @@ public class MontagePreviewCanvas extends JPanel {
             if (handle != -1) {
                 isResizing = true;
                 isDragging = false;
+                isRotatingWatermark = false;
                 activeHandle = handle;
                 dragStartMouse = p;
                 dragStartRect = new Rectangle(selExport);
@@ -544,32 +675,57 @@ public class MontagePreviewCanvas extends JPanel {
             }
         }
 
-        // 2. Vérifier si on clique sur un des éléments (selon l'ordre des calques, du 1er plan vers l'arrière)
+        // 2. Vérifier si on clique sur le filigrane ou l'un des éléments (selon l'ordre des calques)
         Rectangle bandScreen = toScreenRect(bandRect, m);
         Rectangle videoScreen = toScreenRect(videoRect, m);
+        Rectangle wmScreen = computeWatermarkUnrotatedScreenRect(m);
+        Point wmLocal = (wmScreen != null) ? toWatermarkLocalScreenPoint(p, m) : p;
+        boolean hitWatermark = (wmScreen != null && wmScreen.contains(wmLocal));
 
         ElementType hit = ElementType.NONE;
-        for (int i = layerOrder.size() - 1; i >= 0; i--) {
-            String layer = layerOrder.get(i);
-            if ("BAND".equals(layer) && bandScreen.contains(p)) {
-                hit = ElementType.BAND;
-                break;
-            } else if ("VIDEO".equals(layer) && videoScreen.contains(p)) {
-                hit = ElementType.VIDEO;
-                break;
+
+        if (hitWatermark) {
+            hit = ElementType.WATERMARK;
+        } else if (selectedElement == ElementType.BAND && bandScreen.contains(p)) {
+            hit = ElementType.BAND;
+        } else if (selectedElement == ElementType.VIDEO && videoScreen.contains(p)) {
+            hit = ElementType.VIDEO;
+        } else {
+            for (int i = layerOrder.size() - 1; i >= 0; i--) {
+                String layer = layerOrder.get(i);
+                if ("WATERMARK".equals(layer) && hitWatermark) {
+                    hit = ElementType.WATERMARK;
+                    break;
+                } else if ("BAND".equals(layer) && bandScreen.contains(p)) {
+                    hit = ElementType.BAND;
+                    break;
+                } else if ("VIDEO".equals(layer) && videoScreen.contains(p)) {
+                    hit = ElementType.VIDEO;
+                    break;
+                }
             }
         }
 
         selectedElement = hit;
-        if (hit != ElementType.NONE) {
+        if (hit == ElementType.WATERMARK && textOverlayConfig != null) {
             isDragging = true;
             isResizing = false;
+            isRotatingWatermark = false;
+            activeHandle = -1;
+            dragStartMouse = p;
+            dragStartWmPosX = textOverlayConfig.getEffectivePosX();
+            dragStartWmPosY = textOverlayConfig.getEffectivePosY();
+        } else if (hit != ElementType.NONE) {
+            isDragging = true;
+            isResizing = false;
+            isRotatingWatermark = false;
             activeHandle = -1;
             dragStartMouse = p;
             dragStartRect = new Rectangle(getSelectedRectangle());
         } else {
             isDragging = false;
             isResizing = false;
+            isRotatingWatermark = false;
         }
 
         repaint();
@@ -579,29 +735,60 @@ public class MontagePreviewCanvas extends JPanel {
     private void handleMouseReleased(MouseEvent e) {
         isDragging = false;
         isResizing = false;
+        isRotatingWatermark = false;
         activeHandle = -1;
         setCursor(Cursor.getDefaultCursor());
         repaint();
     }
 
-    /**
-     * Traite les déplacements de souris lors du glisser-déposer ou du redimensionnement d'un élément.
-     * <p>
-     * Mathématiques de transformation :
-     * <ul>
-     *   <li>Les deltas physiques de l'écran {@code (dxScreen, dyScreen)} sont convertis dans l'espace de coordonnées
-     *       du fichier vidéo final via {@code dxExport = dxScreen / scale}.</li>
-     *   <li><b>Magnétisme dynamique :</b> Un seuil d'accroche (snap) de 12 pixels écran est converti dans l'espace export.
-     *       Si le bord de l'élément s'approche des limites de l'image (X=0, Y=0, X+W=exportWidth, Y+H=exportHeight)
-     *       ou de l'axe central horizontal, les coordonnées s'alignent automatiquement pour un calage au pixel près.</li>
-     *   <li><b>Redimensionnement à 8 directions :</b> Chaque poignée (NW, N, NE, E, SE, S, SW, W) applique
-     *       des équations différentielles spécifiques assurant le respect de la taille minimale {@code MIN_ELEMENT_SIZE}.</li>
-     * </ul>
-     * </p>
-     */
     private void handleMouseDragged(MouseEvent e) {
         SheetMetrics m = computeSheetMetrics();
         if (m.scale <= 0) return;
+
+        if (selectedElement == ElementType.WATERMARK && textOverlayConfig != null && textOverlayConfig.enabled) {
+            double cx = m.sheetX + ((exportWidth * textOverlayConfig.getEffectivePosX()) / 100.0) * m.scale;
+            double cy = m.sheetY + ((exportHeight * textOverlayConfig.getEffectivePosY()) / 100.0) * m.scale;
+
+            if (isRotatingWatermark) {
+                double angleDeg = Math.toDegrees(Math.atan2(e.getY() - cy, e.getX() - cx)) + 90.0;
+                while (angleDeg > 180.0) angleDeg -= 360.0;
+                while (angleDeg < -180.0) angleDeg += 360.0;
+                if (!e.isShiftDown()) {
+                    double[] snaps = {-180.0, -135.0, -90.0, -45.0, 0.0, 45.0, 90.0, 135.0, 180.0};
+                    for (double s : snaps) {
+                        if (Math.abs(angleDeg - s) < 3.0) {
+                            angleDeg = s;
+                            break;
+                        }
+                    }
+                }
+                textOverlayConfig.angle = Math.round(angleDeg * 10.0) / 10.0;
+                repaint();
+                if (onWatermarkChanged != null) onWatermarkChanged.run();
+                return;
+            } else if (isResizing && activeHandle != -1) {
+                double curDist = Math.max(4.0, e.getPoint().distance(cx, cy));
+                double ratio = curDist / Math.max(8.0, dragStartWmDist);
+                int newFontSize = Math.max(8, Math.min(300, (int) Math.round(dragStartWmFontSize * ratio)));
+                textOverlayConfig.fontSize = newFontSize;
+                repaint();
+                if (onWatermarkChanged != null) onWatermarkChanged.run();
+                return;
+            } else if (isDragging) {
+                double dxPct = ((e.getX() - dragStartMouse.x) / (double) Math.max(1, m.sheetW)) * 100.0;
+                double dyPct = ((e.getY() - dragStartMouse.y) / (double) Math.max(1, m.sheetH)) * 100.0;
+                double newPosX = Math.max(0.0, Math.min(100.0, dragStartWmPosX + dxPct));
+                double newPosY = Math.max(0.0, Math.min(100.0, dragStartWmPosY + dyPct));
+                if (!e.isShiftDown()) {
+                    if (Math.abs(newPosX - 50.0) < 1.2) newPosX = 50.0;
+                    if (Math.abs(newPosY - 50.0) < 1.2) newPosY = 50.0;
+                }
+                textOverlayConfig.setExactPosition(newPosX, newPosY);
+                repaint();
+                if (onWatermarkChanged != null) onWatermarkChanged.run();
+                return;
+            }
+        }
 
         Rectangle sel = getSelectedRectangle();
         if (sel == null) return;
@@ -697,10 +884,32 @@ public class MontagePreviewCanvas extends JPanel {
     }
 
     private void handleMouseMoved(MouseEvent e) {
-        if (isDragging || isResizing) return;
+        if (isDragging || isResizing || isRotatingWatermark) return;
 
         SheetMetrics m = computeSheetMetrics();
         Point p = e.getPoint();
+
+        if (textOverlayConfig != null && textOverlayConfig.enabled) {
+            Rectangle wmScreen = computeWatermarkUnrotatedScreenRect(m);
+            Point wmLocal = toWatermarkLocalScreenPoint(p, m);
+            if (selectedElement == ElementType.WATERMARK && wmScreen != null) {
+                int wmHandle = getWatermarkHandleAtPoint(wmScreen, wmLocal);
+                if (wmHandle == HANDLE_ROTATE) {
+                    setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                    setToolTipText("Glisser pour tourner le filigrane (Maintenir Maj pour rotation libre, ou Molette souris)");
+                    return;
+                } else if (wmHandle != -1) {
+                    setCursor(getCursorForHandle(wmHandle));
+                    setToolTipText("Glisser pour redimensionner le filigrane (" + textOverlayConfig.fontSize + " px)");
+                    return;
+                }
+            }
+            if (wmScreen != null && wmScreen.contains(wmLocal)) {
+                setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                setToolTipText("Filigrane : glisser pour déplacer, poignées pour redimensionner / tourner");
+                return;
+            }
+        }
 
         Rectangle selExport = getSelectedRectangle();
         if (selExport != null) {
@@ -708,10 +917,12 @@ public class MontagePreviewCanvas extends JPanel {
             int handle = getHandleAtPoint(selScreen, p);
             if (handle != -1) {
                 setCursor(getCursorForHandle(handle));
+                setToolTipText(null);
                 return;
             }
             if (selScreen.contains(p)) {
                 setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                setToolTipText(null);
                 return;
             }
         }
@@ -725,6 +936,7 @@ public class MontagePreviewCanvas extends JPanel {
         } else {
             setCursor(Cursor.getDefaultCursor());
         }
+        setToolTipText(null);
     }
 
     private int getHandleAtPoint(Rectangle r, Point p) {
@@ -789,6 +1001,7 @@ public class MontagePreviewCanvas extends JPanel {
         Rectangle bScreen = toScreenRect(bandRect, m);
 
         // 4. Dessiner les calques selon l'ordre personnalisé (de l'arrière vers l'avant)
+        boolean watermarkDrawnInOrder = false;
         for (String layer : layerOrder) {
             if ("BACKGROUND_BLUR".equals(layer)) {
                 drawBlurredBackgroundElement(g2, m);
@@ -796,14 +1009,26 @@ public class MontagePreviewCanvas extends JPanel {
                 drawVideoElement(g2, vScreen, selectedElement == ElementType.VIDEO);
             } else if ("BAND".equals(layer)) {
                 drawBandElement(g2, bScreen, selectedElement == ElementType.BAND);
+            } else if ("WATERMARK".equals(layer)) {
+                if (textOverlayConfig != null && textOverlayConfig.enabled) {
+                    drawWatermarkOverlay(g2, m);
+                }
+                watermarkDrawnInOrder = true;
             }
         }
 
-        // 5. Dessiner les poignées de redimensionnement de l'élément sélectionné
+        // 5. Dessiner le texte / filigrane superposé si activé et non encore dessiné dans l'ordre des calques
+        if (!watermarkDrawnInOrder && textOverlayConfig != null && textOverlayConfig.enabled) {
+            drawWatermarkOverlay(g2, m);
+        }
+
+        // 6. Dessiner les poignées de redimensionnement / rotation de l'élément sélectionné
         if (selectedElement == ElementType.VIDEO) {
             drawHandles(g2, vScreen, new Color(56, 189, 248));
         } else if (selectedElement == ElementType.BAND) {
             drawHandles(g2, bScreen, new Color(245, 158, 11));
+        } else if (selectedElement == ElementType.WATERMARK && textOverlayConfig != null && textOverlayConfig.enabled) {
+            drawWatermarkGizmo(g2, m);
         }
 
         // 7. Bordure et étiquette de la feuille de rendu
@@ -814,6 +1039,63 @@ public class MontagePreviewCanvas extends JPanel {
         drawBadge(g2, m);
 
         g2.dispose();
+    }
+
+    private void drawWatermarkOverlay(Graphics2D g2, SheetMetrics m) {
+        if (textOverlayConfig == null || !textOverlayConfig.enabled) return;
+        Graphics2D g2Text = (Graphics2D) g2.create(m.sheetX, m.sheetY, m.sheetW, m.sheetH);
+        g2Text.scale(m.scale, m.scale);
+        ExportVideoDialog.drawTextOverlay(g2Text, textOverlayConfig, exportWidth, exportHeight);
+        g2Text.dispose();
+    }
+
+    private void drawWatermarkGizmo(Graphics2D g2, SheetMetrics m) {
+        Rectangle wmScreen = computeWatermarkUnrotatedScreenRect(m);
+        if (wmScreen == null) return;
+
+        double cx = wmScreen.getCenterX();
+        double cy = wmScreen.getCenterY();
+        int hw = wmScreen.width / 2;
+        int hh = wmScreen.height / 2;
+
+        Graphics2D gRot = (Graphics2D) g2.create();
+        gRot.translate(cx, cy);
+        if (Math.abs(textOverlayConfig.angle) > 0.001) {
+            gRot.rotate(Math.toRadians(textOverlayConfig.angle));
+        }
+
+        Color accent = new Color(168, 85, 247); // Violet / Magenta vif pour distinguer le filigrane
+        Rectangle localRect = new Rectangle(-hw, -hh, wmScreen.width, wmScreen.height);
+
+        // Cadre pointillé de sélection
+        gRot.setColor(accent);
+        gRot.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{4, 3}, 0));
+        gRot.drawRect(localRect.x, localRect.y, localRect.width, localRect.height);
+
+        // Tige et poignée circulaire de rotation en haut au centre
+        int rotY = localRect.y - ROTATE_HANDLE_OFFSET;
+        gRot.setStroke(new BasicStroke(1.5f));
+        gRot.drawLine(0, localRect.y, 0, rotY);
+        int rRad = 6;
+        gRot.setColor(Color.WHITE);
+        gRot.fillOval(-rRad, rotY - rRad, rRad * 2, rRad * 2);
+        gRot.setColor(accent);
+        gRot.drawOval(-rRad, rotY - rRad, rRad * 2, rRad * 2);
+
+        // 8 poignées de redimensionnement
+        drawHandles(gRot, localRect, accent);
+
+        // Badge d'information (Taille & Angle)
+        String info = String.format(java.util.Locale.US, "Filigrane (%dpx, %.0f°)", textOverlayConfig.fontSize, textOverlayConfig.angle);
+        gRot.setFont(new Font("Segoe UI", Font.BOLD, 10));
+        FontMetrics fm = gRot.getFontMetrics();
+        int tw = fm.stringWidth(info);
+        gRot.setColor(new Color(15, 15, 18, 220));
+        gRot.fillRoundRect(-tw / 2 - 4, localRect.y + localRect.height + 6, tw + 8, 15, 4, 4);
+        gRot.setColor(Color.WHITE);
+        gRot.drawString(info, -tw / 2, localRect.y + localRect.height + 17);
+
+        gRot.dispose();
     }
 
     private void drawArtboardGrid(Graphics2D g2) {
@@ -880,7 +1162,11 @@ public class MontagePreviewCanvas extends JPanel {
                 bg.drawImage(blurImg, 0, 0, drawW, drawH, null);
                 bg.dispose();
             }
-            g2.drawImage(cachedScaledBlurSnapshot, drawX, drawY, null);
+            if (mirrorVideo) {
+                g2.drawImage(cachedScaledBlurSnapshot, drawX + drawW, drawY, drawX, drawY + drawH, 0, 0, cachedScaledBlurSnapshot.getWidth(), cachedScaledBlurSnapshot.getHeight(), null);
+            } else {
+                g2.drawImage(cachedScaledBlurSnapshot, drawX, drawY, null);
+            }
         } else {
             g2.setColor(new Color(20, 25, 45));
             g2.fillRect(m.sheetX, m.sheetY, m.sheetW, m.sheetH);
@@ -903,7 +1189,11 @@ public class MontagePreviewCanvas extends JPanel {
                 vg.drawImage(videoSnapshot, 0, 0, r.width, r.height, null);
                 vg.dispose();
             }
-            g2.drawImage(cachedScaledVideoSnapshot, r.x, r.y, null);
+            if (mirrorVideo) {
+                g2.drawImage(cachedScaledVideoSnapshot, r.x + r.width, r.y, r.x, r.y + r.height, 0, 0, cachedScaledVideoSnapshot.getWidth(), cachedScaledVideoSnapshot.getHeight(), null);
+            } else {
+                g2.drawImage(cachedScaledVideoSnapshot, r.x, r.y, null);
+            }
             drawnSnapshot = true;
         }
 
@@ -934,7 +1224,7 @@ public class MontagePreviewCanvas extends JPanel {
         g2.drawRect(r.x, r.y, r.width, r.height);
 
         // Titre et dimensions
-        String title = "Vidéo source (" + videoRect.width + " × " + videoRect.height + (antiCopyright && antiCopyrightOpacity > 0 ? " — Anti-Copyright " + antiCopyrightOpacity + "%" : "") + ")";
+        String title = "Vidéo source (" + videoRect.width + " × " + videoRect.height + (antiCopyright && antiCopyrightOpacity > 0 ? " — Anti-Copyright " + antiCopyrightOpacity + "%" : "") + (mirrorVideo ? " — Miroir H" : "") + ")";
         drawElementHeader(g2, r, title, new Color(56, 189, 248), isSelected);
     }
 
@@ -948,12 +1238,13 @@ public class MontagePreviewCanvas extends JPanel {
                 cachedSessionH = bh;
                 cachedSessionVisibleSeconds = visibleSeconds;
                 try {
-                    cachedBandSession = timelinePanel.createExportSession(bw, bh, visibleSeconds);
+                    cachedBandSession = timelinePanel.createExportSession(bw, bh, visibleSeconds, roleLabelScale);
                 } catch (Exception ex) {
                     cachedBandSession = null;
                 }
             }
             if (cachedBandSession != null) {
+                cachedBandSession.setRoleLabelScale(roleLabelScale);
                 Graphics2D bandG2 = (Graphics2D) g2.create(r.x, r.y, r.width, r.height);
                 try {
                     bandG2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);

@@ -18,6 +18,10 @@ import uk.co.caprica.vlcj.player.component.*;
  * et fournit des points d'extension utilisés par les builders/services (drag & drop, autosave, etc.).
  */
 public class MainFenetre extends JFrame {
+    static {
+        System.setProperty("sun.awt.windows.useCommonItemDialog", "true");
+        System.setProperty("sun.java2d.d3d", "true");
+    }
 
     private static boolean vlcErrFilterInstalled = false;
 
@@ -30,15 +34,16 @@ public class MainFenetre extends JFrame {
     private int avanceMSKeyCode = KeyEvent.VK_RIGHT;
     private int reculerMSKeyCode = KeyEvent.VK_LEFT;
     private int retourDebutKeyCode = KeyEvent.VK_R; // R par défaut
-    private int separateurKeyCode = KeyEvent.VK_M; // M par défaut
+    private int separateurKeyCode = KeyEvent.VK_NUMPAD4; // Pavé numérique 4 par défaut (séparateur bleu)
     private int zoomInKeyCode = KeyEvent.VK_EQUALS;
     private int zoomOutKeyCode = KeyEvent.VK_MINUS;
     private int finPhraseKeyCode = KeyEvent.VK_NUMPAD3;
-    private int signeMpbKeyCode = KeyEvent.VK_NUMPAD4;
+    private int signeMpbKeyCode = KeyEvent.VK_M; // M par défaut (labiale MPB)
     private int signeFvrKeyCode = KeyEvent.VK_NUMPAD5;
     private int signeNeutralKeyCode = KeyEvent.VK_NUMPAD6;
     private int signeVoyelleKeyCode = KeyEvent.VK_NUMPAD7;
     private int signeRespirationKeyCode = KeyEvent.VK_NUMPAD8;
+    private int signePlanKeyCode = KeyEvent.VK_NUMPAD0;
     private File currentProjectFile = null;
     private ArrayList<Role> roles = new ArrayList<>();
     private AppCustomization customization = new AppCustomization();
@@ -105,6 +110,9 @@ public class MainFenetre extends JFrame {
         if (keybinds.containsKey("signeMpbCode")) {
             signeMpbKeyCode = Integer.parseInt(keybinds.getProperty("signeMpbCode"));
         }
+        if (separateurKeyCode == signeMpbKeyCode && separateurKeyCode == KeyEvent.VK_NUMPAD4) {
+            signeMpbKeyCode = KeyEvent.VK_M;
+        }
         if (keybinds.containsKey("signeFvrCode")) {
             signeFvrKeyCode = Integer.parseInt(keybinds.getProperty("signeFvrCode"));
         }
@@ -116,6 +124,9 @@ public class MainFenetre extends JFrame {
         }
         if (keybinds.containsKey("signeRespirationCode")) {
             signeRespirationKeyCode = Integer.parseInt(keybinds.getProperty("signeRespirationCode"));
+        }
+        if (keybinds.containsKey("signePlanCode")) {
+            signePlanKeyCode = Integer.parseInt(keybinds.getProperty("signePlanCode"));
         }
         customization = FileUtils.loadCustomization();
         app.services.SpellGrammarService.getInstance().setLanguage(customization.appLanguage);
@@ -171,6 +182,8 @@ public class MainFenetre extends JFrame {
         }
 
         setSize(900, 650);
+        setMinimumSize(new Dimension(640, 480));
+        setResizable(true);
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setLayout(new BorderLayout());
@@ -211,7 +224,9 @@ public class MainFenetre extends JFrame {
 
         // Met à jour le titre dès que l'état de modification de la timeline change et gère le minuteur d'autosave
         try {
-            if (this.timelinePanel != null) this.timelinePanel.setDirtyCallback(this::onTimelineDirtyChanged);
+            if (this.timelinePanel != null) {
+                this.timelinePanel.setDirtyCallback(this::onTimelineDirtyChanged);
+            }
         } catch (Throwable ignored) {}
 
         add(parts.mainPanel, BorderLayout.CENTER);
@@ -239,6 +254,7 @@ public class MainFenetre extends JFrame {
                 signeNeutralKeyCode,
                 signeVoyelleKeyCode,
                 signeRespirationKeyCode,
+                signePlanKeyCode,
                 roles,
                 this
         );
@@ -400,6 +416,12 @@ public class MainFenetre extends JFrame {
         if (keyBoardListener != null) keyBoardListener.setSigneRespirationKeyCode(keyCode);
     }
     public int getSigneRespirationKeyCode() { return this.signeRespirationKeyCode; }
+
+    public void setSignePlanKeyCode(int keyCode) {
+        this.signePlanKeyCode = keyCode;
+        if (keyBoardListener != null) keyBoardListener.setSignePlanKeyCode(keyCode);
+    }
+    public int getSignePlanKeyCode() { return this.signePlanKeyCode; }
 
     public boolean isQwertyKeyboard() {
         if (customization != null && "qwerty".equalsIgnoreCase(customization.keyboardLayout)) {
@@ -634,9 +656,17 @@ public class MainFenetre extends JFrame {
 
             // Charger l'autosave dans la timeline (restaure l'intégralité des segments et séparateurs)
             File loadedVideo = timelinePanel.loadProject(autosaveFile, roles);
+            if (loadedVideo != null && !loadedVideo.exists()) {
+                loadedVideo = checkAndResolveVideoFile(loadedVideo, lastProject);
+            }
             if (loadedVideo != null && loadedVideo.exists()) {
                 fichierSelectionne = loadedVideo;
                 loadVideo(loadedVideo);
+            } else {
+                fichierSelectionne = null;
+                if (mediaCardLayout != null && mediaContentPanel != null) {
+                    mediaCardLayout.show(mediaContentPanel, "EMPTY");
+                }
             }
 
             // Si un fichier projet d'origine est identifié, écraser le fichier avec l'autosave récupérée
@@ -684,12 +714,20 @@ public class MainFenetre extends JFrame {
 
         currentProjectFile = file;
         File video = timelinePanel.loadProject(file, roles);
+        if (video != null && !video.exists()) {
+            video = checkAndResolveVideoFile(video, currentProjectFile);
+        }
         if (video != null && video.exists()) {
             fichierSelectionne = video;
             loadVideo(video);
             try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.File("lastproject.path"), java.nio.charset.StandardCharsets.UTF_8)) {
                 pw.println(currentProjectFile.getAbsolutePath());
             } catch (Throwable ignored) {}
+        } else {
+            fichierSelectionne = null;
+            if (mediaCardLayout != null && mediaContentPanel != null) {
+                mediaCardLayout.show(mediaContentPanel, "EMPTY");
+            }
         }
         try { timelinePanel.clearDirty(); } catch (Throwable ignored) {}
         updateTitle();
@@ -800,6 +838,9 @@ public class MainFenetre extends JFrame {
 
         currentProjectFile = selected;
         File video = timeline.loadProject(currentProjectFile, roles);
+        if (video != null && !video.exists()) {
+            video = checkAndResolveVideoFile(video, currentProjectFile);
+        }
         if (video != null && video.exists()) {
             fichierSelectionne = video;
             loadVideo(video);
@@ -807,6 +848,11 @@ public class MainFenetre extends JFrame {
             try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.File("lastproject.path"), java.nio.charset.StandardCharsets.UTF_8)) {
                 pw.println(currentProjectFile.getAbsolutePath());
             } catch (Throwable ignored) {}
+        } else {
+            fichierSelectionne = null;
+            if (mediaCardLayout != null && mediaContentPanel != null) {
+                mediaCardLayout.show(mediaContentPanel, "EMPTY");
+            }
         }
         try { timeline.clearDirty(); } catch (Throwable ignored) {}
         updateTitle();
@@ -821,12 +867,20 @@ public class MainFenetre extends JFrame {
 
         currentProjectFile = selected;
         File video = timelinePanel.loadProject(currentProjectFile, roles);
+        if (video != null && !video.exists()) {
+            video = checkAndResolveVideoFile(video, currentProjectFile);
+        }
         if (video != null && video.exists()) {
             fichierSelectionne = video;
             loadVideo(video);
             try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.File("lastproject.path"), java.nio.charset.StandardCharsets.UTF_8)) {
                 pw.println(currentProjectFile.getAbsolutePath());
             } catch (Throwable ignored) {}
+        } else {
+            fichierSelectionne = null;
+            if (mediaCardLayout != null && mediaContentPanel != null) {
+                mediaCardLayout.show(mediaContentPanel, "EMPTY");
+            }
         }
         try { timelinePanel.clearDirty(); } catch (Throwable ignored) {}
         updateTitle();
@@ -844,9 +898,77 @@ public class MainFenetre extends JFrame {
             ouvrirFichierProjet(f);
         }
     }
+    /**
+     * Vérifie si un fichier vidéo attendu existe. S'il est introuvable (déplacé, renommé, supprimé),
+     * demande à l'utilisateur s'il souhaite indiquer où il se trouve.
+     * Si l'utilisateur sélectionne un nouveau fichier valide, met à jour le projet le cas échéant.
+     *
+     * @param expectedVideo Le fichier vidéo attendu (peut être null ou inexistant).
+     * @param projectFile   Le fichier projet associé (ou null), pour sauvegarder le nouvel emplacement.
+     * @return Le fichier vidéo résolu et existant, ou null si l'utilisateur annule ou refuse.
+     */
+    public File checkAndResolveVideoFile(File expectedVideo, File projectFile) {
+        if (expectedVideo != null && expectedVideo.exists()) {
+            return expectedVideo;
+        }
+
+        if (expectedVideo == null) {
+            return null;
+        }
+
+        String nomOuChemin = expectedVideo.getAbsolutePath();
+        String message = "Le fichier vidéo associé au projet est introuvable :\n"
+                + nomOuChemin + "\n\n"
+                + "Souhaitez-vous indiquer où il se trouve ?";
+
+        int reponse = JOptionPane.showConfirmDialog(
+                this,
+                message,
+                "Fichier vidéo introuvable",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE
+        );
+
+        if (reponse != JOptionPane.YES_OPTION) {
+            return null;
+        }
+
+        File nouveauFichier = FileUtils.chooseOpenFile(
+                this,
+                "Indiquer l'emplacement du fichier vidéo",
+                "mp4", "mkv", "avi", "mov", "wmv", "webm", "m4v", "ts", "mpg", "mpeg", "mp3", "wav", "flac", "ogg", "aac", "m4a"
+        );
+
+        if (nouveauFichier != null && nouveauFichier.exists()) {
+            // Si un fichier projet est actif, on met à jour la référence vidéo dans le fichier projet
+            if (projectFile != null && projectFile.exists() && timelinePanel != null) {
+                try {
+                    timelinePanel.saveProject(projectFile, nouveauFichier, roles);
+                } catch (Throwable t) {
+                    System.err.println("Impossible de mettre à jour le chemin vidéo dans le projet : " + t.getMessage());
+                }
+            }
+            return nouveauFichier;
+        }
+
+        return null;
+    }
+
     // ===== Lecture vidéo =====
     /** Load and prepare a video file into the media player and timeline. */
     public void loadVideo(File videoFile) {
+        if (videoFile != null && !videoFile.exists()) {
+            videoFile = checkAndResolveVideoFile(videoFile, currentProjectFile);
+            if (videoFile != null) {
+                fichierSelectionne = videoFile;
+            }
+        }
+        if (videoFile == null || !videoFile.exists()) {
+            if (mediaCardLayout != null && mediaContentPanel != null) {
+                mediaCardLayout.show(mediaContentPanel, "EMPTY");
+            }
+            return;
+        }
         mediaWorkflowService.loadVideo(
                 this,
                 videoFile,
@@ -949,6 +1071,16 @@ public class MainFenetre extends JFrame {
     /** Export the current timeline as a video file using the MediaWorkflowService. */
     public void exporterEnVideo() {
         try {
+            if (fichierSelectionne != null && !fichierSelectionne.exists()) {
+                fichierSelectionne = checkAndResolveVideoFile(fichierSelectionne, currentProjectFile);
+                if (fichierSelectionne != null) {
+                    loadVideo(fichierSelectionne);
+                }
+            }
+            if (fichierSelectionne == null || !fichierSelectionne.exists()) {
+                JOptionPane.showMessageDialog(this, "Aucune vidéo chargée. Veuillez d'abord ouvrir un projet ou une vidéo.", "Vidéo requise", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
             if (timer != null && timer.isRunning()) {
                 timer.toggle();
             }
@@ -970,7 +1102,13 @@ public class MainFenetre extends JFrame {
 
     /** Exporter la piste audio sans les voix (Karaoké / Doublage). */
     public void exporterAudioSansVoix() {
-        if (fichierSelectionne == null) {
+        if (fichierSelectionne != null && !fichierSelectionne.exists()) {
+            fichierSelectionne = checkAndResolveVideoFile(fichierSelectionne, currentProjectFile);
+            if (fichierSelectionne != null) {
+                loadVideo(fichierSelectionne);
+            }
+        }
+        if (fichierSelectionne == null || !fichierSelectionne.exists()) {
             JOptionPane.showMessageDialog(this, "Aucune vidéo chargée. Veuillez d'abord ouvrir un projet.", "Vidéo requise", JOptionPane.WARNING_MESSAGE);
             return;
         }
@@ -1000,8 +1138,14 @@ public class MainFenetre extends JFrame {
     }
 
     public void detecterPlans() {
-        if (fichierSelectionne == null) {
-            JOptionPane.showMessageDialog(this, "Aucune vidéo chargée. Veuillez d'abord ouvrir un projet.");
+        if (fichierSelectionne != null && !fichierSelectionne.exists()) {
+            fichierSelectionne = checkAndResolveVideoFile(fichierSelectionne, currentProjectFile);
+            if (fichierSelectionne != null) {
+                loadVideo(fichierSelectionne);
+            }
+        }
+        if (fichierSelectionne == null || !fichierSelectionne.exists()) {
+            JOptionPane.showMessageDialog(this, "Aucune vidéo chargée. Veuillez d'abord ouvrir un projet.", "Vidéo requise", JOptionPane.WARNING_MESSAGE);
             return;
         }
         mediaWorkflowService.detectSceneChanges(this, fichierSelectionne, timelinePanel);
@@ -1016,7 +1160,13 @@ public class MainFenetre extends JFrame {
                 return;
             }
         }
-        if (fichierSelectionne == null) {
+        if (fichierSelectionne != null && !fichierSelectionne.exists()) {
+            fichierSelectionne = checkAndResolveVideoFile(fichierSelectionne, currentProjectFile);
+            if (fichierSelectionne != null) {
+                loadVideo(fichierSelectionne);
+            }
+        }
+        if (fichierSelectionne == null || !fichierSelectionne.exists()) {
             JOptionPane.showMessageDialog(this, "Aucune vidéo chargée. Veuillez d'abord ouvrir un projet.", "Vidéo requise", JOptionPane.WARNING_MESSAGE);
             return;
         }
@@ -1043,24 +1193,38 @@ public class MainFenetre extends JFrame {
      * pour garantir une synchronisation parfaite avec la vidéo.
      */
     public void importerTranscriptionDansTimeline(java.util.List<SpeechWorkflowService.TranscriptionSegment> segments, int baseTargetBand) {
-        if (segments == null || segments.isEmpty()) return;
-        int maxNeededBand = importerTranscriptionDansTimeline(segments, baseTargetBand, this.timelinePanel, this.roles);
-
-        int distinctSpeakers = Math.max(1, maxNeededBand - baseTargetBand + 1);
-        String message;
-        if (distinctSpeakers > 1) {
-            message = segments.size() + " répliques réparties sur " + distinctSpeakers + " bandes (Bandes " +
-                    (baseTargetBand + 1) + " à " + (maxNeededBand + 1) + ") pour " + distinctSpeakers + " locuteurs !\n" +
-                    "Chaque personne a sa propre bande, son rôle et ses séparateurs.\n" +
-                    "La synchronisation est calée sur la vidéo.";
-        } else {
-            message = segments.size() + " répliques injectées sur la bande " + (baseTargetBand + 1) + " !\n" +
-                    "Les phrases sont enchaînées avec des séparateurs internes pour un rendu fluide et esthétique.\n" +
-                    "La synchronisation est calée sur la vidéo.";
+        if (segments == null || segments.isEmpty()) {
+            if (isVisible()) {
+                JOptionPane.showMessageDialog(this, "Aucune réplique disponible à importer dans la bande rythmo.", "Information", JOptionPane.WARNING_MESSAGE);
+            }
+            return;
         }
+        try {
+            int maxNeededBand = importerTranscriptionDansTimeline(segments, baseTargetBand, this.timelinePanel, this.roles);
 
-        if (isVisible()) {
-            JOptionPane.showMessageDialog(this, message, "Transcription Importée", JOptionPane.INFORMATION_MESSAGE);
+            int distinctSpeakers = Math.max(1, maxNeededBand - baseTargetBand + 1);
+            String message;
+            if (distinctSpeakers > 1) {
+                message = segments.size() + " répliques réparties sur " + distinctSpeakers + " bandes (Bandes " +
+                        (baseTargetBand + 1) + " à " + (maxNeededBand + 1) + ") pour " + distinctSpeakers + " locuteurs !\n" +
+                        "Chaque personne a sa propre bande, son rôle et ses séparateurs.\n" +
+                        "La synchronisation est calée sur la vidéo.";
+            } else {
+                message = segments.size() + " répliques injectées sur la bande " + (baseTargetBand + 1) + " !\n" +
+                        "Les phrases sont enchaînées avec des séparateurs internes pour un rendu fluide et esthétique.\n" +
+                        "La synchronisation est calée sur la vidéo.";
+            }
+
+            if (isVisible()) {
+                JOptionPane.showMessageDialog(this, message, "Transcription Importée", JOptionPane.INFORMATION_MESSAGE);
+            }
+        } catch (Throwable t) {
+            t.printStackTrace();
+            if (isVisible()) {
+                JOptionPane.showMessageDialog(this,
+                        "Erreur lors de l'injection dans la bande rythmo :\n" + t.getMessage(),
+                        "Erreur d'injection", JOptionPane.ERROR_MESSAGE);
+            }
         }
     }
 
@@ -1125,12 +1289,16 @@ public class MainFenetre extends JFrame {
         // Enregistrer un instantané Undo avant toute modification destructive de la timeline
         timelinePanel.recordUndoSnapshot();
 
+        // Réinitialiser toute session d'édition active pour éviter des états suspendus ou orphelins
+        textManager.stopTyping();
+
         // Nettoyer les bandes de destination pour éviter tout chevauchement ou doublon lors d'un réimport
+        // en conservant précieusement les repères de changement de plan vidéo (PLAN_CUT)
         for (int b = baseTargetBand; b <= maxNeededBand; b++) {
             final int targetB = b;
             textManager.getTexts().removeIf(t -> t.band == targetB);
             if (textManager.getBandSeparators().containsKey(targetB)) {
-                textManager.getBandSeparators().get(targetB).clear();
+                textManager.getBandSeparators().get(targetB).removeIf(s -> s != null && s.signType != SeparatorMark.SignType.PLAN_CUT);
             }
         }
 
@@ -1156,13 +1324,16 @@ public class MainFenetre extends JFrame {
                 seg.text = seg.text.replaceAll("(^|\\s)['’](\\w+)", "$1$2").trim();
 
                 // Calage acoustique précis :
-                // 1. Le début du segment ne doit pas commencer avant la première parole effective
-                // 2. La fin du segment ne doit pas déborder au-delà du dernier mot prononcé
+                // 1. Le début du segment respecte l'attaque vocale réelle
+                // 2. La fin du segment ne doit pas déborder au-delà de l'extinction de la voix
                 if (seg.words != null && !seg.words.isEmpty()) {
                     SpeechWorkflowService.WordTiming firstWord = seg.words.get(0);
                     SpeechWorkflowService.WordTiming lastWord = seg.words.get(seg.words.size() - 1);
-                    seg.startSeconds = firstWord.start;
-                    seg.endSeconds = Math.max(seg.startSeconds + 0.15, lastWord.end);
+                    if (firstWord != null && lastWord != null) {
+                        firstWord.start = seg.startSeconds;
+                        lastWord.end = Math.min(lastWord.end, seg.endSeconds);
+                        seg.endSeconds = Math.max(seg.startSeconds + 0.15, seg.endSeconds);
+                    }
                 }
 
                 if (!cleanBandSegments.isEmpty()) {
@@ -1215,15 +1386,15 @@ public class MainFenetre extends JFrame {
                         // Séparateur rythmique interne posé au début du deuxième fragment
                         double sepTime = seg.getStartSeconds();
                         if (sepTime <= prevSeg.getStartSeconds()) {
-                            sepTime = prevSeg.getStartSeconds() + 0.10;
+                            sepTime = prevSeg.getStartSeconds() + 0.08;
                         }
                         if (prevSeg.separators == null) {
                             prevSeg.separators = new ArrayList<>();
                         }
                         prevSeg.separators.add(new SpeechWorkflowService.RhythmicSeparator(sepTime, splitIdx));
 
-                        // Décaler et ajouter les séparateurs internes existants de seg
-                        if (seg.getSeparators() != null) {
+                        // Décaler et reporter les séparateurs internes déjà existants de seg
+                        if (seg.getSeparators() != null && !seg.getSeparators().isEmpty()) {
                             for (SpeechWorkflowService.RhythmicSeparator rsep : seg.getSeparators()) {
                                 prevSeg.separators.add(new SpeechWorkflowService.RhythmicSeparator(
                                         rsep.getTime(),
@@ -1242,21 +1413,21 @@ public class MainFenetre extends JFrame {
                         continue;
                     }
 
-                    // Si l'écart est >= 0.10s (phrases distinctes) :
-                    // Laisser AU MOINS 0.10s de décalage entre la fin de la précédente et le début de la nouvelle !
-                    if (prevSeg.endSeconds > seg.startSeconds - 0.10) {
-                        prevSeg.endSeconds = Math.max(prevSeg.startSeconds + 0.15, seg.startSeconds - 0.10);
+                    // Phrases distinctes :
+                    // Laisser au moins 0.08s de décalage entre la fin de la précédente et le début réel de la nouvelle
+                    double curActualStart = Math.max(0.0, seg.startSeconds);
+                    if (prevSeg.endSeconds > curActualStart - 0.08) {
+                        prevSeg.endSeconds = Math.max(prevSeg.startSeconds + 0.15, curActualStart - 0.08);
                     }
                 }
                 cleanBandSegments.add(seg);
             }
             bandSegments = cleanBandSegments;
 
-            int lastCommittedEndX = 0;
-            int minGapPixels = Math.max(1, (int) Math.round(pps * 0.10));
+            int minPhraseGapPixels = Math.max(1, (int) Math.round(pps * 0.08));
+            int minInnerGapPixels = Math.max(10, (int) Math.round(pps * 0.15));
 
             // Insérer chaque réplique comme une phrase rythmo autonome avec START, INNER et END
-            // Les silences et temps morts entre répliques restent fidèlement des zones vierges (blancs) sur la timeline
             for (int i = 0; i < bandSegments.size(); i++) {
                 SpeechWorkflowService.TranscriptionSegment seg = bandSegments.get(i);
                 String txt = (seg.text != null) ? seg.text.trim() : "";
@@ -1264,49 +1435,47 @@ public class MainFenetre extends JFrame {
 
                 Role spkRole = speakerRolesMap.get(seg.getSpeakerIndex());
 
-                double segStartSec = Math.round(seg.startSeconds * 100.0) / 100.0;
-                double segEndSec = Math.round(seg.endSeconds * 100.0) / 100.0;
+                // Calage temporel 1:1 au milliseconde près avec la voix (sans arrondi grossier au dixième)
+                double segStartSec = Math.max(0.0, seg.startSeconds);
+                double segEndSec = seg.endSeconds;
                 if (segEndSec <= segStartSec) {
-                    segEndSec = segStartSec + 0.3;
+                    segEndSec = segStartSec + 0.20;
                 }
 
-                int segStartX = timelinePanel.snapWorldXToTenth(segStartSec * pps);
-                if (segStartX < lastCommittedEndX) {
-                    segStartX = lastCommittedEndX;
-                }
-
-                int segEndX = timelinePanel.snapWorldXToTenth(segEndSec * pps);
+                int segStartX = (int) Math.round(segStartSec * pps);
+                int segEndX = (int) Math.round(segEndSec * pps);
                 if (segEndX <= segStartX) {
-                    segEndX = timelinePanel.snapWorldXToTenth(segStartX + pps * 0.1);
-                    if (segEndX <= segStartX) segEndX = segStartX + 1;
+                    segEndX = segStartX + Math.max(5, (int) Math.round(pps * 0.08));
                 }
 
-                // Si un prochain segment existe sur la même bande, borner la fin pour laisser AU MOINS 0.10s de décalage (minGapPixels)
-                // pour que le marqueur END ne soit jamais collé au START suivant !
+                // Si un prochain segment existe sur la même bande, borner la fin pour laisser AU MOINS 0.08s de décalage
+                // sans jamais repousser le début du prochain segment dans le temps !
                 if (i + 1 < bandSegments.size()) {
-                    int nextStartX = timelinePanel.snapWorldXToTenth(bandSegments.get(i + 1).startSeconds * pps);
-                    int maxAllowedEndX = nextStartX - minGapPixels;
+                    double nextActualStart = Math.max(0.0, bandSegments.get(i + 1).startSeconds);
+                    int nextStartX = (int) Math.round(nextActualStart * pps);
+                    int maxAllowedEndX = nextStartX - minPhraseGapPixels;
                     if (segEndX > maxAllowedEndX) {
                         segEndX = maxAllowedEndX;
                         if (segEndX <= segStartX) {
-                            segEndX = segStartX + 1;
+                            segEndX = Math.max(segStartX + 1, nextStartX - 1);
                         }
                     }
                 }
-                lastCommittedEndX = segEndX + minGapPixels;
 
                 TextItem item = new TextItem(txt, segStartX, band);
                 item.role = spkRole;
                 textManager.addTextItem(item);
 
-                // Séparateur Début (vert ▶) et Fin (rouge ◀)
+                // Séparateur Début (vert ▶)
                 textManager.addSeparator(band, segStartX, SeparatorMark.Type.START);
-                if (seg.getSeparators() != null) {
+
+                if (seg.getSeparators() != null && !seg.getSeparators().isEmpty()) {
                     int lastSepX = segStartX;
                     for (SpeechWorkflowService.RhythmicSeparator rsep : seg.getSeparators()) {
                         int rsepX = timelinePanel.snapWorldXToTenth(rsep.getTime() * pps);
-                        if (rsepX <= lastSepX) rsepX = lastSepX + minGapPixels;
-                        if (rsepX >= segEndX) rsepX = segEndX - minGapPixels;
+                        int clampGap = Math.max(5, (int) Math.round(pps * 0.08));
+                        if (rsepX <= lastSepX) rsepX = lastSepX + clampGap;
+                        if (rsepX >= segEndX) rsepX = segEndX - clampGap;
                         if (rsepX > lastSepX && rsepX < segEndX) {
                             textManager.addSeparator(band, rsepX, SeparatorMark.Type.INNER, rsep.getSplitIndex());
                             lastSepX = rsepX;
@@ -1318,8 +1487,27 @@ public class MainFenetre extends JFrame {
         }
 
         textManager.sortTexts();
+        textManager.sanitizeBandSeparators();
+        timelinePanel.markDirty();
+        timelinePanel.revalidate();
         timelinePanel.repaint();
         return maxNeededBand;
+    }
+
+    private static final java.util.Set<String> FRENCH_CLITICS_SET = new java.util.HashSet<>(java.util.Arrays.asList(
+            "je", "j", "tu", "t", "il", "ils", "elle", "elles", "on", "nous", "vous",
+            "me", "m", "te", "se", "s", "lui", "leur", "y", "en", "moi", "toi",
+            "le", "la", "les", "l", "un", "une", "des", "du", "de", "d",
+            "ce", "cet", "cette", "ces", "c",
+            "mon", "ton", "son", "ma", "ta", "sa", "mes", "tes", "ses",
+            "notre", "votre", "nos", "vos", "leurs",
+            "que", "qu", "qui", "ne", "n", "si", "et", "ou", "ni", "car", "à", "au", "aux"
+    ));
+
+    private static boolean isFrenchCliticWord(String word) {
+        if (word == null) return false;
+        String clean = word.toLowerCase().trim().replaceAll("^[^a-zà-ÿ0-9'-]+|[^a-zà-ÿ0-9'-]+$", "");
+        return FRENCH_CLITICS_SET.contains(clean);
     }
 
     /**

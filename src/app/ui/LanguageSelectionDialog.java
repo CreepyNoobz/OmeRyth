@@ -32,9 +32,10 @@ public class LanguageSelectionDialog extends JDialog {
 
     public LanguageSelectionDialog(JFrame parent, AppCustomization customization) {
         super(parent, "OmeRyth - Choix de la langue", true);
-        setSize(480, 360);
+        setSize(480, 380);
+        setMinimumSize(new Dimension(380, 280));
         setLocationRelativeTo(parent);
-        setResizable(false);
+        setResizable(true);
         setLayout(new BorderLayout());
         getContentPane().setBackground(new Color(28, 28, 30));
 

@@ -32,7 +32,8 @@ public class CustomizationWindow extends JDialog {
         boolean isEn = "en".equalsIgnoreCase(customization.appLanguage);
 
         setSize(800, 780);
-        setMinimumSize(new Dimension(800, 750));
+        setMinimumSize(new Dimension(550, 450));
+        setResizable(true);
         setLocationRelativeTo(parent);
         setLayout(new BorderLayout());
         getContentPane().setBackground(new Color(245, 245, 245));

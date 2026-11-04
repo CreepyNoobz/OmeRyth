@@ -289,16 +289,18 @@ public class DetxManager {
                                         phraseStartX = x;
                                         SeparatorMark startSm = textManager.addSeparator(track, x, SeparatorMark.Type.START, -1, SeparatorMark.SignType.DEFAULT);
                                         startSm.rawDetxType = "in_open";
-                                    }
-                                    int splitIdx = currentText.length();
-                                    SeparatorMark.SignType signType = SeparatorMark.SignType.DEFAULT;
-                                    if (t.equals("fvr")) signType = SeparatorMark.SignType.FVR;
-                                    else if (t.equals("neutral")) signType = SeparatorMark.SignType.NEUTRAL;
-                                    else if (t.equals("a")) signType = SeparatorMark.SignType.OPEN_A;
-                                    else if (t.equals("mpb")) signType = SeparatorMark.SignType.MPB;
+                                    } else if (Math.abs(x - phraseStartX) > 4) {
+                                        // Un repère interne ne doit jamais être superposé au début de phrase (la flèche verte est unique)
+                                        int splitIdx = currentText.length();
+                                        SeparatorMark.SignType signType = SeparatorMark.SignType.DEFAULT;
+                                        if (t.equals("fvr")) signType = SeparatorMark.SignType.FVR;
+                                        else if (t.equals("neutral")) signType = SeparatorMark.SignType.NEUTRAL;
+                                        else if (t.equals("a")) signType = SeparatorMark.SignType.OPEN_A;
+                                        else if (t.equals("mpb")) signType = SeparatorMark.SignType.MPB;
 
-                                    SeparatorMark sm = textManager.addSeparator(track, x, SeparatorMark.Type.INNER, splitIdx, signType);
-                                    sm.rawDetxType = type;
+                                        SeparatorMark sm = textManager.addSeparator(track, x, SeparatorMark.Type.INNER, splitIdx, signType);
+                                        sm.rawDetxType = type;
+                                    }
                                 }
                             } else if (el.getTagName().equals("text")) {
                                 String rawText = el.getTextContent();
@@ -328,8 +330,11 @@ public class DetxManager {
                     String tc = shot.getAttribute("timecode");
                     double secs = timecodeToSeconds(tc, baseTimecode);
                     int x = (int) Math.round(secs * pixelsPerSecond);
-                    textManager.getPlanMarkers().add(x);
+                    textManager.addPlanMarker(x);
                 }
+
+                textManager.sanitizeBandSeparators();
+                textManager.sortTexts();
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -485,6 +490,8 @@ public class DetxManager {
                                     (inner.signType == SeparatorMark.SignType.FVR ? "fvr" :
                                      inner.signType == SeparatorMark.SignType.NEUTRAL ? "neutral" :
                                      inner.signType == SeparatorMark.SignType.OPEN_A ? "a" :
+                                     inner.signType == SeparatorMark.SignType.RESPIRATION ? "resp" :
+                                     inner.signType == SeparatorMark.SignType.PLAN_CUT ? "cut" :
                                      inner.signType == SeparatorMark.SignType.MPB ? "mpb" : "mpb");
                                 innerEl.setAttribute("type", innerType);
                                 currentLine.appendChild(innerEl);
