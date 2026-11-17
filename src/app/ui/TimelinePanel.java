@@ -159,7 +159,7 @@ public class TimelinePanel extends JPanel {
      */
     public TimelinePanel() {
         setPreferredSize(new Dimension(800, 200));
-        setBackground(new Color(40, 40, 40));
+        setBackground(OmeTheme.bg());
         setFocusable(true);
         renderer.setCustomization(customization);
         caretBlinkTimer = new Timer(450, e -> {
@@ -1275,6 +1275,7 @@ public class TimelinePanel extends JPanel {
             this.pixelsPerChar = Math.max(22, charW + 8);
         }
         offsetX = cursorX - (currentTime * pixelsPerSecond);
+        setBackground(OmeTheme.bg());
         setPreferredSize(new Dimension(getPreferredSize().width, this.bandCount * this.bandHeight));
         revalidate();
         repaint();

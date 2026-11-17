@@ -48,42 +48,39 @@ public class SpellSuggestionPopup extends JWindow {
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                // Fond clair moderne
-                g2.setColor(new Color(255, 255, 255, 252));
-                g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 14, 14);
-                // Bordure douce
-                g2.setColor(issue.isGrammar ? new Color(245, 140, 0, 210) : new Color(230, 50, 50, 210));
-                g2.setStroke(new BasicStroke(1.4f));
-                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 14, 14);
+                g2.setColor(OmeTheme.bgRaised());
+                g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 10, 10);
+                g2.setColor(issue.isGrammar ? OmeTheme.warning() : OmeTheme.danger());
+                g2.setStroke(new BasicStroke(1.2f));
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 10, 10);
                 g2.dispose();
                 super.paintComponent(g);
             }
         };
         rootPanel.setOpaque(false);
         rootPanel.setLayout(new BoxLayout(rootPanel, BoxLayout.Y_AXIS));
-        rootPanel.setBorder(new EmptyBorder(10, 12, 10, 12));
+        rootPanel.setBorder(new EmptyBorder(12, 14, 12, 14));
 
         // 1. En-tête : Badge Catégorie + Titre
-        JPanel headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JPanel headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         headerPanel.setOpaque(false);
 
         String badgeText = issue.isGrammar ? "GRAMMAIRE" : "ORTHOGRAPHE";
-        Color badgeBg = issue.isGrammar ? new Color(255, 230, 185) : new Color(255, 215, 215);
-        Color badgeBorder = issue.isGrammar ? new Color(235, 140, 0) : new Color(225, 60, 60);
-        JLabel badgeLabel = new JLabel(" " + badgeText + " ");
-        badgeLabel.setFont(new Font("Segoe UI", Font.BOLD, 10));
-        badgeLabel.setForeground(Color.BLACK);
+        Color badgeColor = issue.isGrammar ? OmeTheme.warning() : OmeTheme.danger();
+        JLabel badgeLabel = new JLabel(badgeText);
+        badgeLabel.setFont(OmeTheme.fontMono(Font.BOLD, 10));
+        badgeLabel.setForeground(badgeColor);
         badgeLabel.setOpaque(true);
-        badgeLabel.setBackground(badgeBg);
+        badgeLabel.setBackground(OmeTheme.surface());
         badgeLabel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(badgeBorder, 1, true),
-            BorderFactory.createEmptyBorder(2, 5, 2, 5)
+                BorderFactory.createLineBorder(badgeColor, 1),
+                BorderFactory.createEmptyBorder(2, 6, 2, 6)
         ));
         headerPanel.add(badgeLabel);
 
         JLabel wordLabel = new JLabel("« " + issue.originalText + " »");
-        wordLabel.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        wordLabel.setForeground(Color.BLACK);
+        wordLabel.setFont(OmeTheme.fontSans(Font.BOLD, 13));
+        wordLabel.setForeground(OmeTheme.text());
         headerPanel.add(wordLabel);
 
         rootPanel.add(headerPanel);
@@ -92,8 +89,8 @@ public class SpellSuggestionPopup extends JWindow {
         // Message descriptif
         if (issue.message != null && !issue.message.isBlank()) {
             JLabel descLabel = new JLabel(issue.message);
-            descLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            descLabel.setForeground(new Color(40, 40, 45));
+            descLabel.setFont(OmeTheme.fontSans(Font.PLAIN, 11.5f));
+            descLabel.setForeground(OmeTheme.textSecondary());
             descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
             rootPanel.add(descLabel);
             rootPanel.add(Box.createVerticalStrut(8));
@@ -102,9 +99,9 @@ public class SpellSuggestionPopup extends JWindow {
         // 2. Suggestions de correction
         List<String> suggestions = issue.suggestions;
         if (suggestions != null && !suggestions.isEmpty()) {
-            JLabel suggTitle = new JLabel("Suggestions :");
-            suggTitle.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            suggTitle.setForeground(new Color(60, 60, 65));
+            JLabel suggTitle = new JLabel("SUGGESTIONS");
+            suggTitle.setFont(OmeTheme.fontMono(Font.BOLD, 10));
+            suggTitle.setForeground(OmeTheme.textTertiary());
             suggTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
             rootPanel.add(suggTitle);
             rootPanel.add(Box.createVerticalStrut(4));
@@ -117,8 +114,8 @@ public class SpellSuggestionPopup extends JWindow {
             }
         } else {
             JLabel noSugg = new JLabel("Aucune suggestion immédiate");
-            noSugg.setFont(new Font("Segoe UI", Font.ITALIC, 11));
-            noSugg.setForeground(new Color(110, 110, 115));
+            noSugg.setFont(OmeTheme.fontSans(Font.ITALIC, 11));
+            noSugg.setForeground(OmeTheme.textTertiary());
             noSugg.setAlignmentX(Component.LEFT_ALIGNMENT);
             rootPanel.add(noSugg);
             rootPanel.add(Box.createVerticalStrut(4));
@@ -131,13 +128,9 @@ public class SpellSuggestionPopup extends JWindow {
         footerPanel.setOpaque(false);
         footerPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JButton ignoreBtn = new JButton("Ignorer");
-        ignoreBtn.setFont(new Font("Segoe UI", Font.PLAIN, 10));
-        ignoreBtn.setForeground(new Color(70, 70, 70));
-        ignoreBtn.setContentAreaFilled(false);
-        ignoreBtn.setBorderPainted(false);
-        ignoreBtn.setFocusPainted(false);
-        ignoreBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        OmeTheme.OmeButton ignoreBtn = OmeTheme.createGhostButton("Ignorer");
+        ignoreBtn.setFont(OmeTheme.fontMono(Font.PLAIN, 10.5f));
+        ignoreBtn.setMargin(new Insets(3, 8, 3, 8));
         ignoreBtn.addActionListener(e -> {
             if (onIgnoreWord != null) {
                 onIgnoreWord.accept(issue);
@@ -152,39 +145,10 @@ public class SpellSuggestionPopup extends JWindow {
     }
 
     private JButton createSuggestionButton(String suggestion) {
-        JButton btn = new JButton(suggestion);
-        btn.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        btn.setForeground(Color.BLACK);
-        btn.setBackground(new Color(240, 244, 250));
-        btn.setFocusPainted(false);
-        btn.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(190, 205, 225), 1),
-            BorderFactory.createEmptyBorder(5, 10, 5, 10)
-        ));
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
-
-        btn.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseEntered(MouseEvent e) {
-                btn.setBackground(new Color(215, 232, 255));
-                btn.setForeground(Color.BLACK);
-                btn.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(new Color(50, 140, 230), 1),
-                    BorderFactory.createEmptyBorder(5, 10, 5, 10)
-                ));
-            }
-
-            @Override
-            public void mouseExited(MouseEvent e) {
-                btn.setBackground(new Color(240, 244, 250));
-                btn.setForeground(Color.BLACK);
-                btn.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(new Color(190, 205, 225), 1),
-                    BorderFactory.createEmptyBorder(5, 10, 5, 10)
-                ));
-            }
-        });
+        OmeTheme.OmeButton btn = OmeTheme.createSecondaryButton(suggestion);
+        btn.setFont(OmeTheme.fontSans(Font.BOLD, 12));
+        btn.setMargin(new Insets(5, 10, 5, 10));
+        btn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
 
         btn.addActionListener(e -> {
             if (onApplyCorrection != null) {

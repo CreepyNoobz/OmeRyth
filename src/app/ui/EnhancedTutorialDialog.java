@@ -307,57 +307,82 @@ public class EnhancedTutorialDialog extends JDialog {
         this.STEPS = createSteps(isEn);
         this.CONTENTS = createContents(isEn);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-        setSize(650, 520);
-        setMinimumSize(new Dimension(480, 380));
+        setSize(680, 540);
+        setMinimumSize(new Dimension(500, 400));
         setResizable(true);
         setLocationRelativeTo(owner);
-        setLayout(new BorderLayout(10, 10));
-        getRootPane().setBorder(new EmptyBorder(10, 10, 10, 10));
+        setLayout(new BorderLayout());
+        getContentPane().setBackground(OmeTheme.bg());
 
         // En-tête
-        JPanel headerPanel = new JPanel(new BorderLayout());
+        JPanel headerPanel = new JPanel(new BorderLayout(16, 0));
+        headerPanel.setBackground(OmeTheme.bgRaised());
+        headerPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, OmeTheme.border()),
+                new EmptyBorder(16, 22, 16, 22)
+        ));
+
+        JPanel titleStack = new JPanel();
+        titleStack.setLayout(new BoxLayout(titleStack, BoxLayout.Y_AXIS));
+        titleStack.setOpaque(false);
+        JLabel kicker = new JLabel(isEn ? "— INTERACTIVE GUIDE" : "— GUIDE INTERACTIF");
+        kicker.setFont(OmeTheme.fontMono(Font.BOLD, 10.5f));
+        kicker.setForeground(OmeTheme.accent());
+        kicker.setAlignmentX(Component.LEFT_ALIGNMENT);
+
         headerLabel = new JLabel();
-        headerLabel.setFont(new Font("Arial", Font.BOLD, 18));
-        headerLabel.setForeground(new Color(70, 130, 180));
-        headerPanel.add(headerLabel, BorderLayout.WEST);
+        headerLabel.setFont(OmeTheme.fontSans(Font.BOLD, 19));
+        headerLabel.setForeground(OmeTheme.text());
+        headerLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        titleStack.add(kicker);
+        titleStack.add(Box.createVerticalStrut(4));
+        titleStack.add(headerLabel);
+        headerPanel.add(titleStack, BorderLayout.CENTER);
 
         // Barre de progression
         progressBar = new JProgressBar(0, STEPS.length - 1);
         progressBar.setStringPainted(true);
         progressBar.setString("");
-        headerPanel.add(progressBar, BorderLayout.EAST);
+        progressBar.setPreferredSize(new Dimension(140, 22));
+        OmeTheme.styleProgressBar(progressBar);
+        JPanel progWrap = new JPanel(new GridBagLayout());
+        progWrap.setOpaque(false);
+        progWrap.add(progressBar);
+        headerPanel.add(progWrap, BorderLayout.EAST);
 
         add(headerPanel, BorderLayout.NORTH);
 
         // Zone de contenu
+        JPanel centerWrap = new JPanel(new BorderLayout());
+        centerWrap.setBackground(OmeTheme.bg());
+        centerWrap.setBorder(new EmptyBorder(18, 22, 18, 22));
+
         contentArea = new JTextArea();
         contentArea.setEditable(false);
         contentArea.setLineWrap(true);
         contentArea.setWrapStyleWord(true);
-        contentArea.setFont(new Font("Arial", Font.PLAIN, 13));
-        contentArea.setBackground(Color.WHITE);
-        contentArea.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        contentArea.setFont(OmeTheme.fontSans(Font.PLAIN, 13.5f));
+        contentArea.setBackground(OmeTheme.bgRaised());
+        contentArea.setForeground(OmeTheme.text());
+        contentArea.setBorder(new EmptyBorder(18, 20, 18, 20));
 
         JScrollPane scroll = new JScrollPane(contentArea);
-        scroll.setPreferredSize(new Dimension(620, 300));
-        add(scroll, BorderLayout.CENTER);
+        OmeTheme.styleScrollPane(scroll);
+        scroll.setPreferredSize(new Dimension(620, 320));
+        centerWrap.add(scroll, BorderLayout.CENTER);
+        add(centerWrap, BorderLayout.CENTER);
 
         // Boutons de navigation
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        backBtn = new JButton(isEn ? "← Back" : "← Précédent");
-        nextBtn = new JButton(isEn ? "Next →" : "Suivant →");
-        closeBtn = new JButton(isEn ? "Close" : "Fermer");
+        backBtn = OmeTheme.createSecondaryButton(isEn ? "← Back" : "← Précédent");
+        nextBtn = OmeTheme.createPrimaryButton(isEn ? "Next →" : "Suivant →");
+        closeBtn = OmeTheme.createGhostButton(isEn ? "Close" : "Fermer");
 
         backBtn.addActionListener(e -> previousStep());
         nextBtn.addActionListener(e -> nextStep());
         closeBtn.addActionListener(e -> dispose());
 
-        btnPanel.add(backBtn);
-        btnPanel.add(nextBtn);
-        btnPanel.add(Box.createHorizontalStrut(20));
-        btnPanel.add(closeBtn);
-
-        add(btnPanel, BorderLayout.SOUTH);
+        add(OmeTheme.createDialogFooter(closeBtn, backBtn, nextBtn), BorderLayout.SOUTH);
 
         updateStep();
     }

@@ -126,27 +126,29 @@ public class AutoTranscriptionTestDialog extends JDialog {
                 "Gladia AI (API Cloud - Haute Précision)",
                 "Whisper (Local / Hors-ligne - faster-whisper)"
         });
-        comboEngine.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        comboEngine.setFont(OmeTheme.fontSans(Font.PLAIN, 12.5f));
+        OmeTheme.styleComboBox(comboEngine);
         comboEngine.setSelectedIndex("whisper".equalsIgnoreCase(savedEngine) ? 1 : 0);
 
         txtGladiaKey = new JTextField(app.utils.FileUtils.loadGladiaApiKey());
-        txtGladiaKey.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        OmeTheme.styleTextField(txtGladiaKey);
+        txtGladiaKey.setFont(OmeTheme.fontMono(Font.PLAIN, 11.5f));
         txtGladiaKey.setToolTipText("Clé API Gladia v2 (Solaria-1 / Diarisation)");
 
-        gladiaKeyRow = new JPanel(new BorderLayout(6, 0));
+        gladiaKeyRow = new JPanel(new BorderLayout(8, 0));
         gladiaKeyRow.setOpaque(false);
         gladiaKeyRow.add(txtGladiaKey, BorderLayout.CENTER);
-        JLabel keyBadge = new JLabel("✓ Active");
-        keyBadge.setFont(new Font("Segoe UI", Font.BOLD, 10));
-        keyBadge.setForeground(new Color(0, 140, 0));
+        JLabel keyBadge = OmeTheme.createTagBadge("ACTIVE", false);
         gladiaKeyRow.add(keyBadge, BorderLayout.EAST);
 
         labelGladiaKeyPrompt = new JLabel("Clé API Gladia :");
+        labelGladiaKeyPrompt.setForeground(OmeTheme.textSecondary());
         labelCpuPrompt = new JLabel("Cœurs processeur (CPU) :");
+        labelCpuPrompt.setForeground(OmeTheme.textSecondary());
 
         labelEngineHelp = new JLabel();
-        labelEngineHelp.setFont(new Font("Segoe UI", Font.ITALIC, 11));
-        labelEngineHelp.setForeground(new Color(90, 90, 90));
+        labelEngineHelp.setFont(OmeTheme.fontSans(Font.ITALIC, 11.5f));
+        labelEngineHelp.setForeground(OmeTheme.textTertiary());
 
         comboEngine.addActionListener(e -> {
             boolean isGladia = comboEngine.getSelectedIndex() == 0;
@@ -179,27 +181,33 @@ public class AutoTranscriptionTestDialog extends JDialog {
                 "8 personnes (8 bandes)"
         });
         comboSpeakers.setSelectedIndex(0);
+        OmeTheme.styleComboBox(comboSpeakers);
 
         checkMultiBandPerSpeaker = new JCheckBox("Repartir chaque personne sur sa propre bande (1 bande par locuteur)", true);
-        checkMultiBandPerSpeaker.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        OmeTheme.styleCheckBox(checkMultiBandPerSpeaker);
 
         comboLanguage = new JComboBox<>(new String[]{
                 "Français (fr)", "Anglais (en)", "Espagnol (es)",
                 "Allemand (de)", "Italien (it)", "Auto-détection (auto)"
         });
+        OmeTheme.styleComboBox(comboLanguage);
 
         int totalCores = Runtime.getRuntime().availableProcessors();
         sliderCpuCores = new JSlider(1, totalCores, totalCores);
+        sliderCpuCores.setOpaque(false);
+        sliderCpuCores.setUI(new OmeTheme.OmeSliderUI(sliderCpuCores));
         sliderCpuCores.setPaintTicks(true);
         sliderCpuCores.setMinorTickSpacing(1);
         int majorTick = (totalCores >= 16) ? 4 : (totalCores >= 8 ? 2 : 1);
         sliderCpuCores.setMajorTickSpacing(majorTick);
         sliderCpuCores.setPaintLabels(true);
-        sliderCpuCores.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+        sliderCpuCores.setForeground(OmeTheme.textSecondary());
+        sliderCpuCores.setFont(OmeTheme.fontMono(Font.PLAIN, 10));
 
         labelCpuValue = new JLabel(totalCores + " cœurs (100% - Vitesse Max)");
-        labelCpuValue.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        labelCpuValue.setPreferredSize(new Dimension(175, 20));
+        labelCpuValue.setFont(OmeTheme.fontMono(Font.BOLD, 11));
+        labelCpuValue.setForeground(OmeTheme.accent());
+        labelCpuValue.setPreferredSize(new Dimension(190, 20));
 
         sliderCpuCores.addChangeListener(e -> {
             int val = sliderCpuCores.getValue();
@@ -219,55 +227,69 @@ public class AutoTranscriptionTestDialog extends JDialog {
             bandOptions[i] = label;
         }
         comboBandTarget = new JComboBox<>(bandOptions);
+        OmeTheme.styleComboBox(comboBandTarget);
         comboBandTarget.setSelectedIndex(Math.max(0, Math.min(activeBand, safeBandCount - 1)));
 
-        checkAutoInject = new JCheckBox("Injection directe sans validation des la fin du scan", false);
-        checkAutoInject.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        checkAutoInject = new JCheckBox("Injection directe sans validation dès la fin du scan", false);
+        OmeTheme.styleCheckBox(checkAutoInject);
 
         // Progression
-        progressPanel = new JPanel(new BorderLayout(5, 5));
-        progressPanel.setBorder(BorderFactory.createTitledBorder("Progression en direct"));
+        JPanel progInner = new JPanel(new BorderLayout(6, 6));
+        progInner.setOpaque(false);
         progressBar = new JProgressBar(0, 100);
         progressBar.setStringPainted(true);
+        OmeTheme.styleProgressBar(progressBar);
         labelStatus = new JLabel("En attente...", SwingConstants.CENTER);
+        labelStatus.setFont(OmeTheme.fontSans(Font.PLAIN, 12));
+        labelStatus.setForeground(OmeTheme.textSecondary());
         labelTime = new JLabel("00:00", SwingConstants.CENTER);
-        progressPanel.add(progressBar, BorderLayout.CENTER);
-        JPanel statusTimePanel = new JPanel(new GridLayout(2, 1));
+        labelTime.setFont(OmeTheme.fontMono(Font.BOLD, 12));
+        labelTime.setForeground(OmeTheme.accent());
+        progInner.add(progressBar, BorderLayout.CENTER);
+        JPanel statusTimePanel = new JPanel(new GridLayout(2, 1, 0, 3));
+        statusTimePanel.setOpaque(false);
         statusTimePanel.add(labelStatus);
         statusTimePanel.add(labelTime);
-        progressPanel.add(statusTimePanel, BorderLayout.SOUTH);
+        progInner.add(statusTimePanel, BorderLayout.SOUTH);
+        progressPanel = OmeTheme.createSectionCard("LIVE", "Progression en direct", progInner);
         progressPanel.setVisible(false);
 
         // Résultats — avec colonnes Locuteur interactive et Bande
-        resultsPanel = new JPanel(new BorderLayout(5, 5));
-        resultsPanel.setBorder(BorderFactory.createTitledBorder("Répliques & Personnages"));
+        JPanel resultsInner = new JPanel(new BorderLayout(6, 6));
+        resultsInner.setOpaque(false);
 
         labelScanSummary = new JLabel("Scan non démarré.");
-        labelScanSummary.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        labelScanSummary.setFont(OmeTheme.fontMono(Font.PLAIN, 11.5f));
+        labelScanSummary.setForeground(OmeTheme.textSecondary());
 
-        btnSwapSpeakers = new JButton("Inverser (1 / 2)");
+        btnSwapSpeakers = OmeTheme.createSecondaryButton("Inverser (1 / 2)");
+        btnSwapSpeakers.setMargin(new Insets(4, 10, 4, 10));
         btnSwapSpeakers.setToolTipText("Inverser toutes les répliques entre Locuteur 1 et Locuteur 2 en 1 clic");
         btnSwapSpeakers.setEnabled(false);
 
-        btnRenameRoles = new JButton("Renommer les rôles...");
+        btnRenameRoles = OmeTheme.createSecondaryButton("Renommer les rôles...");
+        btnRenameRoles.setMargin(new Insets(4, 10, 4, 10));
         btnRenameRoles.setToolTipText("Donner un vrai nom aux personnages (ex: Mbappé, Journaliste...)");
         btnRenameRoles.setEnabled(false);
 
-        btnAddSpeaker = new JButton("Ajouter personnage");
+        btnAddSpeaker = OmeTheme.createSecondaryButton("Ajouter personnage");
+        btnAddSpeaker.setMargin(new Insets(4, 10, 4, 10));
         btnAddSpeaker.setToolTipText("Créer un nouveau rôle personnage pour lui assigner des répliques");
         btnAddSpeaker.setEnabled(false);
 
-        JPanel scanHeaderPanel = new JPanel(new BorderLayout(5, 5));
-        scanHeaderPanel.setBorder(BorderFactory.createEmptyBorder(2, 4, 6, 4));
+        JPanel scanHeaderPanel = new JPanel(new BorderLayout(6, 6));
+        scanHeaderPanel.setOpaque(false);
+        scanHeaderPanel.setBorder(BorderFactory.createEmptyBorder(2, 0, 6, 0));
         scanHeaderPanel.add(labelScanSummary, BorderLayout.CENTER);
 
-        JPanel speakerTools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        JPanel speakerTools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        speakerTools.setOpaque(false);
         speakerTools.add(btnSwapSpeakers);
         speakerTools.add(btnRenameRoles);
         speakerTools.add(btnAddSpeaker);
         scanHeaderPanel.add(speakerTools, BorderLayout.EAST);
 
-        resultsPanel.add(scanHeaderPanel, BorderLayout.NORTH);
+        resultsInner.add(scanHeaderPanel, BorderLayout.NORTH);
 
         tableModel = new DefaultTableModel(new String[]{"#", "Locuteur", "Bande", "Début", "Fin", "Durée", "Texte"}, 0) {
             @Override
@@ -302,95 +324,100 @@ public class AutoTranscriptionTestDialog extends JDialog {
             }
         });
 
+        OmeTheme.styleTable(tableResults);
         JScrollPane scrollPane = new JScrollPane(tableResults);
+        OmeTheme.styleScrollPane(scrollPane);
         scrollPane.setPreferredSize(new Dimension(720, 200));
-        resultsPanel.add(scrollPane, BorderLayout.CENTER);
+        resultsInner.add(scrollPane, BorderLayout.CENTER);
+        resultsPanel = OmeTheme.createSectionCard("02", "Répliques & Personnages", resultsInner);
         resultsPanel.setVisible(false);
 
         // Boutons
-        btnStart = new JButton("Lancer l'analyse");
-        btnStart.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        btnStart.setForeground(new Color(0, 120, 0));
+        btnStart = OmeTheme.createPrimaryButton("Lancer l'analyse");
 
-        btnCancel = new JButton("Annuler");
-        btnCancel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        btnCancel = OmeTheme.createDangerButton("Annuler");
         btnCancel.setEnabled(false);
 
-        btnInject = new JButton("Injecter dans la bande rythmo");
-        btnInject.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        btnInject = OmeTheme.createPrimaryButton("Injecter dans la bande rythmo");
         btnInject.setEnabled(false);
 
-        btnClose = new JButton("Fermer");
-        btnClose.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        btnClose = OmeTheme.createGhostButton("Fermer");
 
         timer = new Timer(1000, e -> updateTime());
     }
 
     private void layoutComponents() {
-        JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
-        mainPanel.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        JPanel mainPanel = new JPanel(new BorderLayout());
+        mainPanel.setBackground(OmeTheme.bg());
 
         // Header
-        JPanel headerPanel = new JPanel(new GridLayout(2, 1));
-        JLabel titleLabel = new JLabel("Transcription Vocale Haute Precision & Multi-Locuteurs");
-        titleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 15));
-        JLabel subtitleLabel = new JLabel("BETA - possibilité de mauvaise détection des répliques ou des locuteurs selon la qualité audio et le bruit de fond.");
-        subtitleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        headerPanel.add(titleLabel);
-        headerPanel.add(subtitleLabel);
-        mainPanel.add(headerPanel, BorderLayout.NORTH);
+        mainPanel.add(OmeTheme.createDialogHeader(
+                "INTELLIGENCE ARTIFICIELLE",
+                "Transcription Vocale & Diarisation",
+                "BETA — Détection automatique des répliques et séparation multi-locuteurs."
+        ), BorderLayout.NORTH);
 
         // Centre
         JPanel centerPanel = new JPanel();
         centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
+        centerPanel.setBackground(OmeTheme.bg());
+        centerPanel.setBorder(new javax.swing.border.EmptyBorder(16, 20, 16, 20));
 
-        JPanel paramsPanel = new JPanel(new GridBagLayout());
-        paramsPanel.setBorder(BorderFactory.createTitledBorder("Paramètres d'analyse"));
+        JPanel paramsInner = new JPanel(new GridBagLayout());
+        paramsInner.setOpaque(false);
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.insets = new Insets(6, 6, 6, 6);
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
         int row = 0;
-        gbc.gridx = 0; gbc.gridy = row; paramsPanel.add(new JLabel("Moteur de transcription :"), gbc);
-        gbc.gridx = 1; gbc.gridy = row; paramsPanel.add(comboEngine, gbc);
+        JLabel engLbl = new JLabel("Moteur de transcription :");
+        engLbl.setForeground(OmeTheme.textSecondary());
+        gbc.gridx = 0; gbc.gridy = row; paramsInner.add(engLbl, gbc);
+        gbc.gridx = 1; gbc.gridy = row; gbc.weightx = 1; paramsInner.add(comboEngine, gbc);
         row++;
 
-        gbc.gridx = 0; gbc.gridy = row; paramsPanel.add(labelGladiaKeyPrompt, gbc);
-        gbc.gridx = 1; gbc.gridy = row; paramsPanel.add(gladiaKeyRow, gbc);
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; paramsInner.add(labelGladiaKeyPrompt, gbc);
+        gbc.gridx = 1; gbc.gridy = row; gbc.weightx = 1; paramsInner.add(gladiaKeyRow, gbc);
         row++;
 
-        gbc.gridx = 0; gbc.gridy = row; paramsPanel.add(new JLabel("Nombre d'interlocuteurs :"), gbc);
-        gbc.gridx = 1; gbc.gridy = row; paramsPanel.add(comboSpeakers, gbc);
+        JLabel spkLbl = new JLabel("Nombre d'interlocuteurs :");
+        spkLbl.setForeground(OmeTheme.textSecondary());
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; paramsInner.add(spkLbl, gbc);
+        gbc.gridx = 1; gbc.gridy = row; gbc.weightx = 1; paramsInner.add(comboSpeakers, gbc);
         row++;
 
         gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
-        paramsPanel.add(checkMultiBandPerSpeaker, gbc);
+        paramsInner.add(checkMultiBandPerSpeaker, gbc);
         gbc.gridwidth = 1;
         row++;
 
-        gbc.gridx = 0; gbc.gridy = row; paramsPanel.add(new JLabel("Bande de départ :"), gbc);
-        gbc.gridx = 1; gbc.gridy = row; paramsPanel.add(comboBandTarget, gbc);
+        JLabel bandLbl = new JLabel("Bande de départ :");
+        bandLbl.setForeground(OmeTheme.textSecondary());
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; paramsInner.add(bandLbl, gbc);
+        gbc.gridx = 1; gbc.gridy = row; gbc.weightx = 1; paramsInner.add(comboBandTarget, gbc);
         row++;
 
-        gbc.gridx = 0; gbc.gridy = row; paramsPanel.add(new JLabel("Langue :"), gbc);
-        gbc.gridx = 1; gbc.gridy = row; paramsPanel.add(comboLanguage, gbc);
+        JLabel langLbl = new JLabel("Langue :");
+        langLbl.setForeground(OmeTheme.textSecondary());
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; paramsInner.add(langLbl, gbc);
+        gbc.gridx = 1; gbc.gridy = row; gbc.weightx = 1; paramsInner.add(comboLanguage, gbc);
         row++;
 
         cpuSliderPanel = new JPanel(new BorderLayout(8, 0));
         cpuSliderPanel.setOpaque(false);
         cpuSliderPanel.add(sliderCpuCores, BorderLayout.CENTER);
         cpuSliderPanel.add(labelCpuValue, BorderLayout.EAST);
-        gbc.gridx = 0; gbc.gridy = row; paramsPanel.add(labelCpuPrompt, gbc);
-        gbc.gridx = 1; gbc.gridy = row; paramsPanel.add(cpuSliderPanel, gbc);
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; paramsInner.add(labelCpuPrompt, gbc);
+        gbc.gridx = 1; gbc.gridy = row; gbc.weightx = 1; paramsInner.add(cpuSliderPanel, gbc);
         row++;
 
         gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
-        paramsPanel.add(labelEngineHelp, gbc);
+        paramsInner.add(labelEngineHelp, gbc);
         row++;
 
         gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
-        paramsPanel.add(checkAutoInject, gbc);
+        paramsInner.add(checkAutoInject, gbc);
 
         // Définir l'état initial des éléments selon le moteur actif
         boolean isGladia = comboEngine.getSelectedIndex() == 0;
@@ -404,20 +431,29 @@ public class AutoTranscriptionTestDialog extends JDialog {
             labelEngineHelp.setText("Whisper : Exécution 100% locale hors-ligne sur votre processeur/carte graphique.");
         }
 
-        centerPanel.add(paramsPanel);
-        centerPanel.add(Box.createVerticalStrut(10));
+        centerPanel.add(OmeTheme.createSectionCard("01", "Paramètres d'analyse", paramsInner));
+        centerPanel.add(Box.createVerticalStrut(12));
         centerPanel.add(progressPanel);
-        centerPanel.add(Box.createVerticalStrut(10));
+        centerPanel.add(Box.createVerticalStrut(12));
         centerPanel.add(resultsPanel);
 
-        mainPanel.add(centerPanel, BorderLayout.CENTER);
+        JScrollPane bodyScroll = new JScrollPane(centerPanel);
+        OmeTheme.styleBorderlessScrollPane(bodyScroll);
+        mainPanel.add(bodyScroll, BorderLayout.CENTER);
 
         // Boutons
         JPanel buttonsPanel = new JPanel(new BorderLayout());
-        JPanel leftButtons = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        buttonsPanel.setBackground(OmeTheme.bgRaised());
+        buttonsPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, OmeTheme.border()),
+                new javax.swing.border.EmptyBorder(10, 18, 12, 18)
+        ));
+        JPanel leftButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        leftButtons.setOpaque(false);
         leftButtons.add(btnCancel);
 
-        JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        rightButtons.setOpaque(false);
         rightButtons.add(btnStart);
         rightButtons.add(btnInject);
         rightButtons.add(btnClose);
@@ -1038,8 +1074,11 @@ public class AutoTranscriptionTestDialog extends JDialog {
                                                        int row, int column) {
             Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
             if (!isSelected) {
-                c.setBackground(row % 2 == 0 ? new Color(0xF7, 0xF7, 0xF7) : Color.WHITE);
-                c.setForeground(Color.BLACK);
+                c.setBackground(row % 2 == 0 ? OmeTheme.bgRaised() : OmeTheme.surface());
+                c.setForeground(OmeTheme.text());
+            } else {
+                c.setBackground(OmeTheme.accentSubtleSolid());
+                c.setForeground(OmeTheme.text());
             }
             return c;
         }

@@ -1,6 +1,7 @@
 package app.services;
 
 import app.utils.FileUtils;
+import app.ui.OmeTheme;
 import app.ui.TimelinePanel;
 import app.ui.SeparatorMark;
 import app.utils.TimerClass;
@@ -23,6 +24,7 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.GridLayout;
+import java.awt.Insets;
 import java.awt.Rectangle;
 import java.awt.event.InputEvent;
 import java.awt.event.MouseWheelEvent;
@@ -80,10 +82,20 @@ public class MediaWorkflowService {
         if (videoFile == null || !videoFile.exists()) return;
 
         JDialog loadingDialog = new JDialog(owner, "Chargement de la vidéo", false);
+        loadingDialog.getContentPane().setBackground(OmeTheme.bg());
+        JPanel loadBody = new JPanel(new BorderLayout(8, 8));
+        loadBody.setBackground(OmeTheme.bg());
+        loadBody.setBorder(BorderFactory.createEmptyBorder(14, 16, 14, 16));
+        JLabel loadLbl = new JLabel("Chargement du média en cours...");
+        loadLbl.setFont(OmeTheme.fontMono(Font.PLAIN, 11));
+        loadLbl.setForeground(OmeTheme.textSecondary());
         JProgressBar progress = new JProgressBar();
         progress.setIndeterminate(true);
-        loadingDialog.add(progress);
-        loadingDialog.setSize(280, 70);
+        OmeTheme.styleProgressBar(progress);
+        loadBody.add(loadLbl, BorderLayout.NORTH);
+        loadBody.add(progress, BorderLayout.CENTER);
+        loadingDialog.add(loadBody);
+        loadingDialog.setSize(320, 96);
         loadingDialog.setLocationRelativeTo(owner);
 
         SwingWorker<Long, Void> worker = new SwingWorker<>() {
@@ -434,27 +446,30 @@ public class MediaWorkflowService {
         TimelinePanel.ExportSession session = timelinePanel.createExportSession(frameW, frameH, config.visibleSeconds, roleLabelScale);
 
         JDialog progressDialog = new JDialog(owner, "Export vidéo en cours...", false);
+        progressDialog.getContentPane().setBackground(OmeTheme.bg());
         JProgressBar progressBar = new JProgressBar(0, 100);
         progressBar.setStringPainted(true);
         progressBar.setString("0%");
+        OmeTheme.styleProgressBar(progressBar);
         String sizeInfo = config.isMontageMode
                 ? ("Montage " + config.width + "x" + config.height + " (Bande " + config.bandRect.width + "x" + config.bandRect.height + ")")
                 : (config.width + "x" + config.height);
         JLabel statusLabel = new JLabel("Initialisation de l'export (" + sizeInfo + " @ " + config.fps + " FPS)...");
-        statusLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        statusLabel.setFont(OmeTheme.fontSans(Font.BOLD, 12.5f));
+        statusLabel.setForeground(OmeTheme.text());
         JLabel speedLabel = new JLabel("Démarrage du streaming vidéo haute vitesse...");
-        speedLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        speedLabel.setForeground(new Color(110, 110, 120));
+        speedLabel.setFont(OmeTheme.fontMono(Font.PLAIN, 11));
+        speedLabel.setForeground(OmeTheme.textSecondary());
 
-        JButton btnCancel = new JButton("Annuler l'export");
-        btnCancel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        btnCancel.setForeground(Color.BLACK);
-        btnCancel.setFocusPainted(false);
+        JButton btnCancel = OmeTheme.createDangerButton("Annuler l'export");
+        btnCancel.setMargin(new Insets(5, 12, 5, 12));
 
         JPanel panel = new JPanel(new BorderLayout(10, 10));
-        panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        panel.setBackground(OmeTheme.bg());
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 18, 16, 18));
 
         JPanel headerPanel = new JPanel(new GridLayout(2, 1, 4, 4));
+        headerPanel.setOpaque(false);
         headerPanel.add(statusLabel);
         headerPanel.add(speedLabel);
         panel.add(headerPanel, BorderLayout.NORTH);
@@ -462,11 +477,12 @@ public class MediaWorkflowService {
         panel.add(progressBar, BorderLayout.CENTER);
 
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        btnPanel.setOpaque(false);
         btnPanel.add(btnCancel);
         panel.add(btnPanel, BorderLayout.SOUTH);
 
         progressDialog.add(panel);
-        progressDialog.setSize(520, 165);
+        progressDialog.setSize(540, 175);
         progressDialog.setMinimumSize(new java.awt.Dimension(400, 150));
         progressDialog.setResizable(true);
         progressDialog.setLocationRelativeTo(owner);
@@ -1018,38 +1034,44 @@ public class MediaWorkflowService {
         boolean demucsAvailable = isDemucsAvailable();
 
         JDialog progressDialog = new JDialog(owner, "Extraction audio sans voix...", false);
+        progressDialog.getContentPane().setBackground(OmeTheme.bg());
         JProgressBar progressBar = new JProgressBar(0, 100);
         progressBar.setStringPainted(true);
         progressBar.setValue(0);
+        OmeTheme.styleProgressBar(progressBar);
         progressBar.setString(demucsAvailable ? "Initialisation du modèle IA Demucs..." : "Suppression des voix et isolation de l'ambiance...");
         if (!demucsAvailable) {
             progressBar.setIndeterminate(true);
         }
 
         JLabel titleLabel = new JLabel(demucsAvailable ? "Séparation vocale par IA (Facebook Demucs)" : "Filtrage acoustique des voix (FFmpeg)");
-        titleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        titleLabel.setFont(OmeTheme.fontSans(Font.BOLD, 12.5f));
+        titleLabel.setForeground(OmeTheme.text());
         JLabel statusLabel = new JLabel(demucsAvailable ? "Préparation de l'extraction et du réseau neuronal..." : "Filtrage des fréquences vocales...");
-        statusLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        statusLabel.setForeground(new Color(110, 110, 120));
+        statusLabel.setFont(OmeTheme.fontMono(Font.PLAIN, 11));
+        statusLabel.setForeground(OmeTheme.textSecondary());
 
-        JButton btnCancel = new JButton("Annuler");
-        btnCancel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        JButton btnCancel = OmeTheme.createDangerButton("Annuler");
+        btnCancel.setMargin(new Insets(5, 12, 5, 12));
 
         JPanel panel = new JPanel(new BorderLayout(10, 10));
-        panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        panel.setBackground(OmeTheme.bg());
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 18, 16, 18));
 
         JPanel headerPanel = new JPanel(new GridLayout(2, 1, 4, 4));
+        headerPanel.setOpaque(false);
         headerPanel.add(titleLabel);
         headerPanel.add(statusLabel);
         panel.add(headerPanel, BorderLayout.NORTH);
         panel.add(progressBar, BorderLayout.CENTER);
 
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        btnPanel.setOpaque(false);
         btnPanel.add(btnCancel);
         panel.add(btnPanel, BorderLayout.SOUTH);
 
         progressDialog.add(panel);
-        progressDialog.setSize(500, 160);
+        progressDialog.setSize(520, 175);
         progressDialog.setLocationRelativeTo(owner);
         progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 

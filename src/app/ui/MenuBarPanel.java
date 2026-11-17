@@ -159,6 +159,8 @@ public class MenuBarPanel extends JMenuBar {
         add(menuEdition);
         add(menuRole);
         add(menuParam);
+        setBackground(OmeTheme.bgRaised());
+        setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, OmeTheme.border()));
     }
     
 }

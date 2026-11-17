@@ -1,7 +1,9 @@
 package app.utils;
 
+import app.ui.OmeTheme;
 import app.ui.TimelinePanel;
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import javax.imageio.ImageIO;
@@ -18,8 +20,11 @@ public class TimerClass extends JPanel {
     private double maxTime = Double.MAX_VALUE; // durée maximale du timer
     private int direction = 1; // 1 = forward, -1 = reverse
     private JLabel timerLabel;
+    private JLabel statusTextLabel;
+    private JPanel statusDot;
+    private JPanel hudTopBar;
     private Timer timer;
-    private Color themeColor = new Color(25, 25, 25);
+    private Color themeColor = OmeTheme.bgRaised();
     private String imagePath = "";
     private String cachedPath = "";
     private BufferedImage cachedImage;
@@ -47,15 +52,59 @@ public class TimerClass extends JPanel {
 
         setLayout(new BorderLayout());
         setBackground(themeColor);
-        setPreferredSize(new Dimension(180, 120));
-        setMinimumSize(new Dimension(180, 120));
+        setPreferredSize(new Dimension(180, 110));
+        setMinimumSize(new Dimension(180, 100));
         setOpaque(false);
+        setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, OmeTheme.border()));
+
+        hudTopBar = new JPanel(new BorderLayout(6, 0));
+        hudTopBar.setOpaque(false);
+        hudTopBar.setBorder(new EmptyBorder(8, 12, 0, 12));
+
+        JPanel leftTag = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        leftTag.setOpaque(false);
+
+        statusDot = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                boolean running = timer != null && timer.isRunning();
+                if (running) {
+                    g2.setColor(OmeTheme.accentSubtle());
+                    g2.fillOval(0, 0, 10, 10);
+                    g2.setColor(OmeTheme.accent());
+                } else {
+                    g2.setColor(OmeTheme.textTertiary());
+                }
+                g2.fillOval(2, 2, 6, 6);
+                g2.dispose();
+            }
+        };
+        statusDot.setOpaque(false);
+        statusDot.setPreferredSize(new Dimension(10, 10));
+
+        JLabel hudTitle = new JLabel("TIMECODE");
+        hudTitle.setFont(OmeTheme.fontMono(Font.BOLD, 10));
+        hudTitle.setForeground(OmeTheme.textTertiary());
+
+        leftTag.add(statusDot);
+        leftTag.add(hudTitle);
+
+        statusTextLabel = new JLabel("PAUSE");
+        statusTextLabel.setFont(OmeTheme.fontMono(Font.BOLD, 10));
+        statusTextLabel.setForeground(OmeTheme.textTertiary());
+
+        hudTopBar.add(leftTag, BorderLayout.WEST);
+        hudTopBar.add(statusTextLabel, BorderLayout.EAST);
 
         timerLabel = new JLabel("00:00:00.0", SwingConstants.CENTER);
-        timerLabel.setFont(new Font("Segoe UI", Font.BOLD, 36));
-        timerLabel.setForeground(new Color(230, 230, 230)); // Modern off-white
+        timerLabel.setFont(OmeTheme.fontMono(Font.BOLD, 26));
+        timerLabel.setForeground(OmeTheme.text());
         timerLabel.setOpaque(false);
+        timerLabel.setBorder(new EmptyBorder(0, 8, 10, 8));
 
+        add(hudTopBar, BorderLayout.NORTH);
         add(timerLabel, BorderLayout.CENTER);
 
         // Horloge 60 FPS calibrée sur nanoTime (16ms) avec coalescence :
@@ -87,6 +136,7 @@ public class TimerClass extends JPanel {
             startRythmoTime = time;
             timerLabel.setText(format());
             timeline.setTime(time);
+            refreshHudIndicator();
             if (onStopCallback != null) onStopCallback.run();
         }
         if (time <= 0) {
@@ -95,6 +145,7 @@ public class TimerClass extends JPanel {
             startRythmoTime = time;
             timerLabel.setText(format());
             timeline.setTime(time);
+            refreshHudIndicator();
             if (onStopCallback != null) onStopCallback.run();
         }
 
@@ -164,6 +215,7 @@ public class TimerClass extends JPanel {
             startRythmoTime = time;
             timer.start();
         }
+        refreshHudIndicator();
     }
 
     /**
@@ -175,6 +227,7 @@ public class TimerClass extends JPanel {
         startRythmoTime = 0;
         timerLabel.setText(format());
         timeline.setTime(0);
+        refreshHudIndicator();
     }
 
     public boolean isRunning() {
@@ -259,15 +312,29 @@ public class TimerClass extends JPanel {
         repaint();
     }
 
+    private void refreshHudIndicator() {
+        if (statusTextLabel == null || statusDot == null) return;
+        boolean running = timer != null && timer.isRunning();
+        if (running) {
+            statusTextLabel.setText(direction >= 0 ? "LIVE ▶" : "◀ REV");
+            statusTextLabel.setForeground(OmeTheme.accent());
+        } else {
+            statusTextLabel.setText("PAUSE");
+            statusTextLabel.setForeground(OmeTheme.textTertiary());
+        }
+        statusDot.repaint();
+    }
+
     public void applyCustomization(app.ui.AppCustomization c) {
         if (c.autoResizeTimerFont) {
-            // Un ratio de 5 semble bon pour 180px -> 36.
-            int newSize = Math.max(10, c.timerPanelWidth / 5);
-            timerLabel.setFont(new Font("Segoe UI", Font.BOLD, newSize));
+            int newSize = Math.max(12, Math.min(34, c.timerPanelWidth / 7));
+            timerLabel.setFont(OmeTheme.fontMono(Font.BOLD, newSize));
         } else {
-            timerLabel.setFont(new Font("Segoe UI", Font.BOLD, c.timerFontSize));
+            timerLabel.setFont(OmeTheme.fontMono(Font.BOLD, c.timerFontSize));
         }
         timerLabel.setForeground(c.timerTextColor);
+        setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, OmeTheme.border()));
+        refreshHudIndicator();
     }
 
     @Override

@@ -15,16 +15,16 @@ public class AppCustomization {
     public boolean autoResizeTimerFont = true;
     public int timerFontSize = 36;
 
-    public Color timerBackground = new Color(24, 24, 24);
-    public Color timerTextColor = new Color(230, 230, 230);
-    public Color historyBackground = new Color(24, 24, 24);
-    public Color mediaBackground = new Color(30, 30, 30);
-    public Color timelineEvenBand = new Color(37, 37, 38);
-    public Color timelineOddBand = new Color(45, 45, 48);
-    public Color timelineSelectedBand = new Color(50, 50, 70);
-    public Color timelineGrid = new Color(80, 80, 80);
-    public Color timelineCursor = new Color(220, 50, 50);
-    public Color timelineSeparator = new Color(0, 200, 255);
+    public Color timerBackground = new Color(0x101216);
+    public Color timerTextColor = new Color(0xECEEEF);
+    public Color historyBackground = new Color(0x101216);
+    public Color mediaBackground = new Color(0x0A0B0D);
+    public Color timelineEvenBand = new Color(0x15171C);
+    public Color timelineOddBand = new Color(0x1B1E24);
+    public Color timelineSelectedBand = new Color(0x14261B);
+    public Color timelineGrid = new Color(255, 255, 255, 26);
+    public Color timelineCursor = new Color(0xFF453A);
+    public Color timelineSeparator = new Color(0x2FBE55);
 
     public String timerImagePath = "";
     public String historyImagePath = "";
@@ -38,7 +38,7 @@ public class AppCustomization {
     public String timelineFontFamily = "Segoe UI";
     
     public boolean showWaveform = true;
-    public Color waveformColor = new Color(0, 180, 255, 40);
+    public Color waveformColor = new Color(47, 190, 85, 55);
     
     public String defaultProjectFormat = "rythmo"; // "rythmo" or "detx"
     public String appLanguage = "fr"; // "fr" (Français) ou "en" (English)

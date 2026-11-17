@@ -316,14 +316,18 @@ public class TimelineRenderer {
 
             if (AppCustomization.BAND_BG_COLOR.equals(customization.bandBackgroundMode)) {
                 if (i == selectedBand)
-                    g2.setColor(darkenColor(baseBandColor));
+                    g2.setColor(customization.timelineSelectedBand != null ? customization.timelineSelectedBand : darkenColor(baseBandColor));
                 else
                     g2.setColor(baseBandColor);
 
                 g2.fillRect(0, i * bandHeight, panelWidth, bandHeight);
                 if (i == editingBand) {
-                    g2.setColor(new Color(0, 0, 0, 75));
+                    g2.setColor(new Color(47, 190, 85, 24));
                     g2.fillRect(0, i * bandHeight, panelWidth, bandHeight);
+                }
+                if (i > 0) {
+                    g2.setColor(new Color(255, 255, 255, 16));
+                    g2.drawLine(0, i * bandHeight, panelWidth, i * bandHeight);
                 }
                 continue;
             }
@@ -1462,10 +1466,10 @@ public class TimelineRenderer {
                         int arrowH = Math.max(14, (int) Math.round(bandHeight * 0.38));
                         if (startImg != null) {
                             double aspect = (double) startImg.getWidth() / Math.max(1, startImg.getHeight());
-                            double imgWidth = imgHeight * aspect;
-                            int imgX = (int) Math.round(sx - imgWidth / 2.0);
-                            int imgY = bandTop + bandHeight - 4;
-                            g2.drawImage(startImg, imgX, imgY, (int) Math.round(imgWidth), (int) Math.round(imgHeight), null);
+                            double imgWidth = arrowH * aspect;
+                            int imgX = (int) Math.round(drawSx - imgWidth / 2.0);
+                            int imgY = bandTop + bandHeight - arrowH - 4;
+                            g2.drawImage(startImg, imgX, imgY, (int) Math.round(imgWidth), arrowH, null);
                         } else {
                             int isx = (int) Math.round(drawSx);
                             int itriW = (int) Math.round(Math.max(8.0, arrowH * 0.60));
@@ -1498,10 +1502,10 @@ public class TimelineRenderer {
                         int arrowH = Math.max(14, (int) Math.round(bandHeight * 0.38));
                         if (endImg != null) {
                             double aspect = (double) endImg.getWidth() / Math.max(1, endImg.getHeight());
-                            double imgWidth = imgHeight * aspect;
-                            int imgX = (int) Math.round(sx - imgWidth / 2.0);
-                            int imgY = bandTop + bandHeight - 4;
-                            g2.drawImage(endImg, imgX, imgY, (int) Math.round(imgWidth), (int) Math.round(imgHeight), null);
+                            double imgWidth = arrowH * aspect;
+                            int imgX = (int) Math.round(drawSx - imgWidth / 2.0);
+                            int imgY = bandTop + bandHeight - arrowH - 4;
+                            g2.drawImage(endImg, imgX, imgY, (int) Math.round(imgWidth), arrowH, null);
                         } else {
                             int isx = (int) Math.round(drawSx);
                             int itriW = (int) Math.round(Math.max(8.0, arrowH * 0.60));

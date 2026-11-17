@@ -34,18 +34,26 @@ public class KeybindConfigWindow extends JDialog {
     }
 
     private void initUI() {
+        getContentPane().setBackground(OmeTheme.bg());
+        setLayout(new BorderLayout());
+
+        add(OmeTheme.createDialogHeader("RACCOURCIS", "Redéfinir les raccourcis clavier", "Cliquez sur une touche pour lui assigner un nouveau raccourci."), BorderLayout.NORTH);
+
         JPanel panel = new JPanel(new BorderLayout(10, 10));
-        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        
-        // Titre
-        JLabel titleLabel = new JLabel("Redéfinir les raccourcis clavier");
-        titleLabel.setFont(new Font("Arial", Font.BOLD, 14));
-        panel.add(titleLabel, BorderLayout.NORTH);
-        
+        panel.setBackground(OmeTheme.bg());
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 20, 16, 20));
+
         // Grille des raccourcis
-        JPanel gridPanel = new JPanel(new GridLayout(0, 2, 10, 10));
-        gridPanel.add(new JLabel("Action"));
-        gridPanel.add(new JLabel("Touche"));
+        JPanel gridPanel = new JPanel(new GridLayout(0, 2, 12, 10));
+        gridPanel.setOpaque(false);
+        JLabel actH = new JLabel("ACTION");
+        actH.setFont(OmeTheme.fontMono(Font.BOLD, 11));
+        actH.setForeground(OmeTheme.textTertiary());
+        JLabel keyH = new JLabel("TOUCHE");
+        keyH.setFont(OmeTheme.fontMono(Font.BOLD, 11));
+        keyH.setForeground(OmeTheme.textTertiary());
+        gridPanel.add(actH);
+        gridPanel.add(keyH);
         
         // Play/Pause
         gridPanel.add(new JLabel("Lecture / Arrêt"));
@@ -104,12 +112,12 @@ public class KeybindConfigWindow extends JDialog {
         gridPanel.add(createKeybindField("signePlanCode", KeyEvent.VK_NUMPAD0));
 
         JScrollPane scrollPane = new JScrollPane(gridPanel);
+        OmeTheme.styleBorderlessScrollPane(scrollPane);
         panel.add(scrollPane, BorderLayout.CENTER);
-        
+        add(panel, BorderLayout.CENTER);
+
         // Boutons
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        
-        JButton saveButton = new JButton("Enregistrer");
+        OmeTheme.OmeButton saveButton = OmeTheme.createPrimaryButton("Enregistrer");
         saveButton.addActionListener(e -> {
             saveKeybinds();
             JOptionPane.showMessageDialog(this,
@@ -117,22 +125,16 @@ public class KeybindConfigWindow extends JDialog {
                 "Succès", JOptionPane.INFORMATION_MESSAGE);
             dispose();
         });
-        
-        JButton resetButton = new JButton("Réinitialiser");
+
+        OmeTheme.OmeButton resetButton = OmeTheme.createSecondaryButton("Réinitialiser");
         resetButton.addActionListener(e -> {
             resetKeybinds();
         });
-        
-        JButton cancelButton = new JButton("Annuler");
+
+        OmeTheme.OmeButton cancelButton = OmeTheme.createGhostButton("Annuler");
         cancelButton.addActionListener(e -> dispose());
-        
-        buttonPanel.add(resetButton);
-        buttonPanel.add(saveButton);
-        buttonPanel.add(cancelButton);
-        
-        panel.add(buttonPanel, BorderLayout.SOUTH);
-        
-        add(panel);
+
+        add(OmeTheme.createDialogFooter(resetButton, cancelButton, saveButton), BorderLayout.SOUTH);
     }
 
     private JTextField createKeybindField(String keyName, int defaultKeyCode) {
@@ -184,8 +186,9 @@ public class KeybindConfigWindow extends JDialog {
         });
         
         field.setFocusable(true);
-        field.setBorder(BorderFactory.createLineBorder(Color.GRAY));
-        
+        OmeTheme.styleTextField(field);
+        field.setFont(OmeTheme.fontMono(Font.BOLD, 12));
+
         return field;
     }
 

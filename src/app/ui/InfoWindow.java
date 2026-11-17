@@ -20,33 +20,23 @@ public class InfoWindow extends JDialog {
         this.parent = parent;
         this.timer = timer;
 
-        setSize(380, 240);
-        setMinimumSize(new Dimension(300, 180));
+        setSize(440, 290);
+        setMinimumSize(new Dimension(340, 240));
         setResizable(true);
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         setLocationRelativeTo(parent);
         setLayout(new BorderLayout());
-        getContentPane().setBackground(new Color(250, 250, 250));
+        getContentPane().setBackground(OmeTheme.bg());
+
+        add(OmeTheme.createDialogHeader("SPÉCIFICATIONS", "À propos du média", "OmeRyth Studio • Informations techniques"), BorderLayout.NORTH);
 
         JPanel content = new JPanel();
         content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
-        content.setBackground(new Color(250, 250, 250));
-        content.setBorder(new EmptyBorder(20, 20, 20, 20));
-
-        JLabel title = new JLabel("Informations sur le fichier actuel");
-        title.setFont(new Font("Segoe UI", Font.BOLD, 16));
-        title.setAlignmentX(Component.CENTER_ALIGNMENT);
-        content.add(title);
-        content.add(Box.createVerticalStrut(15));
+        content.setBackground(OmeTheme.bg());
+        content.setBorder(new EmptyBorder(18, 22, 18, 22));
 
         File videoFile = parent.getCurrentVideoFile();
         String fileName = videoFile != null ? videoFile.getName() : "Aucun fichier ouvert";
-        
-        JLabel fileLabel = new JLabel("Fichier : " + fileName);
-        fileLabel.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        fileLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        content.add(fileLabel);
-        content.add(Box.createVerticalStrut(10));
 
         double fps = getVideoFPS();
         String fpsText;
@@ -58,22 +48,32 @@ public class InfoWindow extends JDialog {
             fpsText = String.format("%.2f fps", fps).replace(",", ".");
         }
 
-        JLabel videoFPSLabel = new JLabel("Fréquence d'images : " + fpsText);
-        videoFPSLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        videoFPSLabel.setForeground(new Color(0, 100, 200));
-        videoFPSLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        content.add(videoFPSLabel);
+        JPanel specsGrid = new JPanel(new GridLayout(2, 1, 0, 10));
+        specsGrid.setOpaque(false);
+        specsGrid.add(createSpecRow("FICHIER MÉDIA", fileName, false));
+        specsGrid.add(createSpecRow("FRÉQUENCE D'IMAGES", fpsText, true));
+
+        content.add(OmeTheme.createSectionCard("INF", "Média actif", specsGrid));
 
         add(content, BorderLayout.CENTER);
 
-        JPanel footer = new JPanel();
-        footer.setBackground(Color.WHITE);
-        footer.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(220, 220, 220)));
-        JButton close = new JButton("Fermer");
-        close.setFocusPainted(false);
+        OmeTheme.OmeButton close = OmeTheme.createPrimaryButton("Fermer");
         close.addActionListener(e -> dispose());
-        footer.add(close);
-        add(footer, BorderLayout.SOUTH);
+        add(OmeTheme.createDialogFooter(close), BorderLayout.SOUTH);
+    }
+
+    private JPanel createSpecRow(String key, String value, boolean highlight) {
+        JPanel row = new JPanel(new BorderLayout(12, 0));
+        row.setOpaque(false);
+        JLabel k = new JLabel(key);
+        k.setFont(OmeTheme.fontMono(Font.BOLD, 10.5f));
+        k.setForeground(OmeTheme.textTertiary());
+        JLabel v = new JLabel(value);
+        v.setFont(highlight ? OmeTheme.fontMono(Font.BOLD, 13) : OmeTheme.fontSans(Font.BOLD, 13));
+        v.setForeground(highlight ? OmeTheme.accent() : OmeTheme.text());
+        row.add(k, BorderLayout.WEST);
+        row.add(v, BorderLayout.EAST);
+        return row;
     }
 
     /**

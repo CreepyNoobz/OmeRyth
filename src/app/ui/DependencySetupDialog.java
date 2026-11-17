@@ -31,62 +31,46 @@ public class DependencySetupDialog extends JDialog {
         setResizable(true);
         setLayout(new BorderLayout(15, 15));
 
-        // Fond sombre moderne
-        Color bgDark = new Color(30, 30, 34);
-        Color cardBg = new Color(42, 42, 48);
-        Color textWhite = new Color(240, 240, 245);
-        Color textMuted = new Color(170, 170, 180);
-        Color accentBlue = new Color(0, 150, 255);
-
-        getContentPane().setBackground(bgDark);
+        // Fond OmeRyth
+        getContentPane().setBackground(OmeTheme.bg());
 
         // ── En-tête ──
-        JPanel headerPanel = new JPanel(new BorderLayout(5, 5));
-        headerPanel.setBackground(bgDark);
-        headerPanel.setBorder(new EmptyBorder(20, 25, 10, 25));
-
-        JLabel titleLabel = new JLabel("⚡ Initialisation des Composants Essentiels");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        titleLabel.setForeground(textWhite);
-
-        JLabel subtitleLabel = new JLabel("<html>OmeRyth intègre des modules autonomes pour garantir une expérience fluide sans configuration complexe sur votre ordinateur.</html>");
-        subtitleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        subtitleLabel.setForeground(textMuted);
-
-        headerPanel.add(titleLabel, BorderLayout.NORTH);
-        headerPanel.add(subtitleLabel, BorderLayout.CENTER);
-        add(headerPanel, BorderLayout.NORTH);
+        add(OmeTheme.createDialogHeader(
+                "SYSTÈME",
+                "Initialisation des Composants",
+                "OmeRyth intègre des modules autonomes (FFmpeg, LibVLC, IA) sans configuration complexe."
+        ), BorderLayout.NORTH);
 
         // ── Liste des composants ──
         componentsListPanel = new JPanel();
         componentsListPanel.setLayout(new BoxLayout(componentsListPanel, BoxLayout.Y_AXIS));
-        componentsListPanel.setBackground(bgDark);
-        componentsListPanel.setBorder(new EmptyBorder(5, 25, 10, 25));
+        componentsListPanel.setBackground(OmeTheme.bg());
+        componentsListPanel.setBorder(new EmptyBorder(16, 22, 12, 22));
 
         JScrollPane scrollPane = new JScrollPane(componentsListPanel);
-        scrollPane.setBorder(null);
-        scrollPane.setBackground(bgDark);
-        scrollPane.getViewport().setBackground(bgDark);
+        OmeTheme.styleBorderlessScrollPane(scrollPane);
         add(scrollPane, BorderLayout.CENTER);
 
         // ── Pied de page & Actions ──
         JPanel footerPanel = new JPanel(new BorderLayout(10, 10));
-        footerPanel.setBackground(bgDark);
-        footerPanel.setBorder(new EmptyBorder(10, 25, 20, 25));
+        footerPanel.setBackground(OmeTheme.bgRaised());
+        footerPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, OmeTheme.border()),
+                new EmptyBorder(12, 22, 16, 22)
+        ));
 
         // Zone de progression
         JPanel progressPanel = new JPanel(new BorderLayout(5, 5));
-        progressPanel.setBackground(bgDark);
+        progressPanel.setOpaque(false);
 
         progressLabel = new JLabel("Prêt pour la configuration");
-        progressLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        progressLabel.setForeground(textMuted);
+        progressLabel.setFont(OmeTheme.fontMono(Font.PLAIN, 11));
+        progressLabel.setForeground(OmeTheme.textSecondary());
         progressLabel.setVisible(false);
 
         progressBar = new JProgressBar(0, 100);
         progressBar.setStringPainted(true);
-        progressBar.setForeground(accentBlue);
-        progressBar.setBackground(cardBg);
+        OmeTheme.styleProgressBar(progressBar);
         progressBar.setVisible(false);
 
         progressPanel.add(progressLabel, BorderLayout.NORTH);
@@ -94,18 +78,12 @@ public class DependencySetupDialog extends JDialog {
 
         // Boutons
         JPanel buttonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        buttonsPanel.setBackground(bgDark);
+        buttonsPanel.setOpaque(false);
 
-        skipButton = new JButton("Passer cette étape");
-        skipButton.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        skipButton.setFocusPainted(false);
+        skipButton = OmeTheme.createGhostButton("Passer cette étape");
         skipButton.addActionListener(e -> dispose());
 
-        actionButton = new JButton("📥 Installer les composants manquants");
-        actionButton.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        actionButton.setBackground(accentBlue);
-        actionButton.setForeground(Color.WHITE);
-        actionButton.setFocusPainted(false);
+        actionButton = OmeTheme.createPrimaryButton("Installer les composants manquants");
         actionButton.addActionListener(e -> handleActionButton());
 
         buttonsPanel.add(skipButton);
@@ -130,12 +108,10 @@ public class DependencySetupDialog extends JDialog {
         }
 
         if (allReady) {
-            actionButton.setText("✅ Tous les composants sont prêts ! Continuer");
-            actionButton.setBackground(new Color(40, 167, 69));
+            actionButton.setText("✔ Tous les composants sont prêts • Continuer");
             skipButton.setVisible(false);
         } else {
-            actionButton.setText("📥 Configurer les composants manquants");
-            actionButton.setBackground(new Color(0, 150, 255));
+            actionButton.setText("Configurer les composants manquants");
             skipButton.setVisible(true);
         }
 
@@ -144,33 +120,34 @@ public class DependencySetupDialog extends JDialog {
     }
 
     private JPanel createComponentCard(ComponentStatus status) {
-        JPanel card = new JPanel(new BorderLayout(10, 10));
-        card.setBackground(new Color(42, 42, 48));
+        JPanel card = new JPanel(new BorderLayout(12, 8));
+        card.setBackground(OmeTheme.bgRaised());
         card.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(status.isInstalled ? new Color(60, 180, 90) : new Color(220, 140, 40), 1),
-                new EmptyBorder(10, 15, 10, 15)
+                BorderFactory.createLineBorder(status.isInstalled ? OmeTheme.accent() : OmeTheme.warning(), 1),
+                new EmptyBorder(12, 16, 12, 16)
         ));
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 70));
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 74));
 
         // Info gauche
         JPanel leftPanel = new JPanel(new GridLayout(2, 1, 0, 3));
-        leftPanel.setBackground(new Color(42, 42, 48));
+        leftPanel.setOpaque(false);
 
         JLabel nameLabel = new JLabel(status.type.getDisplayName() + " (" + status.type.getApproximateSize() + ")");
-        nameLabel.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        nameLabel.setForeground(Color.WHITE);
+        nameLabel.setFont(OmeTheme.fontSans(Font.BOLD, 13.5f));
+        nameLabel.setForeground(OmeTheme.text());
 
         JLabel descLabel = new JLabel(status.type.getDescription() + " — " + status.details);
-        descLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        descLabel.setForeground(new Color(180, 180, 190));
+        descLabel.setFont(OmeTheme.fontSans(Font.PLAIN, 11.5f));
+        descLabel.setForeground(OmeTheme.textSecondary());
 
         leftPanel.add(nameLabel);
         leftPanel.add(descLabel);
 
         // Badge droite
-        JLabel badgeLabel = new JLabel(status.isInstalled ? "✅ Détecté" : "⚠️ Manquant");
-        badgeLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        badgeLabel.setForeground(status.isInstalled ? new Color(100, 240, 140) : new Color(255, 170, 60));
+        JLabel badgeLabel = OmeTheme.createTagBadge(status.isInstalled ? "PRÊT" : "MANQUANT", status.isInstalled);
+        if (!status.isInstalled) {
+            badgeLabel.setForeground(OmeTheme.warning());
+        }
 
         card.add(leftPanel, BorderLayout.CENTER);
         card.add(badgeLabel, BorderLayout.EAST);

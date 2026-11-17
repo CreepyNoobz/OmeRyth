@@ -25,7 +25,7 @@ public class KeybindWindow extends JDialog {
     private KeyButton signeVoyelleButton = new KeyButton("NUMPAD 7");
     private KeyButton signeRespirationButton = new KeyButton("NUMPAD 8");
     private KeyButton signePlanButton = new KeyButton("NUMPAD 0");
-    private JButton saveButton = new JButton("✔ Enregistrer");
+    private OmeTheme.OmeButton saveButton = OmeTheme.createPrimaryButton("Enregistrer");
 
     private MainFenetre parent;
 
@@ -33,55 +33,55 @@ public class KeybindWindow extends JDialog {
         super(parent, "Configuration des touches", true);
         this.parent = parent;
 
-        setSize(620, 680);
+        setSize(640, 700);
         setMinimumSize(new Dimension(480, 380));
         setResizable(true);
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         setLocationRelativeTo(parent);
         setLayout(new BorderLayout());
-        getContentPane().setBackground(new Color(250, 250, 250));
+        getContentPane().setBackground(OmeTheme.bg());
 
         // En-tête
-        JPanel headerPanel = new JPanel(new BorderLayout());
-        headerPanel.setBackground(new Color(30, 30, 30));
-        headerPanel.setBorder(new EmptyBorder(15, 20, 15, 20));
-        JLabel titleLabel = new JLabel("Configuration des touches");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        titleLabel.setForeground(Color.WHITE);
-        headerPanel.add(titleLabel, BorderLayout.WEST);
-        add(headerPanel, BorderLayout.NORTH);
+        add(OmeTheme.createDialogHeader(
+                "CONTRÔLES",
+                "Configuration des touches",
+                "Cliquez sur une touche pour la modifier, puis appuyez sur votre clavier."
+        ), BorderLayout.NORTH);
 
         // Contenu
         JPanel contentPanel = new JPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
-        contentPanel.setBackground(new Color(250, 250, 250));
-        contentPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
+        contentPanel.setBackground(OmeTheme.bg());
+        contentPanel.setBorder(new EmptyBorder(16, 22, 16, 22));
 
-        // Instructions
-        JLabel instruction = new JLabel("Cliquez sur une touche pour la modifier, puis appuyez sur votre clavier.");
-        instruction.setFont(new Font("Segoe UI", Font.ITALIC, 12));
-        instruction.setForeground(new Color(100, 100, 100));
-        instruction.setAlignmentX(Component.LEFT_ALIGNMENT);
-        contentPanel.add(instruction);
-        contentPanel.add(Box.createVerticalStrut(20));
+        // Carte regroupant les raccourcis
+        JPanel listCard = new JPanel();
+        listCard.setLayout(new BoxLayout(listCard, BoxLayout.Y_AXIS));
+        listCard.setBackground(OmeTheme.bgRaised());
+        listCard.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(OmeTheme.border(), 1),
+                new EmptyBorder(6, 16, 6, 16)
+        ));
 
-        addRow(contentPanel, "Lecture / Arrêt de la vidéo", marcheArretButton);
-        addRow(contentPanel, "Avance rapide", avanceMSButton);
-        addRow(contentPanel, "Recul rapide", reculeMSButton);
-        addRow(contentPanel, "Retour au début", retourDebutButton);
-        addRow(contentPanel, "Séparateur bleu (synchronisme)", separateurButton);
-        addRow(contentPanel, "Zoom avant", zoomInButton);
-        addRow(contentPanel, "Zoom arrière", zoomOutButton);
-        addRow(contentPanel, "Fin de phrase", finPhraseButton);
-        addRow(contentPanel, "Signe Labiale MPB (M, P, B)", signeMpbButton);
-        addRow(contentPanel, "Signe Demi-labiale / Dentale (F, V, R)", signeFvrButton);
-        addRow(contentPanel, "Signe Consonne Neutre", signeNeutralButton);
-        addRow(contentPanel, "Signe Grande Ouverture (A / Voyelle)", signeVoyelleButton);
-        addRow(contentPanel, "Signe Respiration / Souffle (h/)", signeRespirationButton);
-        addRow(contentPanel, "Changement de plan (Cut vidéo)", signePlanButton);
+        addRow(listCard, "Lecture / Arrêt de la vidéo", marcheArretButton);
+        addRow(listCard, "Avance rapide", avanceMSButton);
+        addRow(listCard, "Recul rapide", reculeMSButton);
+        addRow(listCard, "Retour au début", retourDebutButton);
+        addRow(listCard, "Séparateur bleu (synchronisme)", separateurButton);
+        addRow(listCard, "Zoom avant", zoomInButton);
+        addRow(listCard, "Zoom arrière", zoomOutButton);
+        addRow(listCard, "Fin de phrase", finPhraseButton);
+        addRow(listCard, "Signe Labiale MPB (M, P, B)", signeMpbButton);
+        addRow(listCard, "Signe Demi-labiale / Dentale (F, V, R)", signeFvrButton);
+        addRow(listCard, "Signe Consonne Neutre", signeNeutralButton);
+        addRow(listCard, "Signe Grande Ouverture (A / Voyelle)", signeVoyelleButton);
+        addRow(listCard, "Signe Respiration / Souffle (h/)", signeRespirationButton);
+        addRow(listCard, "Changement de plan (Cut vidéo)", signePlanButton, false);
 
+        contentPanel.add(listCard);
         JScrollPane scroll = new JScrollPane(contentPanel);
-        scroll.setBorder(null);
+        OmeTheme.styleBorderlessScrollPane(scroll);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
         add(scroll, BorderLayout.CENTER);
 
         // Charger les touches sauvegardées
@@ -118,14 +118,6 @@ public class KeybindWindow extends JDialog {
         signePlanButton.addActionListener(e -> listenForKey(signePlanButton, "signePlanCode", parent::setSignePlanKeyCode));
 
         // Footer
-        JPanel footerPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 15, 15));
-        footerPanel.setBackground(Color.WHITE);
-        footerPanel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(220, 220, 220)));
-        
-        saveButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        saveButton.setBackground(new Color(0, 120, 215));
-        saveButton.setForeground(Color.BLACK); // Noir au lieu de blanc
-        saveButton.setFocusPainted(false);
         saveButton.addActionListener(e -> {
             FileUtils.saveKeybind("marcheArretCode", Integer.toString(parent.getMarcheArretKeyCode()));
             FileUtils.saveKeybind("avanceMSCode", Integer.toString(parent.getAvanceMSKeyCode()));
@@ -144,37 +136,41 @@ public class KeybindWindow extends JDialog {
             dispose();
         });
 
-        JButton cancelButton = new JButton("Annuler");
-        cancelButton.setFocusPainted(false);
+        OmeTheme.OmeButton cancelButton = OmeTheme.createGhostButton("Annuler");
         cancelButton.addActionListener(e -> dispose());
 
-        footerPanel.add(cancelButton);
-        footerPanel.add(saveButton);
-        add(footerPanel, BorderLayout.SOUTH);
+        add(OmeTheme.createDialogFooter(cancelButton, saveButton), BorderLayout.SOUTH);
     }
 
     private void addRow(JPanel container, String labelText, KeyButton button) {
+        addRow(container, labelText, button, true);
+    }
+
+    private void addRow(JPanel container, String labelText, KeyButton button, boolean withSep) {
         JPanel row = new JPanel(new BorderLayout(15, 0));
         row.setOpaque(false);
-        row.setBorder(new EmptyBorder(8, 0, 8, 0));
-        
+        row.setBorder(new EmptyBorder(9, 0, 9, 0));
+
         JLabel descLabel = new JLabel(labelText);
-        descLabel.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        descLabel.setForeground(new Color(50, 50, 50));
-        
+        descLabel.setFont(OmeTheme.fontSans(Font.PLAIN, 13));
+        descLabel.setForeground(OmeTheme.text());
+
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         btnPanel.setOpaque(false);
         btnPanel.add(button);
 
         row.add(descLabel, BorderLayout.CENTER);
         row.add(btnPanel, BorderLayout.EAST);
-        
+
         container.add(row);
-        
-        JSeparator sep = new JSeparator();
-        sep.setForeground(new Color(230, 230, 230));
-        sep.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
-        container.add(sep);
+
+        if (withSep) {
+            JSeparator sep = new JSeparator();
+            sep.setForeground(OmeTheme.border());
+            sep.setBackground(OmeTheme.border());
+            sep.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
+            container.add(sep);
+        }
     }
 
     private void listenForKey(KeyButton button, String fileKey, IntConsumer setter) {
@@ -218,7 +214,8 @@ public class KeybindWindow extends JDialog {
 
         public void setKeyText(String text) {
             this.text = text;
-            setPreferredSize(new Dimension(getFontMetrics(new Font("Segoe UI", Font.BOLD, 12)).stringWidth(text) + 30, 30));
+            int w = getFontMetrics(OmeTheme.fontMono(Font.BOLD, 11.5f)).stringWidth(text) + 28;
+            setPreferredSize(new Dimension(Math.max(48, w), 28));
             revalidate();
             repaint();
         }
@@ -230,31 +227,27 @@ public class KeybindWindow extends JDialog {
 
             int w = getWidth();
             int h = getHeight();
+            boolean listening = "...".equals(text);
 
-            if (getModel().isPressed()) {
-                g2.setColor(new Color(220, 220, 220));
-                g2.fillRoundRect(0, 2, w, h - 2, 6, 6);
-            } else if (getModel().isRollover()) {
-                g2.setColor(new Color(200, 200, 200));
-                g2.fillRoundRect(0, 2, w, h - 2, 6, 6);
-                g2.setColor(new Color(235, 235, 235));
-                g2.fillRoundRect(0, 0, w, h - 3, 6, 6);
-                g2.setColor(new Color(190, 190, 190));
-                g2.drawRoundRect(0, 0, w - 1, h - 4, 6, 6);
-            } else {
-                g2.setColor(new Color(200, 200, 200));
-                g2.fillRoundRect(0, 2, w, h - 2, 6, 6);
-                g2.setColor(new Color(245, 245, 245));
-                g2.fillRoundRect(0, 0, w, h - 3, 6, 6);
-                g2.setColor(new Color(210, 210, 210));
-                g2.drawRoundRect(0, 0, w - 1, h - 4, 6, 6);
-            }
+            Color face = listening ? OmeTheme.accentSubtleSolid()
+                    : (getModel().isRollover() ? OmeTheme.surfaceHover() : OmeTheme.surface());
+            Color border = listening ? OmeTheme.accent()
+                    : (getModel().isRollover() ? OmeTheme.accent() : OmeTheme.borderStrong());
 
-            g2.setColor(new Color(50, 50, 50));
-            g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            g2.setColor(OmeTheme.border());
+            g2.fillRoundRect(0, 2, w - 1, h - 3, 6, 6);
+
+            int yOff = getModel().isPressed() ? 1 : 0;
+            g2.setColor(face);
+            g2.fillRoundRect(0, yOff, w - 1, h - 3, 6, 6);
+            g2.setColor(border);
+            g2.drawRoundRect(0, yOff, w - 1, h - 3, 6, 6);
+
+            g2.setColor(listening ? OmeTheme.accent() : OmeTheme.text());
+            g2.setFont(OmeTheme.fontMono(Font.BOLD, 11.5f));
             FontMetrics fm = g2.getFontMetrics();
             int tx = (w - fm.stringWidth(text)) / 2;
-            int ty = (h - fm.getHeight()) / 2 + fm.getAscent() - (getModel().isPressed() ? 0 : 2);
+            int ty = (h - 2 - fm.getHeight()) / 2 + fm.getAscent() + yOff;
             g2.drawString(text, tx, ty);
 
             g2.dispose();

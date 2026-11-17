@@ -53,6 +53,10 @@ public class MainFenetre extends JFrame {
     private ImageBackgroundPanel mediaPanel;
     private JPanel timerPanel;
     private ImageBackgroundPanel mediaEmptyPanel;
+    private MediaEmptyWelcomePanel welcomePanel;
+    private EditorToolbar editorToolbar;
+    private JPanel verticalSeparator;
+    private JPanel horizontalSeparator;
     private CardLayout mediaCardLayout;
     private JPanel mediaContentPanel;
     private KeyBoardListener keyBoardListener;
@@ -181,17 +185,20 @@ public class MainFenetre extends JFrame {
             } catch (Throwable ignored) {}
         }
 
-        setSize(900, 650);
+        setSize(1180, 760);
         setMinimumSize(new Dimension(640, 480));
         setResizable(true);
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setLayout(new BorderLayout());
 
-        // Look & Feel Windows natif
+        // Look & Feel Windows natif puis application du thème OmeRyth
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception ignored) {}
+        OmeTheme.syncFromCustomization(customization);
+        OmeTheme.installGlobalUIDefaults();
+        getContentPane().setBackground(OmeTheme.bg());
 
         // ===== Construire l'UI et les services via MainWindowBuilder =====
         MainWindowBuilder.Parts parts = MainWindowBuilder.build(
@@ -210,6 +217,10 @@ public class MainFenetre extends JFrame {
         this.mediaPanel = parts.mediaPanel;
         this.timerPanel = parts.timerPanel;
         this.mediaEmptyPanel = parts.mediaEmptyPanel;
+        this.welcomePanel = parts.welcomePanel;
+        this.editorToolbar = parts.editorToolbar;
+        this.verticalSeparator = parts.verticalSeparator;
+        this.horizontalSeparator = parts.horizontalSeparator;
         this.mediaCardLayout = parts.mediaCardLayout;
         this.mediaContentPanel = parts.mediaContentPanel;
         this.mediaPlayerComponent = parts.mediaPlayerComponent;
@@ -561,31 +572,54 @@ public class MainFenetre extends JFrame {
         refreshActionHistory();
     }
 
-    /** Apply a dark theme to the UI by updating customization colors. */
+    /** Bascule entre le thème sombre et le thème clair OmeRyth. */
+    public void toggleTheme() {
+        if (OmeTheme.isDark()) {
+            appliquerThemeClair();
+        } else {
+            appliquerThemeSombre();
+        }
+    }
+
+    /** Bascule la langue de l'interface entre FR et EN. */
+    public void toggleLanguage() {
+        boolean currentlyEn = customization != null && "en".equalsIgnoreCase(customization.appLanguage);
+        if (customization == null) customization = new AppCustomization();
+        customization.appLanguage = currentlyEn ? "fr" : "en";
+        applyCustomization(customization);
+    }
+
+    /** Apply a dark theme to the UI by updating customization colors (ometitnoobz.github.io/Web). */
     public void appliquerThemeSombre() {
         AppCustomization c = customization;
-        c.timerBackground = new Color(18, 24, 32);
-        c.mediaBackground = new Color(20, 24, 28);
-        c.timelineEvenBand = new Color(36, 42, 48);
-        c.timelineOddBand = new Color(48, 54, 62);
-        c.timelineSelectedBand = new Color(66, 88, 110);
-        c.timelineGrid = new Color(255, 255, 255, 35);
-        c.timelineCursor = new Color(255, 140, 80);
-        c.timelineSeparator = new Color(255, 110, 90);
+        c.timerBackground = new Color(0x101216);
+        c.timerTextColor = new Color(0xECEEEF);
+        c.historyBackground = new Color(0x101216);
+        c.mediaBackground = new Color(0x0A0B0D);
+        c.timelineEvenBand = new Color(0x15171C);
+        c.timelineOddBand = new Color(0x1B1E24);
+        c.timelineSelectedBand = new Color(0x14261B);
+        c.timelineGrid = new Color(255, 255, 255, 26);
+        c.timelineCursor = new Color(0xFF453A);
+        c.timelineSeparator = new Color(0x2FBE55);
+        c.waveformColor = new Color(47, 190, 85, 55);
         applyCustomization(c);
     }
 
-    /** Apply a light theme to the UI by updating customization colors. */
+    /** Apply a light theme to the UI by updating customization colors (ometitnoobz.github.io/Web). */
     public void appliquerThemeClair() {
         AppCustomization c = customization;
-        c.timerBackground = new Color(234, 239, 245);
-        c.mediaBackground = new Color(245, 247, 251);
-        c.timelineEvenBand = new Color(230, 235, 240);
-        c.timelineOddBand = new Color(216, 224, 233);
-        c.timelineSelectedBand = new Color(188, 212, 237);
-        c.timelineGrid = new Color(40, 40, 40, 35);
-        c.timelineCursor = new Color(212, 74, 0);
-        c.timelineSeparator = new Color(196, 52, 52);
+        c.timerBackground = new Color(0xFFFFFF);
+        c.timerTextColor = new Color(0x14161A);
+        c.historyBackground = new Color(0xFFFFFF);
+        c.mediaBackground = new Color(0xFAFAF8);
+        c.timelineEvenBand = new Color(0xF2F2F0);
+        c.timelineOddBand = new Color(0xEBEBE8);
+        c.timelineSelectedBand = new Color(0xE0F2E5);
+        c.timelineGrid = new Color(10, 12, 15, 32);
+        c.timelineCursor = new Color(0xD93025);
+        c.timelineSeparator = new Color(0x219944);
+        c.waveformColor = new Color(33, 153, 68, 55);
         applyCustomization(c);
     }
 
@@ -1045,9 +1079,13 @@ public class MainFenetre extends JFrame {
         }
         this.customization = c;
         FileUtils.saveCustomization(c);
+        OmeTheme.syncFromCustomization(c);
+        OmeTheme.installGlobalUIDefaults();
+        getContentPane().setBackground(OmeTheme.bg());
         timerPanel.setOpaque(false);
-        timerPanel.setPreferredSize(new Dimension(c.timerPanelWidth, 220));
-        timerPanel.setMinimumSize(new Dimension(c.timerPanelWidth, 220));
+        int sideW = Math.max(210, c.timerPanelWidth);
+        timerPanel.setPreferredSize(new Dimension(sideW, 220));
+        timerPanel.setMinimumSize(new Dimension(180, 200));
         timer.setTheme(c.timerBackground, c.timerImagePath);
         timer.applyCustomization(c);
         if (volumePanel != null) {
@@ -1058,10 +1096,22 @@ public class MainFenetre extends JFrame {
         if (mediaEmptyPanel != null) {
             mediaEmptyPanel.setBackgroundStyle(c.mediaBackground, c.mediaImagePath);
         }
+        if (welcomePanel != null) {
+            welcomePanel.setHasCustomImage(c.mediaImagePath != null && !c.mediaImagePath.trim().isEmpty());
+            welcomePanel.updateLanguage(c.appLanguage);
+            welcomePanel.applyTheme();
+        }
+        if (verticalSeparator != null) verticalSeparator.setBackground(OmeTheme.border());
+        if (horizontalSeparator != null) horizontalSeparator.setBackground(OmeTheme.border());
         timelinePanel.applyCustomization(c);
         app.services.SpellGrammarService.getInstance().setLanguage(c.appLanguage);
         if (simplifiedMenuBar != null) {
             simplifiedMenuBar.updateLanguage(c.appLanguage);
+            simplifiedMenuBar.applyTheme();
+        }
+        if (editorToolbar != null) {
+            editorToolbar.updateLanguage(c.appLanguage);
+            editorToolbar.applyTheme();
         }
         revalidate();
         repaint();

@@ -14,27 +14,33 @@ public class SimplifiedKeybindWindow extends JDialog {
         super(owner, owner != null && owner.isEnglish() ? "Keyboard Shortcuts" : "Raccourcis clavier", true);
         boolean isEn = owner != null && owner.isEnglish();
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-        setSize(550, 480);
-        setMinimumSize(new Dimension(550, 480));
+        setSize(580, 520);
+        setMinimumSize(new Dimension(500, 440));
         setLocationRelativeTo(owner);
         setLayout(new BorderLayout());
-        getContentPane().setBackground(new Color(250, 250, 250));
+        getContentPane().setBackground(OmeTheme.bg());
 
         // En-tête
-        JPanel headerPanel = new JPanel(new BorderLayout());
-        headerPanel.setBackground(new Color(30, 30, 30));
-        headerPanel.setBorder(new EmptyBorder(15, 20, 15, 20));
-        JLabel titleLabel = new JLabel(isEn ? "Essential keyboard shortcuts" : "Raccourcis clavier essentiels");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        titleLabel.setForeground(Color.WHITE);
-        headerPanel.add(titleLabel, BorderLayout.WEST);
-        add(headerPanel, BorderLayout.NORTH);
+        add(OmeTheme.createDialogHeader(
+                isEn ? "SHORTCUTS" : "RACCOURCIS",
+                isEn ? "Essential keyboard shortcuts" : "Raccourcis clavier essentiels",
+                isEn ? "Quick reference for playback, timeline sync and editing."
+                     : "Référence rapide pour la lecture, le synchronisme et l'édition."
+        ), BorderLayout.NORTH);
 
         // Contenu
         JPanel contentPanel = new JPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
-        contentPanel.setBackground(new Color(250, 250, 250));
-        contentPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
+        contentPanel.setBackground(OmeTheme.bg());
+        contentPanel.setBorder(new EmptyBorder(16, 20, 16, 20));
+
+        JPanel listCard = new JPanel();
+        listCard.setLayout(new BoxLayout(listCard, BoxLayout.Y_AXIS));
+        listCard.setBackground(OmeTheme.bgRaised());
+        listCard.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(OmeTheme.border(), 1),
+                new EmptyBorder(6, 16, 6, 16)
+        ));
 
         Object[][] keybinds = isEn ? new Object[][] {
             {owner.getKeyText(owner.getMarcheArretKeyCode()), "Play / Pause video"},
@@ -58,54 +64,55 @@ public class SimplifiedKeybindWindow extends JDialog {
             {"Ctrl+Y", "Rétablir l'action annulée"}
         };
 
-        for (Object[] kb : keybinds) {
+        for (int idx = 0; idx < keybinds.length; idx++) {
+            Object[] kb = keybinds[idx];
             JPanel row = new JPanel(new BorderLayout(15, 0));
             row.setOpaque(false);
-            row.setBorder(new EmptyBorder(8, 0, 8, 0));
-            
-            // Partie gauche (Raccourci)
+            row.setBorder(new EmptyBorder(9, 0, 9, 0));
+
             JPanel shortcutPanel = createShortcutVisual((String) kb[0]);
-            
-            // Partie droite (Description)
+
             JLabel descLabel = new JLabel((String) kb[1]);
-            descLabel.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-            descLabel.setForeground(new Color(50, 50, 50));
-            
+            descLabel.setFont(OmeTheme.fontSans(Font.PLAIN, 13));
+            descLabel.setForeground(OmeTheme.text());
+
             row.add(shortcutPanel, BorderLayout.WEST);
             row.add(descLabel, BorderLayout.CENTER);
-            
-            contentPanel.add(row);
-            
-            // Séparateur fin
-            JSeparator sep = new JSeparator();
-            sep.setForeground(new Color(230, 230, 230));
-            sep.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
-            contentPanel.add(sep);
+
+            listCard.add(row);
+
+            if (idx < keybinds.length - 1) {
+                JSeparator sep = new JSeparator();
+                sep.setForeground(OmeTheme.border());
+                sep.setBackground(OmeTheme.border());
+                sep.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
+                listCard.add(sep);
+            }
         }
 
+        contentPanel.add(listCard);
         JScrollPane scroll = new JScrollPane(contentPanel);
-        scroll.setBorder(null);
+        OmeTheme.styleBorderlessScrollPane(scroll);
         scroll.getVerticalScrollBar().setUnitIncrement(16);
         add(scroll, BorderLayout.CENTER);
 
         // Pied de page
         JPanel footerPanel = new JPanel(new BorderLayout());
-        footerPanel.setBackground(Color.WHITE);
-        footerPanel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(220, 220, 220)));
-        
+        footerPanel.setBackground(OmeTheme.bgRaised());
+        footerPanel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, OmeTheme.border()));
+
         JTextArea infoArea = new JTextArea(isEn ? "Tip: These shortcuts can be customized in Settings > Configure shortcuts." : "Astuce : Ces raccourcis sont personnalisables dans Options > Configurer les touches.");
         infoArea.setEditable(false);
         infoArea.setOpaque(false);
         infoArea.setLineWrap(true);
         infoArea.setWrapStyleWord(true);
-        infoArea.setFont(new Font("Segoe UI", Font.ITALIC, 12));
-        infoArea.setForeground(new Color(100, 100, 100));
-        infoArea.setBorder(new EmptyBorder(15, 20, 15, 20));
-        JButton closeBtn = new JButton(isEn ? "Close" : "Fermer");
-        closeBtn.setFocusPainted(false);
+        infoArea.setFont(OmeTheme.fontSans(Font.ITALIC, 12));
+        infoArea.setForeground(OmeTheme.textSecondary());
+        infoArea.setBorder(new EmptyBorder(14, 20, 14, 20));
+        OmeTheme.OmeButton closeBtn = OmeTheme.createPrimaryButton(isEn ? "Close" : "Fermer");
         closeBtn.addActionListener(e -> dispose());
-        
-        JPanel btnWrapper = new JPanel(new FlowLayout(FlowLayout.RIGHT, 20, 15));
+
+        JPanel btnWrapper = new JPanel(new FlowLayout(FlowLayout.RIGHT, 20, 12));
         btnWrapper.setOpaque(false);
         btnWrapper.add(closeBtn);
 
@@ -142,7 +149,8 @@ public class SimplifiedKeybindWindow extends JDialog {
 
         public KeyUI(String text) {
             this.text = text;
-            setPreferredSize(new Dimension(getFontMetrics(new Font("Segoe UI", Font.BOLD, 12)).stringWidth(text) + 20, 26));
+            int w = getFontMetrics(OmeTheme.fontMono(Font.BOLD, 11.5f)).stringWidth(text) + 22;
+            setPreferredSize(new Dimension(Math.max(36, w), 26));
         }
 
         @Override
@@ -153,24 +161,20 @@ public class SimplifiedKeybindWindow extends JDialog {
             int w = getWidth();
             int h = getHeight();
 
-            // Ombre / Bordure du bas pour l'effet 3D
-            g2.setColor(new Color(200, 200, 200));
-            g2.fillRoundRect(0, 2, w, h - 2, 6, 6);
+            g2.setColor(OmeTheme.border());
+            g2.fillRoundRect(0, 2, w - 1, h - 3, 6, 6);
 
-            // Face de la touche
-            g2.setColor(new Color(245, 245, 245));
-            g2.fillRoundRect(0, 0, w, h - 3, 6, 6);
-            
-            // Bordure
-            g2.setColor(new Color(210, 210, 210));
-            g2.drawRoundRect(0, 0, w - 1, h - 4, 6, 6);
+            g2.setColor(OmeTheme.surface());
+            g2.fillRoundRect(0, 0, w - 1, h - 3, 6, 6);
 
-            // Texte
-            g2.setColor(new Color(50, 50, 50));
-            g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            g2.setColor(OmeTheme.borderStrong());
+            g2.drawRoundRect(0, 0, w - 1, h - 3, 6, 6);
+
+            g2.setColor(OmeTheme.accent());
+            g2.setFont(OmeTheme.fontMono(Font.BOLD, 11.5f));
             FontMetrics fm = g2.getFontMetrics();
             int tx = (w - fm.stringWidth(text)) / 2;
-            int ty = (h - fm.getHeight()) / 2 + fm.getAscent() - 2;
+            int ty = (h - 2 - fm.getHeight()) / 2 + fm.getAscent();
             g2.drawString(text, tx, ty);
 
             g2.dispose();

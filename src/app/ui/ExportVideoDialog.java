@@ -1090,25 +1090,21 @@ public class ExportVideoDialog extends JDialog {
             }
         });
 
+        getContentPane().setBackground(OmeTheme.bg());
         tabbedPane = new JTabbedPane();
-        tabbedPane.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        OmeTheme.styleTabbedPane(tabbedPane);
 
         // ==========================================
         // ONGLET 1 : BANDEAU SEUL (CLASSIQUE)
         // ==========================================
         JPanel tabBandeauPanel = new JPanel(new BorderLayout(10, 10));
+        tabBandeauPanel.setBackground(OmeTheme.bg());
 
-        JPanel headerPanel1 = new JPanel(new BorderLayout(5, 5));
-        headerPanel1.setBackground(new Color(30, 30, 35));
-        headerPanel1.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 16));
-        JLabel titleLabel1 = new JLabel("Exportation Bandeau Seul");
-        titleLabel1.setFont(new Font("Segoe UI", Font.PLAIN, 15));
-        titleLabel1.setForeground(Color.WHITE);
-        JLabel subLabel1 = new JLabel("Exporte la bande rythmo isolée (idéal pour l'incrustation directe en régie ou sous-titrage).");
-        subLabel1.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        subLabel1.setForeground(new Color(180, 180, 190));
-        headerPanel1.add(titleLabel1, BorderLayout.NORTH);
-        headerPanel1.add(subLabel1, BorderLayout.SOUTH);
+        JPanel headerPanel1 = OmeTheme.createDialogHeader(
+                "EXPORT BANDEAU",
+                "Exportation Bandeau Seul",
+                "Exporte la bande rythmo isolée (idéal pour l'incrustation directe en régie ou sous-titrage)."
+        );
         tabBandeauPanel.add(headerPanel1, BorderLayout.NORTH);
 
         JPanel formPanel = new JPanel(new GridBagLayout());
@@ -1196,8 +1192,8 @@ public class ExportVideoDialog extends JDialog {
         sliderRoleLabelScale.setOpaque(false);
         sliderRoleLabelScale.setToolTipText("Ajuste la taille des étiquettes des rôles de 10% à 200% (devient translucide en cas de chevauchement sur une phrase)");
         lblRoleLabelScaleVal = new JLabel("100%");
-        lblRoleLabelScaleVal.setFont(new Font("Consolas", Font.BOLD, 11));
-        lblRoleLabelScaleVal.setForeground(new Color(56, 189, 248));
+        lblRoleLabelScaleVal.setFont(OmeTheme.fontMono(Font.BOLD, 11));
+        lblRoleLabelScaleVal.setForeground(OmeTheme.accent());
         roleScalePanel.add(sliderRoleLabelScale, BorderLayout.CENTER);
         roleScalePanel.add(lblRoleLabelScaleVal, BorderLayout.EAST);
         formPanel.add(roleScalePanel, gbc);
@@ -1345,29 +1341,19 @@ public class ExportVideoDialog extends JDialog {
         // ==========================================
         // BOUTONS GLOBAUX DU BAS (Annuler / Exporter)
         // ==========================================
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 12));
-        buttonPanel.setBorder(BorderFactory.createEmptyBorder(0, 15, 10, 15));
-
-        JButton btnCancel = new JButton("Annuler");
-        btnCancel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        btnCancel.setForeground(Color.BLACK);
+        OmeTheme.OmeButton btnCancel = OmeTheme.createGhostButton("Annuler");
         btnCancel.addActionListener(e -> {
             config.approved = false;
             dispose();
         });
 
-        JButton btnExport = new JButton("Lancer l'exportation vidéo...");
-        btnExport.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        btnExport.setBackground(new Color(56, 189, 248)); // Sky Blue lumineux
-        btnExport.setForeground(Color.BLACK); // Noir forcé
-        btnExport.setOpaque(true);
+        OmeTheme.OmeButton btnExport = OmeTheme.createPrimaryButton("Lancer l'exportation vidéo...");
+        btnExport.setFont(OmeTheme.fontSans(Font.BOLD, 13));
         btnExport.addActionListener(e -> onExportConfirmed());
 
-        buttonPanel.add(btnCancel);
-        buttonPanel.add(btnExport);
-        add(buttonPanel, BorderLayout.SOUTH);
+        add(OmeTheme.createDialogFooter(btnCancel, btnExport), BorderLayout.SOUTH);
 
-        applyBlackButtonText(this);
+        applyOmeThemeTree(this);
         pack();
         int finalW = Math.max(dialogW, getWidth());
         int finalH = Math.max(dialogH, getHeight());
@@ -1376,28 +1362,109 @@ public class ExportVideoDialog extends JDialog {
         setSize(finalW, finalH);
         setLocationRelativeTo(owner);
         updateVoiceRemovalTimelineVisibility();
-        applyBlackButtonText(this);
+        applyOmeThemeTree(this);
     }
 
     /**
-     * Force la couleur du texte de tous les boutons (JButton, JToggleButton, etc.) en noir.
+     * Applique de manière uniforme le thème OmeRyth aux composants Swing générés dans le dialogue d'export.
      */
-    public static void applyBlackButtonText(Component comp) {
+    private static void applyOmeThemeTree(Component comp) {
         if (comp == null) return;
-        if (comp instanceof AbstractButton) {
-            comp.setForeground(Color.BLACK);
+        if (comp instanceof SingleBandPreviewPanel || comp instanceof MontagePreviewCanvas
+                || comp instanceof VoiceExclusionTimelinePanel) {
+            return;
         }
-        if (comp instanceof Container) {
-            for (Component child : ((Container) comp).getComponents()) {
-                applyBlackButtonText(child);
+        if (comp instanceof OmeTheme.OmeButton) {
+            return;
+        }
+        if (comp instanceof JPanel panel) {
+            if (panel.getBorder() instanceof TitledBorder tb) {
+                tb.setTitleFont(OmeTheme.fontMono(Font.BOLD, 11));
+                tb.setTitleColor(OmeTheme.accent());
+                tb.setBorder(BorderFactory.createLineBorder(OmeTheme.border(), 1));
+                panel.setBackground(OmeTheme.bgRaised());
+                panel.setOpaque(true);
+            } else if (panel.isOpaque() && panel.getBackground() != null) {
+                Color bg = panel.getBackground();
+                if (bg.equals(new Color(30, 30, 35)) || bg.equals(new Color(24, 24, 27))) {
+                    panel.setBackground(OmeTheme.bgRaised());
+                } else if (bg.getRed() > 210 && bg.getGreen() > 210 && bg.getBlue() > 210) {
+                    panel.setBackground(OmeTheme.bg());
+                }
+            }
+        } else if (comp instanceof JLabel lbl) {
+            Color fg = lbl.getForeground();
+            if (fg != null) {
+                if (fg.equals(new Color(56, 189, 248)) || fg.equals(new Color(130, 185, 235))) {
+                    lbl.setForeground(OmeTheme.accent());
+                } else if (fg.equals(Color.BLACK) || fg.equals(new Color(51, 51, 51))
+                        || (fg.getRed() < 80 && fg.getGreen() < 80 && fg.getBlue() < 80)) {
+                    lbl.setForeground(OmeTheme.text());
+                } else if (fg.equals(new Color(180, 180, 190)) || fg.equals(new Color(161, 161, 170))
+                        || fg.equals(new Color(212, 212, 216))) {
+                    lbl.setForeground(OmeTheme.textSecondary());
+                }
+            }
+        } else if (comp instanceof JCheckBox chk) {
+            OmeTheme.styleCheckBox(chk);
+        } else if (comp instanceof JTextField tf) {
+            OmeTheme.styleTextField(tf);
+        } else if (comp instanceof JSpinner sp) {
+            OmeTheme.styleSpinner(sp);
+        } else if (comp instanceof JComboBox<?> cb) {
+            OmeTheme.styleComboBox(cb);
+        } else if (comp instanceof JSlider sl) {
+            sl.setOpaque(false);
+            sl.setUI(new OmeTheme.OmeSliderUI(sl));
+        } else if (comp instanceof JScrollPane sp) {
+            OmeTheme.styleScrollPane(sp);
+        } else if (comp instanceof JList<?> list) {
+            list.setBackground(OmeTheme.surface());
+            list.setForeground(OmeTheme.text());
+            list.setSelectionBackground(OmeTheme.accentSubtleSolid());
+            list.setSelectionForeground(OmeTheme.accent());
+        } else if (comp instanceof JViewport vp) {
+            vp.setBackground(OmeTheme.bg());
+        } else if (comp instanceof AbstractButton btn) {
+            // Préserver les pastilles de couleur (petits carrés avec texte vide ou couleur perso)
+            if (btn.getText() != null && !btn.getText().isEmpty()) {
+                btn.setFont(OmeTheme.fontSans(Font.BOLD, 11.5f));
+                btn.setFocusPainted(false);
+                btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                Color bg = btn.getBackground();
+                if (bg != null && bg.equals(new Color(245, 158, 11))) {
+                    btn.setBackground(OmeTheme.accent());
+                    btn.setForeground(OmeTheme.accentTextOn());
+                } else {
+                    btn.setBackground(OmeTheme.surface());
+                    btn.setForeground(OmeTheme.text());
+                    btn.setBorder(BorderFactory.createCompoundBorder(
+                            BorderFactory.createLineBorder(OmeTheme.borderStrong(), 1),
+                            BorderFactory.createEmptyBorder(4, 10, 4, 10)
+                    ));
+                }
+                btn.setOpaque(true);
             }
         }
+
+        if (comp instanceof Container cont) {
+            for (Component child : cont.getComponents()) {
+                applyOmeThemeTree(child);
+            }
+        }
+    }
+
+    /**
+     * Conservé pour compatibilité ; délègue au thème OmeRyth.
+     */
+    public static void applyBlackButtonText(Component comp) {
+        applyOmeThemeTree(comp);
     }
 
     @Override
     public void setVisible(boolean b) {
         if (b) {
-            applyBlackButtonText(this);
+            applyOmeThemeTree(this);
         }
         super.setVisible(b);
     }
@@ -1415,23 +1482,15 @@ public class ExportVideoDialog extends JDialog {
 
     private JPanel createMontageTabPanel() {
         JPanel panel = new JPanel(new BorderLayout(8, 8));
-        panel.setBorder(new EmptyBorder(8, 12, 8, 12));
+        panel.setBackground(OmeTheme.bg());
+        panel.setBorder(new EmptyBorder(0, 0, 8, 0));
 
         // En-tête
-        JPanel headerPanel = new JPanel(new BorderLayout(5, 5));
-        headerPanel.setBackground(new Color(24, 24, 27));
-        headerPanel.setBorder(BorderFactory.createEmptyBorder(10, 15, 10, 15));
-
-        JLabel title = new JLabel("Atelier de Composition Vidéo & Bande Rythmo");
-        title.setFont(new Font("Segoe UI", Font.PLAIN, 15));
-        title.setForeground(Color.WHITE);
-
-        JLabel sub = new JLabel("Déplacez et redimensionnez la Vidéo et la Bande directement à la souris sur la maquette ci-dessous.");
-        sub.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        sub.setForeground(new Color(161, 161, 170));
-
-        headerPanel.add(title, BorderLayout.NORTH);
-        headerPanel.add(sub, BorderLayout.SOUTH);
+        JPanel headerPanel = OmeTheme.createDialogHeader(
+                "ATELIER MONTAGE",
+                "Atelier de Composition Vidéo & Bande Rythmo",
+                "Déplacez et redimensionnez la Vidéo et la Bande directement à la souris sur la maquette ci-dessous."
+        );
         panel.add(headerPanel, BorderLayout.NORTH);
 
         // Canvas interactif au centre avec barre temporelle d'exclusion vocale en dessous

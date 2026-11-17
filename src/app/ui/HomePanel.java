@@ -7,82 +7,74 @@ import java.awt.*;
 import java.awt.event.ActionListener;
 
 /**
- * Page d'accueil simplifié - le premier point de contact de l'utilisateur.
- * 3 actions principales : Nouveau projet, Ouvrir, Tutoriel
+ * Page d'accueil simplifiée - alignée sur l'identité visuelle OmeRyth.
  */
 public class HomePanel extends JPanel {
 
     public HomePanel(MainFenetre mainFenetre) {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
-        setBackground(new Color(245, 245, 245));
+        setBackground(OmeTheme.bg());
         setBorder(new EmptyBorder(40, 40, 40, 40));
 
-        // Titre principal
-        JLabel titleLabel = new JLabel("OmeRyth");
-        titleLabel.setFont(new Font("Arial", Font.BOLD, 48));
-        titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        titleLabel.setForeground(new Color(70, 70, 70));
-        add(titleLabel);
+        JLabel tagLabel = OmeTheme.createTagBadge("STUDIO BANDE RYTHMO", false);
+        tagLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        add(tagLabel);
+        add(Box.createVerticalStrut(14));
 
-        add(Box.createVerticalStrut(10));
+        JPanel brandRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
+        brandRow.setOpaque(false);
+        brandRow.setAlignmentX(Component.CENTER_ALIGNMENT);
+        JLabel omeLbl = new JLabel("Ome");
+        omeLbl.setFont(OmeTheme.fontSans(Font.BOLD, 44));
+        omeLbl.setForeground(OmeTheme.text());
+        JLabel rythLbl = new JLabel("Ryth");
+        rythLbl.setFont(OmeTheme.fontSans(Font.BOLD, 44));
+        rythLbl.setForeground(OmeTheme.accent());
+        brandRow.add(omeLbl);
+        brandRow.add(rythLbl);
+        add(brandRow);
 
-        // Sous-titre
-        JLabel subtitleLabel = new JLabel("Synchroniseur de rythme et typographie");
-        subtitleLabel.setFont(new Font("Arial", Font.PLAIN, 16));
+        add(Box.createVerticalStrut(8));
+
+        JLabel subtitleLabel = new JLabel("Synchroniseur de rythme, doublage et post-synchronisation");
+        subtitleLabel.setFont(OmeTheme.fontSans(Font.PLAIN, 15));
         subtitleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        subtitleLabel.setForeground(new Color(120, 120, 120));
+        subtitleLabel.setForeground(OmeTheme.textSecondary());
         add(subtitleLabel);
 
-        add(Box.createVerticalStrut(50));
+        add(Box.createVerticalStrut(40));
 
-        // Boutons principaux
-        JButton newProjectBtn = createLargeButton("✚ Nouveau Projet", 
-            e -> mainFenetre.nouveauProjet(null));
-        
-        JButton openProjectBtn = createLargeButton("📂 Ouvrir Projet", 
-            e -> mainFenetre.ouvrirProjet(null));
-        
-        JButton tutorialBtn = createLargeButton("📚 Tutoriel Interactif", 
-            e -> mainFenetre.afficherTutorial());
+        JButton newProjectBtn = createActionButton("+ Nouveau Projet", true,
+                e -> mainFenetre.nouveauProjet(null));
+        JButton openProjectBtn = createActionButton("Ouvrir Projet", false,
+                e -> mainFenetre.ouvrirProjet(null));
+        JButton tutorialBtn = createActionButton("Tutoriel Interactif", false,
+                e -> mainFenetre.afficherTutorial());
 
         add(newProjectBtn);
-        add(Box.createVerticalStrut(15));
+        add(Box.createVerticalStrut(12));
         add(openProjectBtn);
-        add(Box.createVerticalStrut(15));
+        add(Box.createVerticalStrut(12));
         add(tutorialBtn);
 
         add(Box.createVerticalGlue());
 
-        // Pied de page avec astuces
-        JLabel tipLabel = new JLabel("Astuce: Commencez par le tutoriel pour apprendre les bases !");
-        tipLabel.setFont(new Font("Arial", Font.ITALIC, 12));
+        JLabel tipLabel = new JLabel("Astuce : commencez par le tutoriel interactif pour maîtriser les raccourcis !");
+        tipLabel.setFont(OmeTheme.fontMono(Font.PLAIN, 11.5f));
         tipLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        tipLabel.setForeground(new Color(100, 150, 200));
+        tipLabel.setForeground(OmeTheme.textTertiary());
         add(tipLabel);
     }
 
-    private JButton createLargeButton(String text, ActionListener listener) {
-        JButton btn = new JButton(text);
-        btn.setFont(new Font("Arial", Font.PLAIN, 16));
+    private JButton createActionButton(String text, boolean primary, ActionListener listener) {
+        OmeTheme.OmeButton btn = primary
+                ? OmeTheme.createPrimaryButton(text)
+                : OmeTheme.createSecondaryButton(text);
+        btn.setFont(OmeTheme.fontSans(Font.BOLD, 15));
         btn.setAlignmentX(Component.CENTER_ALIGNMENT);
-        btn.setMaximumSize(new Dimension(350, 50));
-        btn.setBackground(new Color(225, 235, 245));
-        btn.setForeground(Color.BLACK);
-        btn.setFocusPainted(false);
-        btn.setBorder(BorderFactory.createRaisedBevelBorder());
+        btn.setMaximumSize(new Dimension(360, 48));
+        btn.setPreferredSize(new Dimension(360, 48));
         btn.addActionListener(listener);
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        
-        // Hover effect
-        btn.addMouseListener(new java.awt.event.MouseAdapter() {
-            public void mouseEntered(java.awt.event.MouseEvent evt) {
-                btn.setBackground(new Color(200, 220, 240));
-            }
-            public void mouseExited(java.awt.event.MouseEvent evt) {
-                btn.setBackground(new Color(225, 235, 245));
-            }
-        });
-        
         return btn;
     }
 }

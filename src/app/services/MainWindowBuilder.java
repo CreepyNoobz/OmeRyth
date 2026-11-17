@@ -1,7 +1,10 @@
 package app.services;
 
 import app.MainFenetre;
+import app.ui.EditorToolbar;
 import app.ui.ImageBackgroundPanel;
+import app.ui.MediaEmptyWelcomePanel;
+import app.ui.OmeTheme;
 import app.ui.TimelinePanel;
 import app.ui.VolumePanel;
 import app.ui.AppCustomization;
@@ -53,6 +56,10 @@ public class MainWindowBuilder {
         public ImageBackgroundPanel mediaPanel;
         public JPanel timerPanel;
         public ImageBackgroundPanel mediaEmptyPanel;
+        public MediaEmptyWelcomePanel welcomePanel;
+        public EditorToolbar editorToolbar;
+        public JPanel verticalSeparator;
+        public JPanel horizontalSeparator;
         public CardLayout mediaCardLayout;
         public JPanel mediaContentPanel;
         public EmbeddedMediaPlayerComponent mediaPlayerComponent;
@@ -93,7 +100,7 @@ public class MainWindowBuilder {
 
         // Top panel / media
         JPanel topPanel = new JPanel(new BorderLayout());
-        topPanel.setBackground(new Color(245, 245, 220));
+        topPanel.setBackground(OmeTheme.bg());
 
         p.mediaPanel = new ImageBackgroundPanel(new BorderLayout());
         p.mediaPanel.setBackgroundStyle(customization.mediaBackground, customization.mediaImagePath);
@@ -104,6 +111,10 @@ public class MainWindowBuilder {
 
         p.mediaEmptyPanel = new ImageBackgroundPanel(new BorderLayout());
         p.mediaEmptyPanel.setBackgroundStyle(customization.mediaBackground, customization.mediaImagePath);
+        p.welcomePanel = new MediaEmptyWelcomePanel(window);
+        p.welcomePanel.setHasCustomImage(customization.mediaImagePath != null && !customization.mediaImagePath.trim().isEmpty());
+        p.welcomePanel.updateLanguage(customization.appLanguage);
+        p.mediaEmptyPanel.add(p.welcomePanel, BorderLayout.CENTER);
 
         JPanel mediaPlayerHost = new JPanel(new BorderLayout());
         mediaPlayerHost.setOpaque(false); // Make it transparent
@@ -170,8 +181,9 @@ public class MainWindowBuilder {
         // Timer panel on left
         p.timerPanel = new JPanel(new BorderLayout());
         p.timerPanel.setOpaque(false);
-        p.timerPanel.setPreferredSize(new Dimension(customization.timerPanelWidth, 220));
-        p.timerPanel.setMinimumSize(new Dimension(customization.timerPanelWidth, 220));
+        int sideW = Math.max(210, customization.timerPanelWidth);
+        p.timerPanel.setPreferredSize(new Dimension(sideW, 220));
+        p.timerPanel.setMinimumSize(new Dimension(180, 200));
 
         p.volumePanel = new VolumePanel(window, customization);
         p.volumePanel.setVolume(window.getVolume());
@@ -185,27 +197,38 @@ public class MainWindowBuilder {
         p.timerPanel.add(p.actionHistoryService.createPanel(), BorderLayout.CENTER);
         p.timerPanel.add(timerContainer, BorderLayout.SOUTH);
 
-        JPanel verticalSeparator = new JPanel();
-        verticalSeparator.setPreferredSize(new Dimension(5, 1));
-        verticalSeparator.setBackground(new Color(35, 35, 35));
+        p.verticalSeparator = new JPanel();
+        p.verticalSeparator.setPreferredSize(new Dimension(1, 1));
+        p.verticalSeparator.setBackground(OmeTheme.border());
 
         JPanel leftZone = new JPanel(new BorderLayout());
+        leftZone.setOpaque(false);
         leftZone.add(p.timerPanel, BorderLayout.CENTER);
-        leftZone.add(verticalSeparator, BorderLayout.EAST);
+        leftZone.add(p.verticalSeparator, BorderLayout.EAST);
         topPanel.add(leftZone, BorderLayout.WEST);
 
         p.timelinePanel.applyCustomization(customization);
         p.timer.setTheme(customization.timerBackground, customization.timerImagePath);
+        p.timer.applyCustomization(customization);
+        p.actionHistoryService.setTheme(customization.historyBackground, customization.historyImagePath);
 
         p.mainPanel.add(topPanel, BorderLayout.CENTER);
 
-        // Separator + timeline at bottom
-        JPanel horizontalSeparator = new JPanel();
-        horizontalSeparator.setPreferredSize(new Dimension(1, 5));
-        horizontalSeparator.setBackground(new Color(35, 35, 35));
+        // Toolbar + hairline separator + timeline at bottom
+        p.horizontalSeparator = new JPanel();
+        p.horizontalSeparator.setPreferredSize(new Dimension(1, 1));
+        p.horizontalSeparator.setBackground(OmeTheme.border());
+
+        p.editorToolbar = new EditorToolbar(window, p.timelinePanel);
+        p.editorToolbar.updateLanguage(customization.appLanguage);
+
+        JPanel bottomHeader = new JPanel(new BorderLayout());
+        bottomHeader.setOpaque(false);
+        bottomHeader.add(p.horizontalSeparator, BorderLayout.NORTH);
+        bottomHeader.add(p.editorToolbar, BorderLayout.CENTER);
 
         JPanel bottomZone = new JPanel(new BorderLayout());
-        bottomZone.add(horizontalSeparator, BorderLayout.NORTH);
+        bottomZone.add(bottomHeader, BorderLayout.NORTH);
         bottomZone.add(p.timelinePanel, BorderLayout.CENTER);
 
         p.mainPanel.add(bottomZone, BorderLayout.SOUTH);

@@ -1,18 +1,22 @@
 package app.services;
 
+import app.ui.OmeTheme;
 import app.ui.TimelinePanel;
 
 import javax.swing.BorderFactory;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.border.EmptyBorder;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
+import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Point;
 import java.awt.geom.Rectangle2D;
@@ -50,6 +54,9 @@ public class ActionHistoryService {
     private TimelinePanel timelinePanel;
     private app.ui.ImageBackgroundPanel containerPanel;
     private JScrollPane scrollPane;
+    private JPanel headerBar;
+    private JLabel headerTitleLabel;
+    private JLabel headerCountBadge;
     private String lastRenderedText = "";
 
     public ActionHistoryService(int maxLines, int refreshMs) {
@@ -66,9 +73,9 @@ public class ActionHistoryService {
         historyArea.setWrapStyleWord(true);
         historyArea.setOpaque(false);
         historyArea.setBackground(new Color(0, 0, 0, 0));
-        historyArea.setForeground(new Color(180, 180, 180));
-        historyArea.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        historyArea.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        historyArea.setForeground(OmeTheme.textSecondary());
+        historyArea.setFont(OmeTheme.fontMono(Font.PLAIN, 11.5f));
+        historyArea.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
         historyArea.setText("Historique en attente...");
         historyArea.setToolTipText("Cliquez sur une phrase pour vous y rendre directement.");
 
@@ -147,13 +154,18 @@ public class ActionHistoryService {
     public JPanel createPanel() {
         scrollPane = new JScrollPane(historyArea);
         scrollPane.setOpaque(false);
-        scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        scrollPane.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 0));
         scrollPane.setBackground(new Color(0, 0, 0, 0));
         scrollPane.getViewport().setOpaque(false);
         scrollPane.getViewport().setBackground(new Color(0, 0, 0, 0));
         scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
-        scrollPane.getVerticalScrollBar().setUnitIncrement(18);
+        if (scrollPane.getVerticalScrollBar() != null) {
+            scrollPane.getVerticalScrollBar().setUI(new OmeTheme.OmeScrollBarUI());
+            scrollPane.getVerticalScrollBar().setPreferredSize(new Dimension(7, 0));
+            scrollPane.getVerticalScrollBar().setOpaque(false);
+            scrollPane.getVerticalScrollBar().setUnitIncrement(18);
+        }
 
         java.awt.event.MouseWheelListener wheelListener = e -> {
             if (scrollPane != null) {
@@ -172,8 +184,25 @@ public class ActionHistoryService {
         scrollPane.addMouseWheelListener(wheelListener);
         scrollPane.getViewport().addMouseWheelListener(wheelListener);
 
+        headerBar = new JPanel(new BorderLayout(6, 0));
+        headerBar.setOpaque(false);
+        headerBar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, OmeTheme.border()),
+                new EmptyBorder(8, 12, 7, 10)
+        ));
+
+        headerTitleLabel = new JLabel("RÉPLIQUES");
+        headerTitleLabel.setFont(OmeTheme.fontMono(Font.BOLD, 10));
+        headerTitleLabel.setForeground(OmeTheme.textTertiary());
+
+        headerCountBadge = OmeTheme.createTagBadge("0", false);
+
+        headerBar.add(headerTitleLabel, BorderLayout.CENTER);
+        headerBar.add(headerCountBadge, BorderLayout.EAST);
+
         containerPanel = new app.ui.ImageBackgroundPanel(new BorderLayout());
         containerPanel.addMouseWheelListener(wheelListener);
+        containerPanel.add(headerBar, BorderLayout.NORTH);
         containerPanel.add(scrollPane, BorderLayout.CENTER);
         return containerPanel;
     }
@@ -181,6 +210,20 @@ public class ActionHistoryService {
     public void setTheme(Color background, String imagePath) {
         if (containerPanel != null) {
             containerPanel.setBackgroundStyle(background, imagePath);
+        }
+        historyArea.setForeground(OmeTheme.textSecondary());
+        if (headerBar != null) {
+            headerBar.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(0, 0, 1, 0, OmeTheme.border()),
+                    new EmptyBorder(8, 12, 7, 10)
+            ));
+        }
+        if (headerTitleLabel != null) {
+            headerTitleLabel.setForeground(OmeTheme.textTertiary());
+        }
+        if (headerCountBadge != null) {
+            headerCountBadge.setForeground(OmeTheme.accent());
+            headerCountBadge.repaint();
         }
     }
 
@@ -220,9 +263,16 @@ public class ActionHistoryService {
         List<TimelinePanel.ActionHistoryEntry> entries = timelinePanel.getAllActionHistory();
         currentEntries.clear();
 
+        if (headerCountBadge != null) {
+            String countStr = String.valueOf(entries.size());
+            if (!countStr.equals(headerCountBadge.getText())) {
+                headerCountBadge.setText(countStr);
+            }
+        }
+
         if (entries.isEmpty()) {
-            if (!"Aucune action pour l'instant.".equals(lastRenderedText)) {
-                lastRenderedText = "Aucune action pour l'instant.";
+            if (!"Aucune réplique pour l'instant.".equals(lastRenderedText)) {
+                lastRenderedText = "Aucune réplique pour l'instant.";
                 historyArea.setText(lastRenderedText);
             }
             return;
@@ -234,7 +284,7 @@ public class ActionHistoryService {
         for (TimelinePanel.ActionHistoryEntry entry : entries) {
             String start = formatTenths(entry.startTimeSeconds);
             String end = entry.endTimeSeconds == null ? "..." : formatTenths(entry.endTimeSeconds);
-            sb.append(entry.active ? "▶ " : "  ")
+            sb.append(entry.active ? "> " : "  ")
                     .append(start)
                     .append(" → ")
                     .append(end)

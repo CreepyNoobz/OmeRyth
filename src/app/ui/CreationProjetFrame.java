@@ -20,29 +20,34 @@ public class CreationProjetFrame extends JDialog {
     public CreationProjetFrame(Frame parent) {
         super(parent, "Créer un nouveau projet", true);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-        setSize(600, 480);
-        setMinimumSize(new Dimension(460, 340));
+        setSize(620, 500);
+        setMinimumSize(new Dimension(480, 380));
         setResizable(true);
         setLocationRelativeTo(parent);
-        setLayout(new BorderLayout(10, 10));
-        getRootPane().setBorder(new EmptyBorder(15, 15, 15, 15));
+        setLayout(new BorderLayout());
+        getContentPane().setBackground(OmeTheme.bg());
 
-        JLabel headerLabel = new JLabel("Créer un nouveau projet");
-        headerLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        add(headerLabel, BorderLayout.NORTH);
+        add(OmeTheme.createDialogHeader(
+                "NOUVEAU PROJET",
+                "Créer un projet OmeRyth",
+                "Sélectionnez la source média, l'emplacement du fichier et le nombre de bandes."
+        ), BorderLayout.NORTH);
 
         JPanel contentPanel = new JPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
+        contentPanel.setBackground(OmeTheme.bg());
+        contentPanel.setBorder(new EmptyBorder(18, 22, 18, 22));
 
-        // 1. Vidéo
-        contentPanel.add(createSectionHeader("1. Fichier Vidéo / Audio"));
-        JPanel videoPanel = new JPanel(new BorderLayout(5, 5));
+        // 01. Vidéo
+        JPanel videoPanel = new JPanel(new BorderLayout(8, 0));
+        videoPanel.setOpaque(false);
         videoPathField = new JTextField();
         videoPathField.setEditable(false);
-        JButton browseVideoBtn = new JButton("📁 Parcourir...");
+        OmeTheme.styleTextField(videoPathField);
+        OmeTheme.OmeButton browseVideoBtn = OmeTheme.createSecondaryButton("Parcourir...");
         browseVideoBtn.addActionListener(e -> {
-            File selected = FileUtils.chooseOpenFile(this, "Choisir vidéo/audio", 
-                "mp4", "mp3", "wav", "ogg", "avi", "mkv");
+            File selected = FileUtils.chooseOpenFile(this, "Choisir vidéo/audio",
+                    "mp4", "mp3", "wav", "ogg", "avi", "mkv");
             if (selected != null) {
                 videoFile = selected;
                 videoPathField.setText(videoFile.getAbsolutePath());
@@ -50,17 +55,16 @@ public class CreationProjetFrame extends JDialog {
         });
         videoPanel.add(videoPathField, BorderLayout.CENTER);
         videoPanel.add(browseVideoBtn, BorderLayout.EAST);
-        videoPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
-        videoPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        contentPanel.add(videoPanel);
-        contentPanel.add(Box.createVerticalStrut(20));
+        contentPanel.add(OmeTheme.createSectionCard("01", "Fichier Vidéo / Audio", videoPanel));
+        contentPanel.add(Box.createVerticalStrut(14));
 
-        // 2. Sauvegarde
-        contentPanel.add(createSectionHeader("2. Emplacement du Projet"));
-        JPanel savePanel = new JPanel(new BorderLayout(5, 5));
+        // 02. Sauvegarde
+        JPanel savePanel = new JPanel(new BorderLayout(8, 0));
+        savePanel.setOpaque(false);
         JTextField saveField = new JTextField();
         saveField.setEditable(false);
-        JButton browseSaveBtn = new JButton("📁 Enregistrer sous...");
+        OmeTheme.styleTextField(saveField);
+        OmeTheme.OmeButton browseSaveBtn = OmeTheme.createSecondaryButton("Enregistrer sous...");
         browseSaveBtn.addActionListener(e -> {
             File f = FileUtils.chooseSaveFile(this, "Enregistrer projet sous", "rythmo");
             if (f != null) {
@@ -70,48 +74,35 @@ public class CreationProjetFrame extends JDialog {
         });
         savePanel.add(saveField, BorderLayout.CENTER);
         savePanel.add(browseSaveBtn, BorderLayout.EAST);
-        savePanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
-        savePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        contentPanel.add(savePanel);
-        contentPanel.add(Box.createVerticalStrut(20));
+        contentPanel.add(OmeTheme.createSectionCard("02", "Emplacement du Projet", savePanel));
+        contentPanel.add(Box.createVerticalStrut(14));
 
-        // 3. Bandes
-        contentPanel.add(createSectionHeader("3. Nombre de bandes (Lignes de texte)"));
-        JPanel configPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        // 03. Bandes
+        JPanel configPanel = new JPanel(new BorderLayout(12, 0));
+        configPanel.setOpaque(false);
+        JLabel bandDesc = new JLabel("Nombre de pistes synchronisées simultanément :");
+        bandDesc.setFont(OmeTheme.fontSans(Font.PLAIN, 13));
+        bandDesc.setForeground(OmeTheme.textSecondary());
         bandCountSpinner = new JSpinner(new SpinnerNumberModel(3, 1, 20, 1));
-        configPanel.add(bandCountSpinner);
-        configPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        contentPanel.add(configPanel);
-        contentPanel.add(Box.createVerticalStrut(20));
-
+        bandCountSpinner.setPreferredSize(new Dimension(80, 32));
+        OmeTheme.styleSpinner(bandCountSpinner);
+        configPanel.add(bandDesc, BorderLayout.CENTER);
+        configPanel.add(bandCountSpinner, BorderLayout.EAST);
+        contentPanel.add(OmeTheme.createSectionCard("03", "Nombre de bandes (Lignes de texte)", configPanel));
 
         JScrollPane scrollPane = new JScrollPane(contentPanel);
-        scrollPane.setBorder(null);
+        OmeTheme.styleBorderlessScrollPane(scrollPane);
         scrollPane.getVerticalScrollBar().setUnitIncrement(16);
         add(scrollPane, BorderLayout.CENTER);
 
         // Boutons
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton finishBtn = new JButton("✔ Créer le projet");
-        finishBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        JButton cancelBtn = new JButton("Annuler");
+        OmeTheme.OmeButton cancelBtn = OmeTheme.createGhostButton("Annuler");
+        OmeTheme.OmeButton finishBtn = OmeTheme.createPrimaryButton("Créer le projet");
 
-        finishBtn.addActionListener(e -> finishProject());
         cancelBtn.addActionListener(e -> dispose());
+        finishBtn.addActionListener(e -> finishProject());
 
-        btnPanel.add(cancelBtn);
-        btnPanel.add(Box.createHorizontalStrut(10));
-        btnPanel.add(finishBtn);
-
-        add(btnPanel, BorderLayout.SOUTH);
-    }
-
-    private JLabel createSectionHeader(String text) {
-        JLabel label = new JLabel(text);
-        label.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        label.setBorder(new EmptyBorder(0, 0, 5, 0));
-        label.setAlignmentX(Component.LEFT_ALIGNMENT);
-        return label;
+        add(OmeTheme.createDialogFooter(cancelBtn, finishBtn), BorderLayout.SOUTH);
     }
 
     private void finishProject() {

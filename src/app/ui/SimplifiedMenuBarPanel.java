@@ -2,6 +2,8 @@ package app.ui;
 
 import app.MainFenetre;
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 
@@ -50,6 +52,10 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
     private final JMenuItem tutoriel;
     private final JMenuItem raccourcis;
     private final JMenuItem info;
+
+    private final OmeTheme.OmeButton langToggleBtn;
+    private final OmeTheme.OmeButton themeToggleBtn;
+    private final JLabel brandPill;
 
     public SimplifiedMenuBarPanel(MainFenetre mainFenetre, TimelinePanel timelinePanel) {
         this.mainFenetre = mainFenetre;
@@ -204,6 +210,71 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
         menuAide.add(info);
 
         add(menuAide);
+
+        // ===== ZONE DROITE NAVBAR (style ometitnoobz.github.io/Web) =====
+        add(Box.createHorizontalGlue());
+
+        brandPill = new JLabel("OmeRyth");
+        brandPill.setFont(OmeTheme.fontMono(Font.BOLD, 11));
+        brandPill.setBorder(new EmptyBorder(0, 8, 0, 10));
+
+        langToggleBtn = new OmeTheme.OmeButton("FR", OmeTheme.ButtonVariant.SECONDARY);
+        langToggleBtn.setFocusable(false);
+        langToggleBtn.setFont(OmeTheme.fontMono(Font.BOLD, 11));
+        langToggleBtn.setMargin(new Insets(3, 9, 3, 9));
+        langToggleBtn.setRadius(5);
+        langToggleBtn.setToolTipText("FR / EN");
+        langToggleBtn.addActionListener(e -> {
+            if (mainFenetre != null) mainFenetre.toggleLanguage();
+        });
+
+        themeToggleBtn = new OmeTheme.OmeButton("", OmeTheme.ButtonVariant.SECONDARY) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getForeground());
+                g2.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                int cx = getWidth() / 2;
+                int cy = getHeight() / 2;
+                if (OmeTheme.isDark()) {
+                    // Croissant de lune (mode sombre actif)
+                    g2.drawArc(cx - 5, cy - 5, 10, 10, 45, 225);
+                    g2.drawArc(cx - 2, cy - 5, 8, 8, 60, 180);
+                } else {
+                    // Soleil (mode clair actif)
+                    g2.drawOval(cx - 3, cy - 3, 6, 6);
+                    for (int a = 0; a < 360; a += 45) {
+                        double rad = Math.toRadians(a);
+                        int x1 = cx + (int) Math.round(Math.cos(rad) * 5.0);
+                        int y1 = cy + (int) Math.round(Math.sin(rad) * 5.0);
+                        int x2 = cx + (int) Math.round(Math.cos(rad) * 7.0);
+                        int y2 = cy + (int) Math.round(Math.sin(rad) * 7.0);
+                        g2.drawLine(x1, y1, x2, y2);
+                    }
+                }
+                g2.dispose();
+            }
+        };
+        themeToggleBtn.setFocusable(false);
+        themeToggleBtn.setPreferredSize(new Dimension(28, 24));
+        themeToggleBtn.setMinimumSize(new Dimension(28, 24));
+        themeToggleBtn.setMaximumSize(new Dimension(28, 24));
+        themeToggleBtn.setMargin(new Insets(0, 0, 0, 0));
+        themeToggleBtn.setRadius(5);
+        themeToggleBtn.setToolTipText("Basculer thème sombre / clair");
+        themeToggleBtn.addActionListener(e -> {
+            if (mainFenetre != null) mainFenetre.toggleTheme();
+        });
+
+        add(langToggleBtn);
+        add(Box.createHorizontalStrut(6));
+        add(themeToggleBtn);
+        add(Box.createHorizontalStrut(4));
+        add(brandPill);
+
+        applyTheme();
     }
 
     /**
@@ -212,6 +283,12 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
      */
     public void updateLanguage(String lang) {
         boolean en = "en".equalsIgnoreCase(lang);
+        if (langToggleBtn != null) {
+            langToggleBtn.setText(en ? "EN" : "FR");
+        }
+        if (themeToggleBtn != null) {
+            themeToggleBtn.setToolTipText(en ? "Toggle Dark / Light theme" : "Basculer thème sombre / clair");
+        }
         if (en) {
             menuFichier.setText("Folder");
             nouveau.setText("New Project");
@@ -302,6 +379,50 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
     public void setGraduationsChecked(boolean visible) {
         if (affichage_graduations != null && affichage_graduations.isSelected() != visible) {
             affichage_graduations.setSelected(visible);
+        }
+    }
+
+    public void applyTheme() {
+        setBackground(OmeTheme.bgRaised());
+        setForeground(OmeTheme.text());
+        setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, OmeTheme.border()),
+                new EmptyBorder(3, 6, 3, 6)
+        ));
+        JMenu[] menus = {menuFichier, menuEdition, menuAffichage, menuOutils, menuOptions, menuAide};
+        for (JMenu m : menus) {
+            if (m == null) continue;
+            m.setForeground(OmeTheme.text());
+            m.setBackground(OmeTheme.bgRaised());
+            m.setFont(OmeTheme.fontSans(Font.PLAIN, 13));
+            m.setBorder(new EmptyBorder(4, 8, 4, 8));
+            JPopupMenu popup = m.getPopupMenu();
+            if (popup != null) {
+                popup.setBackground(OmeTheme.bgRaised());
+                popup.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(OmeTheme.borderStrong(), 1),
+                        new EmptyBorder(4, 4, 4, 4)
+                ));
+                stylePopupChildren(popup);
+            }
+        }
+        if (brandPill != null) {
+            brandPill.setForeground(OmeTheme.accent());
+        }
+        if (langToggleBtn != null) langToggleBtn.repaint();
+        if (themeToggleBtn != null) themeToggleBtn.repaint();
+        repaint();
+    }
+
+    private void stylePopupChildren(MenuElement element) {
+        for (MenuElement child : element.getSubElements()) {
+            Component comp = child.getComponent();
+            if (comp instanceof JMenuItem item) {
+                item.setBackground(OmeTheme.bgRaised());
+                item.setForeground(OmeTheme.text());
+                item.setFont(OmeTheme.fontSans(Font.PLAIN, 13));
+            }
+            stylePopupChildren(child);
         }
     }
 

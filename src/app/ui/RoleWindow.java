@@ -41,41 +41,22 @@ public class RoleWindow extends JDialog {
         super(parent, pickerMode ? "Sélection du Rôle" : "Gestion des Rôles", ModalityType.APPLICATION_MODAL);
         this.roles = roles;
 
-        setSize(480, 560);
-        setMinimumSize(new Dimension(380, 380));
+        setSize(520, 580);
+        setMinimumSize(new Dimension(420, 420));
         setResizable(true);
         setLocationRelativeTo(parent);
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         setLayout(new BorderLayout());
-        getContentPane().setBackground(new Color(245, 246, 248));
+        getContentPane().setBackground(OmeTheme.bg());
 
-        // ─── En-tête moderne ───
-        JPanel headerPanel = new JPanel(new BorderLayout(8, 4));
-        headerPanel.setBackground(new Color(245, 246, 248));
-        headerPanel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(220, 224, 230)),
-                new EmptyBorder(16, 20, 16, 20)
-        ));
-
-        JLabel titleLabel = new JLabel(pickerMode ? "Sélectionner un rôle" : "Gestion des rôles");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        titleLabel.setForeground(Color.BLACK);
-
-        JLabel subtitleLabel = new JLabel(pickerMode
-                ? "Choisissez un rôle pour colorer et identifier la réplique sélectionnée."
-                : "Créez et personnalisez les rôles des comédiens pour la bande rythmo.");
-        subtitleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        subtitleLabel.setForeground(new Color(80, 80, 80));
-
-        JPanel headerTextPanel = new JPanel();
-        headerTextPanel.setLayout(new BoxLayout(headerTextPanel, BoxLayout.Y_AXIS));
-        headerTextPanel.setOpaque(false);
-        headerTextPanel.add(titleLabel);
-        headerTextPanel.add(Box.createVerticalStrut(4));
-        headerTextPanel.add(subtitleLabel);
-
-        headerPanel.add(headerTextPanel, BorderLayout.CENTER);
-        add(headerPanel, BorderLayout.NORTH);
+        // ─── En-tête éditorial OmeRyth ───
+        add(OmeTheme.createDialogHeader(
+                "CASTING & RÔLES",
+                pickerMode ? "Sélectionner un rôle" : "Gestion des rôles",
+                pickerMode
+                        ? "Choisissez un rôle pour colorer et identifier la réplique sélectionnée."
+                        : "Créez et personnalisez les rôles des comédiens pour la bande rythmo."
+        ), BorderLayout.NORTH);
 
         // ─── Liste des rôles ───
         for (Role r : roles) {
@@ -85,8 +66,8 @@ public class RoleWindow extends JDialog {
         roleList = new JList<>(listModel);
         roleList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         roleList.setCellRenderer(new RoleCardRenderer());
-        roleList.setFixedCellHeight(52);
-        roleList.setBackground(Color.WHITE);
+        roleList.setFixedCellHeight(56);
+        roleList.setBackground(OmeTheme.bgRaised());
 
         if (preselectedRole != null) {
             for (int i = 0; i < listModel.size(); i++) {
@@ -102,33 +83,38 @@ public class RoleWindow extends JDialog {
         }
 
         JScrollPane scroll = new JScrollPane(roleList);
+        OmeTheme.styleScrollPane(scroll);
         scroll.setBorder(BorderFactory.createCompoundBorder(
-                new EmptyBorder(12, 16, 12, 16),
-                BorderFactory.createLineBorder(new Color(220, 224, 230), 1, true)
+                new EmptyBorder(14, 18, 12, 18),
+                BorderFactory.createLineBorder(OmeTheme.border(), 1)
         ));
-        scroll.getViewport().setBackground(Color.WHITE);
+        scroll.getViewport().setBackground(OmeTheme.bgRaised());
 
         // Panneau état vide
         buildEmptyPanel();
 
+        centerContainer.setBackground(OmeTheme.bg());
         centerContainer.add(scroll, "LIST");
         centerContainer.add(emptyPanel, "EMPTY");
         updateListVisibility();
         add(centerContainer, BorderLayout.CENTER);
 
         // ─── Barre d'actions inférieure ───
-        JPanel bottomPanel = new JPanel(new BorderLayout(8, 8));
-        bottomPanel.setBackground(new Color(245, 246, 248));
-        bottomPanel.setBorder(new EmptyBorder(0, 16, 16, 16));
+        JPanel bottomPanel = new JPanel(new BorderLayout(8, 10));
+        bottomPanel.setBackground(OmeTheme.bgRaised());
+        bottomPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, OmeTheme.border()),
+                new EmptyBorder(12, 18, 14, 18)
+        ));
 
-        // Rangée 1 : Gestion des rôles (+ Ajouter, Modifier, Supprimer, Présets)
+        // Rangée 1 : Gestion des rôles
         JPanel manageRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         manageRow.setOpaque(false);
 
-        JButton addBtn = createStyledButton("+ Ajouter", new Color(220, 235, 252), Color.BLACK);
-        JButton editBtn = createStyledButton("Modifier", new Color(235, 238, 242), Color.BLACK);
-        JButton removeBtn = createStyledButton("Supprimer", new Color(255, 230, 230), Color.BLACK);
-        JButton presetBtn = createStyledButton("Présets...", new Color(235, 238, 242), Color.BLACK);
+        OmeTheme.OmeButton addBtn = OmeTheme.createSecondaryButton("+ Ajouter");
+        OmeTheme.OmeButton editBtn = OmeTheme.createSecondaryButton("Modifier");
+        OmeTheme.OmeButton removeBtn = OmeTheme.createDangerButton("Supprimer");
+        OmeTheme.OmeButton presetBtn = OmeTheme.createSecondaryButton("Présets...");
 
         manageRow.add(addBtn);
         manageRow.add(editBtn);
@@ -137,12 +123,12 @@ public class RoleWindow extends JDialog {
         bottomPanel.add(manageRow, BorderLayout.NORTH);
 
         // Rangée 2 : Boutons de validation ou fermeture
-        JPanel actionRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
+        JPanel actionRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 2));
         actionRow.setOpaque(false);
 
         if (pickerMode) {
-            JButton chooseBtn = createStyledButton("Choisir ce rôle", new Color(220, 245, 225), Color.BLACK);
-            JButton cancelBtn = createStyledButton("Annuler", new Color(235, 238, 242), Color.BLACK);
+            OmeTheme.OmeButton chooseBtn = OmeTheme.createPrimaryButton("Choisir ce rôle");
+            OmeTheme.OmeButton cancelBtn = OmeTheme.createGhostButton("Annuler");
 
             chooseBtn.addActionListener(e -> {
                 Role chosen = roleList.getSelectedValue();
@@ -164,7 +150,7 @@ public class RoleWindow extends JDialog {
             actionRow.add(cancelBtn);
             actionRow.add(chooseBtn);
         } else {
-            JButton closeBtn = createStyledButton("Fermer", new Color(235, 238, 242), Color.BLACK);
+            OmeTheme.OmeButton closeBtn = OmeTheme.createPrimaryButton("Fermer");
             closeBtn.addActionListener(e -> dispose());
             actionRow.add(closeBtn);
         }
@@ -263,10 +249,10 @@ public class RoleWindow extends JDialog {
 
     private void buildEmptyPanel() {
         emptyPanel.setLayout(new GridBagLayout());
-        emptyPanel.setBackground(Color.WHITE);
+        emptyPanel.setBackground(OmeTheme.bgRaised());
         emptyPanel.setBorder(BorderFactory.createCompoundBorder(
-                new EmptyBorder(12, 16, 12, 16),
-                BorderFactory.createLineBorder(new Color(220, 224, 230), 1, true)
+                new EmptyBorder(14, 18, 12, 18),
+                BorderFactory.createLineBorder(OmeTheme.border(), 1)
         ));
 
         JPanel centerBox = new JPanel();
@@ -274,13 +260,13 @@ public class RoleWindow extends JDialog {
         centerBox.setOpaque(false);
 
         JLabel emptyTitle = new JLabel("Aucun rôle défini");
-        emptyTitle.setFont(new Font("Segoe UI", Font.BOLD, 15));
-        emptyTitle.setForeground(new Color(60, 60, 60));
+        emptyTitle.setFont(OmeTheme.fontSans(Font.BOLD, 15));
+        emptyTitle.setForeground(OmeTheme.text());
         emptyTitle.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         JLabel emptyDesc = new JLabel("<html><center>Cliquez sur <b>+ Ajouter</b> ou chargez un <b>Préset</b><br>pour configurer vos personnages.</center></html>");
-        emptyDesc.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        emptyDesc.setForeground(new Color(120, 120, 120));
+        emptyDesc.setFont(OmeTheme.fontSans(Font.PLAIN, 12));
+        emptyDesc.setForeground(OmeTheme.textSecondary());
         emptyDesc.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         centerBox.add(emptyTitle);
@@ -341,44 +327,35 @@ public class RoleWindow extends JDialog {
     private void openAddEditDialog(Role existing, int idx) {
         boolean isEdit = (existing != null && idx >= 0);
         JDialog dlg = new JDialog(this, isEdit ? "Modifier le rôle" : "Nouveau rôle", true);
-        dlg.setSize(440, 420);
-        dlg.setMinimumSize(new Dimension(420, 400));
+        dlg.setSize(460, 460);
+        dlg.setMinimumSize(new Dimension(420, 420));
         dlg.setLocationRelativeTo(this);
         dlg.setLayout(new BorderLayout());
-        dlg.getContentPane().setBackground(new Color(245, 246, 248));
+        dlg.getContentPane().setBackground(OmeTheme.bg());
 
         // En-tête dialog
-        JPanel dlgHeader = new JPanel(new BorderLayout());
-        dlgHeader.setBackground(new Color(240, 242, 246));
-        dlgHeader.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(220, 224, 230)),
-                new EmptyBorder(12, 16, 12, 16)
-        ));
-        JLabel dlgTitle = new JLabel(isEdit ? "Modifier le rôle" : "Ajouter un rôle");
-        dlgTitle.setFont(new Font("Segoe UI", Font.BOLD, 15));
-        dlgTitle.setForeground(Color.BLACK);
-        dlgHeader.add(dlgTitle, BorderLayout.WEST);
-        dlg.add(dlgHeader, BorderLayout.NORTH);
+        dlg.add(OmeTheme.createDialogHeader(
+                "ÉDITION RÔLE",
+                isEdit ? "Modifier le rôle" : "Ajouter un rôle",
+                "Définissez le nom du personnage et sa couleur sur la bande rythmo."
+        ), BorderLayout.NORTH);
 
         // Corps dialog
         JPanel body = new JPanel();
         body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
         body.setOpaque(false);
-        body.setBorder(new EmptyBorder(14, 16, 14, 16));
+        body.setBorder(new EmptyBorder(16, 18, 14, 18));
 
         // Champ Nom
         JLabel nameLbl = new JLabel("Nom du personnage / rôle :");
-        nameLbl.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        nameLbl.setFont(OmeTheme.fontSans(Font.BOLD, 12.5f));
+        nameLbl.setForeground(OmeTheme.text());
         nameLbl.setAlignmentX(Component.LEFT_ALIGNMENT);
         body.add(nameLbl);
         body.add(Box.createVerticalStrut(6));
 
         JTextField nameField = new JTextField(isEdit ? existing.name : "", 20);
-        nameField.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        nameField.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(200, 205, 210), 1, true),
-                new EmptyBorder(6, 8, 6, 8)
-        ));
+        OmeTheme.styleTextField(nameField);
         nameField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
         nameField.setAlignmentX(Component.LEFT_ALIGNMENT);
         body.add(nameField);
@@ -386,7 +363,8 @@ public class RoleWindow extends JDialog {
 
         // Champ Couleur + Palette rapide
         JLabel colorLbl = new JLabel("Couleur associée :");
-        colorLbl.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        colorLbl.setFont(OmeTheme.fontSans(Font.BOLD, 12.5f));
+        colorLbl.setForeground(OmeTheme.text());
         colorLbl.setAlignmentX(Component.LEFT_ALIGNMENT);
         body.add(colorLbl);
         body.add(Box.createVerticalStrut(6));
@@ -396,7 +374,8 @@ public class RoleWindow extends JDialog {
 
         // Zone d'aperçu dynamique de la réplique
         JLabel previewLbl = new JLabel("Aperçu sur la bande rythmo :");
-        previewLbl.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        previewLbl.setFont(OmeTheme.fontSans(Font.BOLD, 12.5f));
+        previewLbl.setForeground(OmeTheme.text());
         previewLbl.setAlignmentX(Component.LEFT_ALIGNMENT);
         body.add(previewLbl);
         body.add(Box.createVerticalStrut(6));
@@ -408,13 +387,14 @@ public class RoleWindow extends JDialog {
         previewBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 46));
         previewBox.setAlignmentX(Component.LEFT_ALIGNMENT);
         body.add(previewBox);
+        body.add(Box.createVerticalStrut(10));
 
         ColorPreviewButton customColorBtn = new ColorPreviewButton(chosen[0]);
         customColorBtn.setPreferredSize(new Dimension(34, 26));
 
         JLabel hexLabel = new JLabel(toHex(chosen[0]));
-        hexLabel.setFont(new Font("Monospaced", Font.BOLD, 12));
-        hexLabel.setForeground(new Color(100, 100, 100));
+        hexLabel.setFont(OmeTheme.fontMono(Font.BOLD, 12));
+        hexLabel.setForeground(OmeTheme.textSecondary());
 
         Runnable updatePreviewAction = () -> {
             String txt = nameField.getText().trim();
@@ -454,7 +434,8 @@ public class RoleWindow extends JDialog {
         customColorRow.setOpaque(false);
         customColorRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JButton chooseMoreColor = createStyledButton("Autre couleur...", new Color(235, 238, 242), Color.BLACK);
+        OmeTheme.OmeButton chooseMoreColor = OmeTheme.createSecondaryButton("Autre couleur...");
+        chooseMoreColor.setMargin(new Insets(5, 12, 5, 12));
 
         chooseMoreColor.addActionListener(ev -> {
             Color c = JColorChooser.showDialog(dlg, "Choisir une couleur personnalisée", chosen[0]);
@@ -471,7 +452,7 @@ public class RoleWindow extends JDialog {
         customColorRow.add(chooseMoreColor);
         customColorRow.add(hexLabel);
         body.add(customColorRow);
-        body.add(Box.createVerticalStrut(14));
+        body.add(Box.createVerticalStrut(10));
 
         // Mettre à jour l'aperçu en direct à chaque frappe
         nameField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
@@ -483,14 +464,9 @@ public class RoleWindow extends JDialog {
         dlg.add(body, BorderLayout.CENTER);
 
         // Actions
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 12));
-        actions.setBackground(new Color(245, 246, 248));
-        JButton okBtn = createStyledButton("Enregistrer", new Color(220, 235, 252), Color.BLACK);
-        JButton cancelBtn = createStyledButton("Annuler", new Color(235, 238, 242), Color.BLACK);
-
-        actions.add(cancelBtn);
-        actions.add(okBtn);
-        dlg.add(actions, BorderLayout.SOUTH);
+        OmeTheme.OmeButton cancelBtn = OmeTheme.createGhostButton("Annuler");
+        OmeTheme.OmeButton okBtn = OmeTheme.createPrimaryButton("Enregistrer");
+        dlg.add(OmeTheme.createDialogFooter(cancelBtn, okBtn), BorderLayout.SOUTH);
 
         okBtn.addActionListener(e -> {
             String name = nameField.getText().trim();
@@ -553,9 +529,9 @@ public class RoleWindow extends JDialog {
             textCol.setLayout(new BoxLayout(textCol, BoxLayout.Y_AXIS));
             textCol.setOpaque(false);
 
-            nameLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
-            hexLabel.setFont(new Font("Monospaced", Font.PLAIN, 11));
-            hexLabel.setForeground(new Color(120, 120, 120));
+            nameLabel.setFont(OmeTheme.fontSans(Font.BOLD, 14));
+            hexLabel.setFont(OmeTheme.fontMono(Font.PLAIN, 11));
+            hexLabel.setForeground(OmeTheme.textTertiary());
 
             textCol.add(nameLabel);
             textCol.add(Box.createVerticalStrut(2));
@@ -583,16 +559,19 @@ public class RoleWindow extends JDialog {
             }
 
             if (isSelected) {
-                setBackground(new Color(225, 238, 255));
-                nameLabel.setForeground(new Color(0, 80, 180));
+                setBackground(OmeTheme.accentSubtleSolid());
+                nameLabel.setForeground(OmeTheme.accent());
                 setBorder(BorderFactory.createCompoundBorder(
-                        BorderFactory.createMatteBorder(0, 4, 0, 0, new Color(0, 120, 215)),
-                        new EmptyBorder(6, 8, 6, 12)
+                        BorderFactory.createMatteBorder(0, 3, 1, 0, OmeTheme.accent()),
+                        new EmptyBorder(6, 9, 6, 12)
                 ));
             } else {
-                setBackground(index % 2 == 0 ? Color.WHITE : new Color(250, 251, 253));
-                nameLabel.setForeground(new Color(30, 30, 30));
-                setBorder(new EmptyBorder(6, 12, 6, 12));
+                setBackground(index % 2 == 0 ? OmeTheme.bgRaised() : OmeTheme.surface());
+                nameLabel.setForeground(OmeTheme.text());
+                setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createMatteBorder(0, 0, 1, 0, OmeTheme.border()),
+                        new EmptyBorder(6, 12, 6, 12)
+                ));
             }
 
             return this;
@@ -658,8 +637,8 @@ public class RoleWindow extends JDialog {
             this.roleName = roleName;
             this.roleColor = roleColor;
             setPreferredSize(new Dimension(380, 42));
-            setBackground(new Color(35, 35, 35));
-            setBorder(BorderFactory.createLineBorder(new Color(60, 60, 60), 1, true));
+            setBackground(OmeTheme.surface());
+            setBorder(BorderFactory.createLineBorder(OmeTheme.borderStrong(), 1));
         }
 
         void updatePreview(String roleName, Color roleColor) {
@@ -741,7 +720,7 @@ public class RoleWindow extends JDialog {
             g2.fillRoundRect(x, y, size, size, 8, 8);
 
             if (selected) {
-                g2.setColor(new Color(0, 120, 215));
+                g2.setColor(OmeTheme.accent());
                 g2.setStroke(new BasicStroke(2.5f));
                 g2.drawRoundRect(x - 1, y - 1, size + 2, size + 2, 10, 10);
 
