@@ -1,4 +1,4 @@
-# Build script for OmeRyth
+﻿# Build script for OmeRyth
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
@@ -106,6 +106,9 @@ if (Test-Path 'src\dictionaries') {
 
 # 5. Create OmeRyth.jar
 Write-Host "[3/4] Création du JAR exécutable (OmeRyth.jar)..." -ForegroundColor Yellow
+if (-not (Test-Path 'manifest.txt')) {
+    [System.IO.File]::WriteAllText((Join-Path $PWD 'manifest.txt'), "Main-Class: app.Launcher`r`n", (New-Object System.Text.UTF8Encoding($false)))
+}
 & $jarCmd cfm 'OmeRyth.jar' 'manifest.txt' -C 'bin' .
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Erreur lors de la création d'OmeRyth.jar."
