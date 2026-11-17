@@ -550,10 +550,7 @@ public class VoiceExclusionTimelinePanel extends JPanel {
         btnClearAll.addActionListener(e -> clearAllZones());
 
         cboAction = new JComboBox<>(new String[]{"Couper la voix (Balises)", "Conserver la voix (Bypass)"});
-        cboAction.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        cboAction.setForeground(Color.BLACK);
-        cboAction.setBackground(new Color(240, 240, 245));
-        cboAction.setFocusable(false);
+        OmeTheme.styleComboBox(cboAction);
         cboAction.setToolTipText("Mode d'action : couper la voix dans les balises (garde l'original partout ailleurs) ou conserver la voix dans les balises (retire la voix partout ailleurs)");
         cboAction.addActionListener(e -> {
             voiceCutMode = (cboAction.getSelectedIndex() == 0);
@@ -578,24 +575,15 @@ public class VoiceExclusionTimelinePanel extends JPanel {
         lblSearch.setForeground(new Color(212, 212, 216));
 
         txtWordSearch = new JTextField(12);
-        txtWordSearch.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        txtWordSearch.setForeground(Color.BLACK);
-        txtWordSearch.setBackground(new Color(245, 245, 250));
-        txtWordSearch.setCaretColor(Color.BLACK);
+        OmeTheme.styleTextField(txtWordSearch);
         txtWordSearch.setToolTipText("Mots ou expressions à couper/baliser (ex: bonjour, réplique...) - Entrée pour valider");
 
         cboScope = new JComboBox<>(new String[]{"Mot exact", "Dialogue complet"});
-        cboScope.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        cboScope.setForeground(Color.BLACK);
-        cboScope.setBackground(new Color(240, 240, 245));
-        cboScope.setFocusable(false);
+        OmeTheme.styleComboBox(cboScope);
         cboScope.setToolTipText("Portée : poser les balises uniquement sur chaque mot ou sur la phrase entière");
 
         cboRoles = new JComboBox<>(new String[]{"Tous les rôles"});
-        cboRoles.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        cboRoles.setForeground(Color.BLACK);
-        cboRoles.setBackground(new Color(240, 240, 245));
-        cboRoles.setFocusable(false);
+        OmeTheme.styleComboBox(cboRoles);
         cboRoles.setToolTipText("Filtrer par rôle / comédien pour supprimer la voix d'une seule personne");
 
         btnSearchAndTag = new JButton("Poser balises");

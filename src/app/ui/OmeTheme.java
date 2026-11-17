@@ -6,8 +6,12 @@ import javax.swing.border.Border;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
+import javax.swing.plaf.basic.BasicComboBoxUI;
+import javax.swing.plaf.basic.BasicComboPopup;
 import javax.swing.plaf.basic.BasicScrollBarUI;
 import javax.swing.plaf.basic.BasicSliderUI;
+import javax.swing.plaf.basic.BasicSpinnerUI;
+import javax.swing.plaf.basic.ComboPopup;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
 import java.awt.*;
@@ -239,6 +243,8 @@ public final class OmeTheme {
         UIManager.put("CheckBoxMenuItemUI", "javax.swing.plaf.basic.BasicCheckBoxMenuItemUI");
         UIManager.put("PopupMenuUI", "javax.swing.plaf.basic.BasicPopupMenuUI");
         UIManager.put("PopupMenuSeparatorUI", "javax.swing.plaf.basic.BasicPopupMenuSeparatorUI");
+        UIManager.put("ComboBoxUI", "javax.swing.plaf.basic.BasicComboBoxUI");
+        UIManager.put("SpinnerUI", "javax.swing.plaf.basic.BasicSpinnerUI");
 
         UIManager.put("MenuBar.background", raised);
         UIManager.put("MenuBar.foreground", text);
@@ -305,6 +311,14 @@ public final class OmeTheme {
         UIManager.put("ComboBox.foreground", text);
         UIManager.put("ComboBox.selectionBackground", accentSubtleSolid());
         UIManager.put("ComboBox.selectionForeground", accent);
+        UIManager.put("ComboBox.buttonBackground", surface);
+        UIManager.put("ComboBox.buttonDarkShadow", borderStrong);
+        UIManager.put("ComboBox.buttonHighlight", border);
+        UIManager.put("ComboBox.buttonShadow", border);
+
+        UIManager.put("Spinner.background", surface);
+        UIManager.put("Spinner.foreground", text);
+        UIManager.put("Spinner.border", BorderFactory.createLineBorder(borderStrong, 1));
 
         UIManager.put("List.background", raised);
         UIManager.put("List.foreground", text);
@@ -666,26 +680,37 @@ public final class OmeTheme {
 
     public static void styleSpinner(JSpinner sp) {
         if (sp == null) return;
+        sp.setUI(new OmeSpinnerUI());
         sp.setBackground(surface());
         sp.setForeground(text());
         sp.setBorder(new LineBorder(borderStrong(), 1));
+        sp.setOpaque(true);
         JComponent editor = sp.getEditor();
         if (editor instanceof JSpinner.DefaultEditor de) {
             JTextField tf = de.getTextField();
             tf.setBackground(surface());
             tf.setForeground(text());
             tf.setCaretColor(accent());
+            tf.setSelectionColor(accent());
+            tf.setSelectedTextColor(accentTextOn());
             tf.setFont(fontMono(Font.PLAIN, 13));
             tf.setBorder(new EmptyBorder(4, 8, 4, 8));
+            tf.setOpaque(true);
         }
     }
 
     public static <T> void styleComboBox(JComboBox<T> cb) {
         if (cb == null) return;
+        cb.setUI(new OmeComboBoxUI());
+        cb.setRenderer(new OmeComboBoxRenderer());
         cb.setBackground(surface());
         cb.setForeground(text());
         cb.setFont(fontSans(Font.PLAIN, 13));
-        cb.setBorder(new LineBorder(borderStrong(), 1));
+        cb.setBorder(BorderFactory.createCompoundBorder(
+                new LineBorder(borderStrong(), 1),
+                new EmptyBorder(2, 6, 2, 2)
+        ));
+        cb.setOpaque(true);
         cb.setFocusable(false);
     }
 
@@ -695,7 +720,224 @@ public final class OmeTheme {
         chk.setForeground(text());
         chk.setFont(fontSans(Font.PLAIN, 13));
         chk.setFocusPainted(false);
+        chk.setIcon(new OmeCheckBoxIcon(false));
+        chk.setSelectedIcon(new OmeCheckBoxIcon(true));
         chk.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+    }
+
+    public static void styleRadioButton(JRadioButton rb) {
+        if (rb == null) return;
+        rb.setOpaque(false);
+        rb.setForeground(text());
+        rb.setFont(fontSans(Font.PLAIN, 13));
+        rb.setFocusPainted(false);
+        rb.setIcon(new OmeRadioButtonIcon(false));
+        rb.setSelectedIcon(new OmeRadioButtonIcon(true));
+        rb.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+    }
+
+    public static class OmeComboBoxUI extends BasicComboBoxUI {
+        @Override
+        protected JButton createArrowButton() {
+            JButton btn = new JButton() {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(surface());
+                    g2.fillRect(0, 0, getWidth(), getHeight());
+                    g2.setColor(textSecondary());
+                    int cx = getWidth() / 2;
+                    int cy = getHeight() / 2;
+                    int[] xPoints = {cx - 4, cx, cx + 4};
+                    int[] yPoints = {cy - 2, cy + 2, cy - 2};
+                    g2.fillPolygon(xPoints, yPoints, 3);
+                    g2.dispose();
+                }
+            };
+            btn.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 8));
+            btn.setFocusable(false);
+            btn.setOpaque(true);
+            btn.setContentAreaFilled(false);
+            return btn;
+        }
+
+        @Override
+        public void paint(Graphics g, JComponent c) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setColor(surface());
+            g2.fillRect(0, 0, c.getWidth(), c.getHeight());
+            g2.dispose();
+            super.paint(g, c);
+        }
+
+        @Override
+        public void paintCurrentValueBackground(Graphics g, Rectangle bounds, boolean hasFocus) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setColor(surface());
+            g2.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+            g2.dispose();
+        }
+
+        @Override
+        protected ComboPopup createPopup() {
+            BasicComboPopup popup = new BasicComboPopup(comboBox) {
+                @Override
+                protected JScrollPane createScroller() {
+                    JScrollPane scroller = super.createScroller();
+                    scroller.setBorder(BorderFactory.createEmptyBorder());
+                    if (scroller.getVerticalScrollBar() != null) {
+                        scroller.getVerticalScrollBar().setUI(new OmeScrollBarUI());
+                        scroller.getVerticalScrollBar().setPreferredSize(new Dimension(8, 0));
+                    }
+                    return scroller;
+                }
+            };
+            popup.setBorder(BorderFactory.createLineBorder(borderStrong(), 1));
+            return popup;
+        }
+    }
+
+    public static class OmeComboBoxRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+            JLabel lbl = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            lbl.setFont(fontSans(Font.PLAIN, 13));
+            lbl.setBorder(new EmptyBorder(6, 10, 6, 10));
+            if (isSelected) {
+                lbl.setBackground(accentSubtleSolid());
+                lbl.setForeground(accent());
+            } else {
+                lbl.setBackground(surface());
+                lbl.setForeground(text());
+            }
+            lbl.setOpaque(true);
+            return lbl;
+        }
+    }
+
+    public static class OmeSpinnerUI extends BasicSpinnerUI {
+        @Override
+        protected Component createNextButton() {
+            Component c = createArrowButton(SwingConstants.NORTH);
+            c.setName("Spinner.nextButton");
+            installNextButtonListeners(c);
+            return c;
+        }
+
+        @Override
+        protected Component createPreviousButton() {
+            Component c = createArrowButton(SwingConstants.SOUTH);
+            c.setName("Spinner.previousButton");
+            installPreviousButtonListeners(c);
+            return c;
+        }
+
+        private Component createArrowButton(int direction) {
+            JButton btn = new JButton() {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(getModel().isRollover() ? surfaceHover() : surface());
+                    g2.fillRect(0, 0, getWidth(), getHeight());
+                    g2.setColor(textSecondary());
+                    int cx = getWidth() / 2;
+                    int cy = getHeight() / 2;
+                    if (direction == SwingConstants.NORTH) {
+                        int[] xp = {cx - 3, cx, cx + 3};
+                        int[] yp = {cy + 1, cy - 2, cy + 1};
+                        g2.fillPolygon(xp, yp, 3);
+                    } else {
+                        int[] xp = {cx - 3, cx, cx + 3};
+                        int[] yp = {cy - 2, cy + 1, cy - 2};
+                        g2.fillPolygon(xp, yp, 3);
+                    }
+                    g2.dispose();
+                }
+            };
+            btn.setFocusable(false);
+            btn.setOpaque(true);
+            btn.setContentAreaFilled(false);
+            btn.setBorder(BorderFactory.createMatteBorder(
+                    direction == SwingConstants.SOUTH ? 1 : 0, 1, 0, 0, borderStrong()
+            ));
+            btn.setPreferredSize(new Dimension(18, 12));
+            return btn;
+        }
+    }
+
+    public static class OmeCheckBoxIcon implements Icon {
+        private final boolean selected;
+
+        public OmeCheckBoxIcon(boolean selected) {
+            this.selected = selected;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            int size = 15;
+            int arc = 4;
+            int iy = y + (c.getHeight() - size) / 2;
+            if (iy < 0) iy = y;
+            if (selected) {
+                g2.setColor(accent());
+                g2.fillRoundRect(x, iy, size, size, arc, arc);
+                g2.setColor(accentTextOn());
+                g2.setStroke(new BasicStroke(2.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.drawLine(x + 3, iy + 7, x + 6, iy + 11);
+                g2.drawLine(x + 6, iy + 11, x + 12, iy + 4);
+            } else {
+                g2.setColor(surface());
+                g2.fillRoundRect(x, iy, size, size, arc, arc);
+                g2.setColor(borderStrong());
+                g2.drawRoundRect(x, iy, size, size, arc, arc);
+            }
+            g2.dispose();
+        }
+
+        @Override
+        public int getIconWidth() { return 18; }
+        @Override
+        public int getIconHeight() { return 16; }
+    }
+
+    public static class OmeRadioButtonIcon implements Icon {
+        private final boolean selected;
+
+        public OmeRadioButtonIcon(boolean selected) {
+            this.selected = selected;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            int size = 15;
+            int iy = y + (c.getHeight() - size) / 2;
+            if (iy < 0) iy = y;
+            if (selected) {
+                g2.setColor(surface());
+                g2.fillOval(x, iy, size, size);
+                g2.setColor(accent());
+                g2.setStroke(new BasicStroke(2.0f));
+                g2.drawOval(x, iy, size, size);
+                g2.fillOval(x + 4, iy + 4, size - 8, size - 8);
+            } else {
+                g2.setColor(surface());
+                g2.fillOval(x, iy, size, size);
+                g2.setColor(borderStrong());
+                g2.drawOval(x, iy, size, size);
+            }
+            g2.dispose();
+        }
+
+        @Override
+        public int getIconWidth() { return 18; }
+        @Override
+        public int getIconHeight() { return 16; }
     }
 
     public static void styleProgressBar(JProgressBar pb) {
