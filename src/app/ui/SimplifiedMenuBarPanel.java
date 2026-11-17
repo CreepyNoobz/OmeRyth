@@ -3,6 +3,10 @@ package app.ui;
 import app.MainFenetre;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.plaf.basic.BasicCheckBoxMenuItemUI;
+import javax.swing.plaf.basic.BasicMenuBarUI;
+import javax.swing.plaf.basic.BasicMenuItemUI;
+import javax.swing.plaf.basic.BasicMenuUI;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
@@ -60,6 +64,15 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
     public SimplifiedMenuBarPanel(MainFenetre mainFenetre, TimelinePanel timelinePanel) {
         this.mainFenetre = mainFenetre;
         this.timelinePanel = timelinePanel;
+
+        setOpaque(true);
+        setUI(new BasicMenuBarUI() {
+            @Override
+            public void paint(Graphics g, JComponent c) {
+                g.setColor(c.getBackground());
+                g.fillRect(0, 0, c.getWidth(), c.getHeight());
+            }
+        });
 
         // ===== MENU FICHIER / FOLDER =====
         menuFichier = new JMenu("Fichier");
@@ -382,6 +395,16 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
         }
     }
 
+    @Override
+    protected void paintComponent(Graphics g) {
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setColor(getBackground());
+        g2.fillRect(0, 0, getWidth(), getHeight());
+        g2.setColor(OmeTheme.border());
+        g2.fillRect(0, getHeight() - 1, getWidth(), 1);
+        g2.dispose();
+    }
+
     public void applyTheme() {
         setBackground(OmeTheme.bgRaised());
         setForeground(OmeTheme.text());
@@ -392,12 +415,15 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
         JMenu[] menus = {menuFichier, menuEdition, menuAffichage, menuOutils, menuOptions, menuAide};
         for (JMenu m : menus) {
             if (m == null) continue;
+            m.setUI(new OmeTopMenuUI());
+            m.setOpaque(true);
             m.setForeground(OmeTheme.text());
             m.setBackground(OmeTheme.bgRaised());
             m.setFont(OmeTheme.fontSans(Font.PLAIN, 13));
-            m.setBorder(new EmptyBorder(4, 8, 4, 8));
+            m.setBorder(new EmptyBorder(4, 10, 4, 10));
             JPopupMenu popup = m.getPopupMenu();
             if (popup != null) {
+                popup.setOpaque(true);
                 popup.setBackground(OmeTheme.bgRaised());
                 popup.setBorder(BorderFactory.createCompoundBorder(
                         BorderFactory.createLineBorder(OmeTheme.borderStrong(), 1),
@@ -417,12 +443,147 @@ public class SimplifiedMenuBarPanel extends JMenuBar {
     private void stylePopupChildren(MenuElement element) {
         for (MenuElement child : element.getSubElements()) {
             Component comp = child.getComponent();
-            if (comp instanceof JMenuItem item) {
+            if (comp instanceof JCheckBoxMenuItem cbItem) {
+                cbItem.setUI(new OmeCheckBoxMenuItemUI());
+                cbItem.setBackground(OmeTheme.bgRaised());
+                cbItem.setForeground(OmeTheme.text());
+                cbItem.setFont(OmeTheme.fontSans(Font.PLAIN, 13));
+                cbItem.setBorder(new EmptyBorder(6, 12, 6, 12));
+                cbItem.setOpaque(true);
+            } else if (comp instanceof JMenu subMenu) {
+                subMenu.setUI(new OmeTopMenuUI());
+                subMenu.setBackground(OmeTheme.bgRaised());
+                subMenu.setForeground(OmeTheme.text());
+                subMenu.setFont(OmeTheme.fontSans(Font.PLAIN, 13));
+                subMenu.setBorder(new EmptyBorder(6, 12, 6, 12));
+                subMenu.setOpaque(true);
+                JPopupMenu subPopup = subMenu.getPopupMenu();
+                if (subPopup != null) {
+                    subPopup.setOpaque(true);
+                    subPopup.setBackground(OmeTheme.bgRaised());
+                    subPopup.setBorder(BorderFactory.createCompoundBorder(
+                            BorderFactory.createLineBorder(OmeTheme.borderStrong(), 1),
+                            new EmptyBorder(4, 4, 4, 4)
+                    ));
+                    stylePopupChildren(subPopup);
+                }
+            } else if (comp instanceof JMenuItem item) {
+                item.setUI(new OmeMenuItemUI());
                 item.setBackground(OmeTheme.bgRaised());
                 item.setForeground(OmeTheme.text());
                 item.setFont(OmeTheme.fontSans(Font.PLAIN, 13));
+                item.setBorder(new EmptyBorder(6, 12, 6, 12));
+                item.setOpaque(true);
+            } else if (comp instanceof JSeparator sep) {
+                sep.setForeground(OmeTheme.border());
+                sep.setBackground(OmeTheme.bgRaised());
             }
             stylePopupChildren(child);
+        }
+    }
+
+    private static class OmeTopMenuUI extends BasicMenuUI {
+        @Override
+        protected void paintBackground(Graphics g, JMenuItem menuItem, Color bgColor) {
+            ButtonModel model = menuItem.getModel();
+            int w = menuItem.getWidth();
+            int h = menuItem.getHeight();
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            if (model.isArmed() || (menuItem instanceof JMenu && model.isSelected())) {
+                g2.setColor(OmeTheme.surfaceHover());
+                g2.fillRoundRect(2, 2, w - 4, h - 4, 5, 5);
+            } else if (model.isRollover()) {
+                g2.setColor(OmeTheme.surface());
+                g2.fillRoundRect(2, 2, w - 4, h - 4, 5, 5);
+            } else {
+                g2.setColor(menuItem.getParent() != null ? menuItem.getParent().getBackground() : OmeTheme.bgRaised());
+                g2.fillRect(0, 0, w, h);
+            }
+            g2.dispose();
+        }
+
+        @Override
+        protected void paintText(Graphics g, JMenuItem menuItem, Rectangle textRect, String text) {
+            ButtonModel model = menuItem.getModel();
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            if (model.isArmed() || (menuItem instanceof JMenu && model.isSelected()) || model.isRollover()) {
+                g2.setColor(OmeTheme.accent());
+            } else {
+                g2.setColor(OmeTheme.text());
+            }
+            FontMetrics fm = g2.getFontMetrics();
+            g2.drawString(text, textRect.x, textRect.y + fm.getAscent());
+            g2.dispose();
+        }
+    }
+
+    private static class OmeMenuItemUI extends BasicMenuItemUI {
+        @Override
+        protected void paintBackground(Graphics g, JMenuItem menuItem, Color bgColor) {
+            ButtonModel model = menuItem.getModel();
+            int w = menuItem.getWidth();
+            int h = menuItem.getHeight();
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            if (model.isArmed() || model.isSelected()) {
+                g2.setColor(OmeTheme.accentSubtleSolid());
+                g2.fillRoundRect(2, 1, w - 4, h - 2, 4, 4);
+            } else {
+                g2.setColor(OmeTheme.bgRaised());
+                g2.fillRect(0, 0, w, h);
+            }
+            g2.dispose();
+        }
+
+        @Override
+        protected void paintText(Graphics g, JMenuItem menuItem, Rectangle textRect, String text) {
+            ButtonModel model = menuItem.getModel();
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            if (model.isArmed() || model.isSelected()) {
+                g2.setColor(OmeTheme.accent());
+            } else {
+                g2.setColor(OmeTheme.text());
+            }
+            FontMetrics fm = g2.getFontMetrics();
+            g2.drawString(text, textRect.x, textRect.y + fm.getAscent());
+            g2.dispose();
+        }
+    }
+
+    private static class OmeCheckBoxMenuItemUI extends BasicCheckBoxMenuItemUI {
+        @Override
+        protected void paintBackground(Graphics g, JMenuItem menuItem, Color bgColor) {
+            ButtonModel model = menuItem.getModel();
+            int w = menuItem.getWidth();
+            int h = menuItem.getHeight();
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            if (model.isArmed()) {
+                g2.setColor(OmeTheme.accentSubtleSolid());
+                g2.fillRoundRect(2, 1, w - 4, h - 2, 4, 4);
+            } else {
+                g2.setColor(OmeTheme.bgRaised());
+                g2.fillRect(0, 0, w, h);
+            }
+            g2.dispose();
+        }
+
+        @Override
+        protected void paintText(Graphics g, JMenuItem menuItem, Rectangle textRect, String text) {
+            ButtonModel model = menuItem.getModel();
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            if (model.isArmed()) {
+                g2.setColor(OmeTheme.accent());
+            } else {
+                g2.setColor(OmeTheme.text());
+            }
+            FontMetrics fm = g2.getFontMetrics();
+            g2.drawString(text, textRect.x, textRect.y + fm.getAscent());
+            g2.dispose();
         }
     }
 

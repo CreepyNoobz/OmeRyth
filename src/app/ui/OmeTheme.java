@@ -232,7 +232,14 @@ public final class OmeTheme {
         UIManager.put("Label.foreground", text);
         UIManager.put("Label.font", fontSans(Font.PLAIN, 13));
 
-        // Menus & Popups
+        // Menus & Popups (délégation BasicUI pour contourner uxtheme natif Windows blanc)
+        UIManager.put("MenuBarUI", "javax.swing.plaf.basic.BasicMenuBarUI");
+        UIManager.put("MenuUI", "javax.swing.plaf.basic.BasicMenuUI");
+        UIManager.put("MenuItemUI", "javax.swing.plaf.basic.BasicMenuItemUI");
+        UIManager.put("CheckBoxMenuItemUI", "javax.swing.plaf.basic.BasicCheckBoxMenuItemUI");
+        UIManager.put("PopupMenuUI", "javax.swing.plaf.basic.BasicPopupMenuUI");
+        UIManager.put("PopupMenuSeparatorUI", "javax.swing.plaf.basic.BasicPopupMenuSeparatorUI");
+
         UIManager.put("MenuBar.background", raised);
         UIManager.put("MenuBar.foreground", text);
         UIManager.put("MenuBar.border", BorderFactory.createMatteBorder(0, 0, 1, 0, border));
