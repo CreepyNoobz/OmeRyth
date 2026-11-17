@@ -1,6 +1,7 @@
 ﻿# Build script for OmeRyth
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
+[System.IO.Directory]::SetCurrentDirectory($PSScriptRoot)
 
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host "          Compilation et Construction d'OmeRyth        " -ForegroundColor Cyan
@@ -46,7 +47,7 @@ New-Item -ItemType Directory -Path 'bin' | Out-Null
 # 2. Compile Java sources
 Write-Host "[1/4] Compilation des sources Java..." -ForegroundColor Yellow
 $javaFiles = Get-ChildItem -Path 'src\app' -Recurse -Filter '*.java' | Select-Object -ExpandProperty FullName
-$srcListFile = '.src_files.txt'
+$srcListFile = Join-Path $PSScriptRoot '.src_files.txt'
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllLines($srcListFile, $javaFiles, $utf8NoBom)
 
